@@ -72,7 +72,7 @@ class PlanAgent(BaseAgent):
         # Determine which sub-agents are relevant based on routing params
         recommended_agents = self._identify_sub_agents(message, params)
 
-        # TODO: Wire to Semantic Kernel / LLM call
+        # TODO: Wire to Microsoft Agent Framework / LLM call
         # For now, return a structured placeholder showing the coordinator's output
         agent_list = ", ".join(recommended_agents) if recommended_agents else "knowledge_base"
         plan_response = (

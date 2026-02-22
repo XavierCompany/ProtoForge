@@ -1,6 +1,6 @@
 # ProtoForge — Multi-Agent Orchestrator
 
-A production-ready multi-agent orchestrator with MCP skills distribution, agent registry/catalog, workflow bundling, and platform-agnostic LLM support.
+A production-ready multi-agent orchestrator built on the [Microsoft Agent Framework (Python)](https://learn.microsoft.com/en-us/agent-framework/overview/?pivots=programming-language-python) with MCP skills distribution, agent registry/catalog, workflow bundling, and platform-agnostic LLM support.
 
 ## Architecture
 

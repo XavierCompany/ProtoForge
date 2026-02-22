@@ -57,15 +57,17 @@ User → Orchestrator → Plan Agent (ALWAYS first)
 | **Parallel execution** | Once planned, sub-agents run concurrently for speed |
 | **Observability** | Every response shows the plan + individual agent outputs |
 
-### Why Semantic Kernel?
+### Why Microsoft Agent Framework?
 
-We chose **Semantic Kernel (Python)** over AutoGen, LangGraph, and CrewAI because:
+We chose **[Microsoft Agent Framework (Python)](https://learn.microsoft.com/en-us/agent-framework/overview/?pivots=programming-language-python)** over AutoGen, LangGraph, and CrewAI because:
 
-- **Plugin architecture** — agents, skills, and connectors are composable plugins
+- **Unified agent runtime** — first-class agents, activities, and channels in a single framework
 - **Native multi-LLM** — switch between Azure OpenAI, OpenAI, Anthropic, Google without code changes
-- **Enterprise-grade** — built by Microsoft, production-tested, strong Azure integration
-- **Minimal abstraction tax** — thin wrapper over LLM calls, not a heavy framework
+- **Enterprise-grade** — built by Microsoft, production-tested, strong Azure integration and identity management
+- **Activity-based orchestration** — declarative pipelines with fan-out/fan-in, retries, and observability built in
 - **MCP-compatible** — skills map naturally to MCP tools for cross-tool interop
+- **Minimal abstraction tax** — thin wrapper over LLM calls with composable middleware, not a heavy framework
+- **Semantic Kernel interop** — can leverage Semantic Kernel plugins and connectors as needed
 
 ---
 
@@ -127,20 +129,20 @@ The Plan Agent currently uses a structured placeholder. To wire it to a real LLM
 ```python
 # src/agents/plan_agent.py — inside execute()
 
-from semantic_kernel import Kernel
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from microsoft.agents.core import AgentRuntime
+from microsoft.agents.ai import ChatCompletionService
 
 async def execute(self, message, context, params=None):
-    kernel = Kernel()
-    kernel.add_service(AzureChatCompletion(
-        deployment_name="gpt-5.3-codex",  # or claude-opus-4.6
-        endpoint=settings.llm.azure_endpoint,
+    runtime = AgentRuntime()
+    runtime.add_service(ChatCompletionService(
+        model="claude-opus-4.6",  # or gpt-5.3-codex, codex-5.3
+        endpoint=settings.llm.azure_endpoint,  # optional for non-Azure
     ))
 
     messages = self._build_messages(message, context)
 
-    # Use Semantic Kernel to get the LLM response
-    result = await kernel.invoke_prompt(
+    # Use Microsoft Agent Framework to get the LLM response
+    result = await runtime.invoke_prompt(
         prompt=messages[-1]["content"],
         system_message=self._system_prompt,
     )
@@ -343,19 +345,19 @@ Give agents the ability to call external tools:
 
 ```python
 # Add to any agent
-from semantic_kernel.functions import kernel_function
+from microsoft.agents.core import agent_function
 
 class RemediationAgent(BaseAgent):
     """Remediation agent with tool use."""
 
-    @kernel_function(name="apply_patch", description="Apply a code patch")
+    @agent_function(name="apply_patch", description="Apply a code patch")
     async def apply_patch(self, file_path: str, patch: str) -> str:
         """Tool that the LLM can invoke to apply a patch."""
         # Validate the patch
         # Apply it
         return f"Patch applied to {file_path}"
 
-    @kernel_function(name="run_tests", description="Run the test suite")
+    @agent_function(name="run_tests", description="Run the test suite")
     async def run_tests(self, test_path: str = "tests/") -> str:
         """Tool that the LLM can invoke to run tests."""
         import subprocess
@@ -859,7 +861,8 @@ gh copilot explain "What does this regex match: \bfix\s.*\b(?:error|exception|bu
 
 ## Further Reading
 
-- [Semantic Kernel Documentation](https://learn.microsoft.com/semantic-kernel/)
+- [Microsoft Agent Framework (Python)](https://learn.microsoft.com/en-us/agent-framework/overview/?pivots=programming-language-python)
+- [Microsoft Agent Framework — Concepts](https://learn.microsoft.com/en-us/agent-framework/concepts/)
 - [Model Context Protocol Spec](https://modelcontextprotocol.io/)
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
 - [Anthropic Claude API](https://docs.anthropic.com/en/docs)
