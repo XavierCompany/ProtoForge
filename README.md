@@ -69,10 +69,15 @@ The **Plan Agent** is the top-level coordinator. Every request goes through Plan
 ## Platform-Agnostic LLM Support
 
 Works with any LLM provider:
-- **Azure AI Foundry** — `gpt-5.3-codex` (recommended for quality/cost/throughput)
-- **OpenAI** — GPT-4o, Codex 5.3
-- **Anthropic** — Claude Opus 4 (`claude-opus-4-0625`, default), Claude Sonnet 4
-- **Google** — Gemini 3 Pro, Gemini 3.1 Pro
+
+| Provider | Models | Notes |
+|----------|--------|-------|
+| **Anthropic** | `claude-opus-4.6` (default), `claude-sonnet-4.6` | **Recommended** — highest quality reasoning |
+| **Azure AI Foundry** | `gpt-5.3-codex` | Best quality/cost/throughput on Azure |
+| **OpenAI** | `gpt-4o`, `codex-5.3` | Direct OpenAI API access |
+| **Google** | `gemini-3-pro`, `gemini-3.1-pro` | Google AI Studio / Vertex AI |
+
+> **Default:** Anthropic Claude Opus 4.6 — set `DEFAULT_LLM_PROVIDER=anthropic` or provide `ANTHROPIC_API_KEY` to use automatically.
 
 ## Quick Start
 

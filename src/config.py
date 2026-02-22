@@ -26,7 +26,10 @@ class LLMProvider(str, Enum):
 class LLMConfig(BaseSettings):
     """LLM provider configuration — platform-agnostic across Opus/Codex/Gemini/GPT."""
 
-    # Azure AI Foundry (primary — recommended for quality/cost/throughput)
+    # Default provider (Anthropic Opus 4.6 recommended)
+    default_provider: Optional[str] = Field(None, alias="DEFAULT_LLM_PROVIDER")
+
+    # Azure AI Foundry (recommended for quality/cost/throughput)
     azure_endpoint: Optional[str] = Field(None, alias="AZURE_AI_FOUNDRY_ENDPOINT")
     azure_model: str = Field("gpt-5.3-codex", alias="AZURE_AI_FOUNDRY_MODEL")
     azure_api_version: str = Field("2026-01-01", alias="AZURE_AI_FOUNDRY_API_VERSION")
@@ -35,11 +38,11 @@ class LLMConfig(BaseSettings):
     openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
     openai_model: str = Field("codex-5.3", alias="OPENAI_MODEL")
 
-    # Anthropic (latest Opus as default)
+    # Anthropic (Claude Opus 4.6 — default, Claude Sonnet 4.6)
     anthropic_api_key: Optional[str] = Field(None, alias="ANTHROPIC_API_KEY")
-    anthropic_model: str = Field("claude-opus-4-0625", alias="ANTHROPIC_MODEL")
+    anthropic_model: str = Field("claude-opus-4.6", alias="ANTHROPIC_MODEL")
 
-    # Google
+    # Google (Gemini 3 Pro, Gemini 3.1 Pro)
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
     google_model: str = Field("gemini-3-pro", alias="GOOGLE_MODEL")
 
@@ -48,16 +51,24 @@ class LLMConfig(BaseSettings):
 
     @property
     def active_provider(self) -> LLMProvider:
-        """Detect the active LLM provider based on available credentials."""
+        """Detect the active LLM provider based on available credentials.
+
+        Priority: explicit default_provider > Anthropic (Opus 4.6) > Azure > OpenAI > Google.
+        """
+        if self.default_provider:
+            try:
+                return LLMProvider(self.default_provider)
+            except ValueError:
+                pass
+        if self.anthropic_api_key:
+            return LLMProvider.ANTHROPIC
         if self.azure_endpoint:
             return LLMProvider.AZURE_AI_FOUNDRY
         if self.openai_api_key:
             return LLMProvider.OPENAI
-        if self.anthropic_api_key:
-            return LLMProvider.ANTHROPIC
         if self.google_api_key:
             return LLMProvider.GOOGLE
-        return LLMProvider.AZURE_AI_FOUNDRY  # default
+        return LLMProvider.ANTHROPIC  # default — Claude Opus 4.6
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
