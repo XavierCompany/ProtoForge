@@ -244,3 +244,12 @@ ProtoForge/
     ├── test_mcp.py
     └── test_registry.py
 ```
+
+## Developer Guide
+
+See **[GUIDE.md](GUIDE.md)** for:
+- Why this architecture was chosen (Plan-first vs flat dispatch)
+- How to expand Plan Agent and sub-agent capabilities
+- How to add brand-new agents, skills, and workflows
+- **Multi-model code review with GitHub Copilot CLI** — run Claude Opus 4.6 and Codex 5.3 in parallel terminals for critical feedback
+- Architecture Decision Records (ADRs)
