@@ -13,23 +13,32 @@ A production-ready multi-agent orchestrator with MCP skills distribution, agent 
                 ┌────────▼────────┐
                 │   Orchestrator   │ ← Intent Router (keyword + LLM)
                 │     Engine       │
-                └───┬──┬──┬──┬────┘
-        ┌───────────┘  │  │  └───────────┐
-        ▼              ▼  ▼              ▼
-   ┌─────────┐  ┌─────────┐  ┌─────────────────┐
-   │  Plan   │  │  Log    │  │  Code Research  │
-   │  Agent  │  │ Analysis│  │     Agent       │
-   └─────────┘  └─────────┘  └─────────────────┘
-        ▼              ▼              ▼
-   ┌──────────┐ ┌──────────┐ ┌────────────────┐
-   │Remediate │ │Knowledge │ │ Data Analysis  │
-   │  Agent   │ │  Base    │ │    Agent       │
-   └──────────┘ └──────────┘ └────────────────┘
-                      ▼
-              ┌───────────────┐
-              │   Security    │
-              │   Sentinel    │
-              └───────────────┘
+                └────────┬────────┘
+                         │  ALWAYS first
+                ┌────────▼────────┐
+                │   Plan Agent    │ ← Top-level coordinator
+                │  (Coordinator)  │    Analyzes, strategizes,
+                │                 │    identifies sub-agents
+                └──┬──┬──┬──┬──┬─┘
+       ┌───────────┘  │  │  │  └───────────┐
+       ▼              ▼  │  ▼              ▼
+  ┌──────────┐ ┌─────────┐│┌─────────────────┐
+  │   Log    │ │  Code   │││   Remediation   │
+  │ Analysis │ │Research ││└─────────────────┘
+  └──────────┘ └─────────┘│
+       ▼              ▼   │        ▼
+  ┌──────────┐ ┌──────────┐ ┌────────────────┐
+  │Knowledge │ │  Data    │ │   Security     │
+  │  Base    │ │ Analysis │ │   Sentinel     │
+  └──────────┘ └──────────┘ └────────────────┘
+
+  ─── Plan-First Flow ────────────────────────────────
+  User Message
+    → Orchestrator (intent routing)
+      → Plan Agent (ALWAYS first — produces strategy)
+        → Sub-Agents (parallel fan-out based on plan)
+          → Aggregated Response
+  ────────────────────────────────────────────────────
 
 ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐
 │  MCP Server     │  │  Agent Catalog  │  │ Workflow Engine   │
@@ -37,17 +46,25 @@ A production-ready multi-agent orchestrator with MCP skills distribution, agent 
 └─────────────────┘  └─────────────────┘  └──────────────────┘
 ```
 
-## 7 Specialized Subagents
+## Plan-First Agent Architecture
 
-| Agent | Purpose |
-|-------|---------|
-| **Plan** | Task decomposition, strategy, architecture decisions |
-| **Log Analysis** | Log parsing, error analysis, stack traces, crash investigation |
-| **Code Research** | Code search, function lookup, implementation understanding |
-| **Remediation** | Bug fixes, patches, hotfixes, workarounds |
-| **Knowledge Base** | Documentation retrieval, how-to guides, RAG |
-| **Data Analysis** | Metrics, trends, charts, statistical analysis |
-| **Security Sentinel** | Vulnerability scanning, CVE lookup, compliance audits |
+The **Plan Agent** is the top-level coordinator. Every request goes through Plan Agent first, which:
+1. Analyzes the request scope and produces a strategic plan
+2. Identifies which sub-agents to invoke
+3. Provides structured context for downstream execution
+4. Sub-agents execute in parallel, then results are aggregated
+
+## 7 Specialized Agents (1 Coordinator + 6 Sub-Agents)
+
+| Agent | Role | Purpose |
+|-------|------|---------|
+| **Plan** | Coordinator | Top-level: analyzes requests, produces plans, identifies sub-agents |
+| **Log Analysis** | Sub-Agent | Log parsing, error analysis, stack traces, crash investigation |
+| **Code Research** | Sub-Agent | Code search, function lookup, implementation understanding |
+| **Remediation** | Sub-Agent | Bug fixes, patches, hotfixes, workarounds |
+| **Knowledge Base** | Sub-Agent | Documentation retrieval, how-to guides, RAG |
+| **Data Analysis** | Sub-Agent | Metrics, trends, charts, statistical analysis |
+| **Security Sentinel** | Sub-Agent | Vulnerability scanning, CVE lookup, compliance audits |
 
 ## Platform-Agnostic LLM Support
 

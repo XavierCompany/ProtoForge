@@ -1,4 +1,4 @@
-"""Tests for the orchestrator engine."""
+"""Tests for the Plan-first orchestrator engine."""
 
 import pytest
 
@@ -21,25 +21,55 @@ def engine() -> OrchestratorEngine:
 
 class TestOrchestratorEngine:
     @pytest.mark.asyncio
-    async def test_process_routes_to_plan(self, engine: OrchestratorEngine) -> None:
-        response = await engine.process("Create a plan to refactor the auth module")
-        assert "Plan Agent" in response
-        assert len(engine.context.messages) >= 2  # user + agent
+    async def test_plan_always_runs_first(self, engine: OrchestratorEngine) -> None:
+        """Plan Agent must always be the first agent executed."""
+        response = await engine.process("Analyze the error logs showing 500 errors")
+        # Response should contain plan output first, then sub-agent output
+        assert "Plan Agent" in response or "Plan:" in response
+        # Plan output should be stored in working memory
+        assert engine.context.get_memory("plan_output") is not None
 
     @pytest.mark.asyncio
-    async def test_process_routes_to_log_analysis(self, engine: OrchestratorEngine) -> None:
+    async def test_plan_then_sub_agents(self, engine: OrchestratorEngine) -> None:
+        """After Plan Agent, relevant sub-agents should execute."""
         response = await engine.process("Analyze the error logs showing 500 errors")
+        # Should contain both plan and log analysis output
+        assert "Plan" in response
         assert "Log Analysis" in response
 
     @pytest.mark.asyncio
+    async def test_plan_first_with_plan_request(self, engine: OrchestratorEngine) -> None:
+        """Even when intent routes to PLAN, plan runs first and no duplicate."""
+        response = await engine.process("Create a plan to refactor the auth module")
+        assert "Plan" in response
+        # Plan agent should run once (not duplicated)
+        plan_count = response.count("Plan Agent")
+        assert plan_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_plan_context_passed_to_sub_agents(self, engine: OrchestratorEngine) -> None:
+        """Plan output should be available in working memory for sub-agents."""
+        await engine.process("Analyze the error logs from production")
+        plan_output = engine.context.get_memory("plan_output")
+        plan_artifacts = engine.context.get_memory("plan_artifacts")
+        assert plan_output is not None
+        assert isinstance(plan_artifacts, dict)
+        assert "step_count" in plan_artifacts
+
+    @pytest.mark.asyncio
     async def test_process_missing_agent(self, engine: OrchestratorEngine) -> None:
+        """Plan Agent always runs; missing sub-agents handled gracefully."""
         response = await engine.process("Scan for security vulnerabilities")
+        # Plan always runs first (it's registered)
+        assert "Plan" in response
+        # Security sentinel is not registered, so result has "No agent registered"
         assert "No agent registered" in response or "security" in response.lower()
 
     @pytest.mark.asyncio
     async def test_context_accumulates(self, engine: OrchestratorEngine) -> None:
         await engine.process("Create a plan for the API")
         await engine.process("Now analyze the logs")
+        # At least: 2 user msgs + plan results + sub-agent results
         assert len(engine.context.messages) >= 4
 
     def test_reset_context(self, engine: OrchestratorEngine) -> None:

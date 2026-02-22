@@ -1,4 +1,4 @@
-"""Core orchestration engine — dispatches to subagents based on intent routing."""
+"""Core orchestration engine — Plan-first dispatch to subagents."""
 
 from __future__ import annotations
 
@@ -20,13 +20,14 @@ logger = structlog.get_logger(__name__)
 
 
 class OrchestratorEngine:
-    """Top-level multi-agent orchestrator.
+    """Top-level multi-agent orchestrator with Plan-first architecture.
 
-    Switch-case router that:
+    Every request flows through the Plan Agent first:
     1. Classifies user intent (keyword + optional LLM-based)
-    2. Dispatches to the appropriate subagent(s)
-    3. Optionally fans out to secondary agents for enrichment
-    4. Aggregates results and returns a unified response
+    2. Always dispatches to Plan Agent as the top-level coordinator
+    3. Plan Agent produces a strategy and identifies required sub-agents
+    4. Orchestrator fans out to the identified sub-agents in parallel
+    5. Aggregates Plan + sub-agent results into a unified response
     """
 
     def __init__(self) -> None:
@@ -49,18 +50,18 @@ class OrchestratorEngine:
         self._context = ConversationContext()
 
     async def process(self, user_message: str) -> str:
-        """Process a user message through the orchestration pipeline.
+        """Process a user message through the Plan-first orchestration pipeline.
 
         Flow:
         1. Add message to conversation context
-        2. Route to appropriate agent(s)
-        3. Execute primary agent
-        4. Optionally execute secondary agents in parallel
-        5. Aggregate and return response
+        2. Route intent (keyword + optional LLM) to identify target sub-agents
+        3. ALWAYS execute Plan Agent first as top-level coordinator
+        4. Fan out to identified sub-agents in parallel
+        5. Aggregate Plan + sub-agent results into unified response
         """
         self._context.add_user_message(user_message)
 
-        # Step 1: Route
+        # Step 1: Route to identify which sub-agents are relevant
         routing = self._router.route_by_keywords(user_message)
         logger.info(
             "intent_routed",
@@ -80,18 +81,47 @@ class OrchestratorEngine:
                     confidence=routing.confidence,
                 )
 
-        # Step 3: Dispatch to primary agent
-        primary_result = await self._dispatch(routing.primary_agent, user_message, routing)
+        # Step 3: ALWAYS run Plan Agent first as top-level coordinator
+        plan_result = await self._dispatch(AgentType.PLAN, user_message, routing)
 
-        # Step 4: Fan out to secondary agents if present
-        secondary_results: list[AgentResult] = []
-        if routing.secondary_agents:
-            secondary_results = await self._fan_out(
-                routing.secondary_agents, user_message, routing
-            )
+        # Store plan output in working memory so sub-agents can reference it
+        self._context.set_memory("plan_output", plan_result.content)
+        self._context.set_memory("plan_artifacts", plan_result.artifacts)
 
-        # Step 5: Aggregate results
-        return self._aggregate(primary_result, secondary_results)
+        # Step 4: Determine sub-agents to invoke (from routing, excluding PLAN)
+        sub_agents = self._resolve_sub_agents(routing)
+        logger.info(
+            "plan_first_dispatch",
+            plan_agent="plan",
+            sub_agents=[a.value for a in sub_agents],
+        )
+
+        # Step 5: Fan out to sub-agents in parallel
+        sub_results: list[AgentResult] = []
+        if sub_agents:
+            sub_results = await self._fan_out(sub_agents, user_message, routing)
+
+        # Step 6: Aggregate Plan + sub-agent results
+        return self._aggregate(plan_result, sub_results)
+
+    def _resolve_sub_agents(self, routing: RoutingDecision) -> list[AgentType]:
+        """Build the list of sub-agents to invoke after the Plan Agent.
+
+        Collects the primary + secondary agents from routing, removes PLAN
+        (since it already ran), and deduplicates.
+        """
+        candidates: list[AgentType] = []
+
+        # Primary agent from routing (skip if it was PLAN — already executed)
+        if routing.primary_agent != AgentType.PLAN:
+            candidates.append(routing.primary_agent)
+
+        # Secondary agents from routing
+        for agent in routing.secondary_agents:
+            if agent != AgentType.PLAN and agent not in candidates:
+                candidates.append(agent)
+
+        return candidates
 
     async def _dispatch(
         self, agent_type: AgentType, message: str, routing: RoutingDecision
@@ -148,14 +178,16 @@ class OrchestratorEngine:
         return None
 
     def _aggregate(
-        self, primary: AgentResult, secondary: list[AgentResult]
+        self, plan_result: AgentResult, sub_results: list[AgentResult]
     ) -> str:
-        """Aggregate results from primary and secondary agents into a unified response."""
-        parts = [primary.content]
+        """Aggregate Plan Agent output with sub-agent results into a unified response."""
+        parts = [f"**Plan:**\n{plan_result.content}"]
 
-        for result in secondary:
+        for result in sub_results:
             if result.confidence > 0.3 and result.content:
-                parts.append(f"\n---\n**Additional context from {result.agent_id}:**\n{result.content}")
+                parts.append(
+                    f"\n---\n**{result.agent_id} output:**\n{result.content}"
+                )
 
         return "\n".join(parts)
 
