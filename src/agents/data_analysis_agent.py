@@ -11,7 +11,9 @@ from src.orchestrator.context import AgentResult, ConversationContext
 
 logger = structlog.get_logger(__name__)
 
-DATA_ANALYSIS_SYSTEM_PROMPT = """You are the Data Analysis Agent — an expert in data analysis, visualization, and statistical reasoning.
+DATA_ANALYSIS_SYSTEM_PROMPT = """
+You are the Data Analysis Agent — an expert in data analysis,
+visualization, and statistical reasoning.
 
 Your responsibilities:
 1. Analyze datasets and compute statistics
@@ -47,7 +49,7 @@ class DataAnalysisAgent(BaseAgent):
     ) -> AgentResult:
         logger.info("data_analysis_agent_executing", message_length=len(message))
 
-        messages = self._build_messages(message, context)
+        self._build_messages(message, context)
 
         response = (
             f"**Data Analysis Report**\n\n"

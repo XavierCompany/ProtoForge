@@ -11,7 +11,9 @@ from src.orchestrator.context import AgentResult, ConversationContext
 
 logger = structlog.get_logger(__name__)
 
-SECURITY_SYSTEM_PROMPT = """You are the Security Sentinel Agent — an expert in application security, vulnerability assessment, and threat analysis.
+SECURITY_SYSTEM_PROMPT = """
+You are the Security Sentinel Agent — an expert in application security,
+vulnerability assessment, and threat analysis.
 
 Your responsibilities:
 1. Scan code for security vulnerabilities (OWASP Top 10, CWE)
@@ -47,7 +49,7 @@ class SecuritySentinelAgent(BaseAgent):
     ) -> AgentResult:
         logger.info("security_sentinel_executing", message_length=len(message))
 
-        messages = self._build_messages(message, context)
+        self._build_messages(message, context)
 
         # Quick security keyword classification
         categories = self._classify_security_concern(message)

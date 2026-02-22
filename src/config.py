@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import os
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
-class AuthMethod(str, Enum):
+class AuthMethod(StrEnum):
     AZURE_DEFAULT = "azure_default"
     API_KEY = "api_key"
 
 
-class LLMProvider(str, Enum):
+class LLMProvider(StrEnum):
     AZURE_AI_FOUNDRY = "azure_ai_foundry"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
@@ -27,23 +25,23 @@ class LLMConfig(BaseSettings):
     """LLM provider configuration — platform-agnostic across Opus/Codex/Gemini/GPT."""
 
     # Default provider (Anthropic Opus 4.6 recommended)
-    default_provider: Optional[str] = Field(None, alias="DEFAULT_LLM_PROVIDER")
+    default_provider: str | None = Field(None, alias="DEFAULT_LLM_PROVIDER")
 
     # Azure AI Foundry (recommended for quality/cost/throughput)
-    azure_endpoint: Optional[str] = Field(None, alias="AZURE_AI_FOUNDRY_ENDPOINT")
+    azure_endpoint: str | None = Field(None, alias="AZURE_AI_FOUNDRY_ENDPOINT")
     azure_model: str = Field("gpt-5.3-codex", alias="AZURE_AI_FOUNDRY_MODEL")
     azure_api_version: str = Field("2026-01-01", alias="AZURE_AI_FOUNDRY_API_VERSION")
 
     # OpenAI (GPT-4o for general, Codex 5.3 for code-heavy tasks)
-    openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
+    openai_api_key: str | None = Field(None, alias="OPENAI_API_KEY")
     openai_model: str = Field("codex-5.3", alias="OPENAI_MODEL")
 
     # Anthropic (Claude Opus 4.6 — default, Claude Sonnet 4.6)
-    anthropic_api_key: Optional[str] = Field(None, alias="ANTHROPIC_API_KEY")
+    anthropic_api_key: str | None = Field(None, alias="ANTHROPIC_API_KEY")
     anthropic_model: str = Field("claude-opus-4.6", alias="ANTHROPIC_MODEL")
 
     # Google (Gemini 3 Pro, Gemini 3.1 Pro)
-    google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
+    google_api_key: str | None = Field(None, alias="GOOGLE_API_KEY")
     google_model: str = Field("gemini-3-pro", alias="GOOGLE_MODEL")
 
     # Auth
@@ -113,7 +111,7 @@ class Settings(BaseSettings):
 
 
 # Singleton
-_settings: Optional[Settings] = None
+_settings: Settings | None = None
 
 
 def get_settings() -> Settings:

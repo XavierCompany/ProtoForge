@@ -7,9 +7,7 @@ or any MCP-compatible client.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -22,6 +20,9 @@ from src.mcp.protocol import (
     MCPToolDefinition,
 )
 from src.mcp.skills import Skill, SkillLoader
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = structlog.get_logger(__name__)
 

@@ -9,14 +9,14 @@ Workflows define ordered sequences of agent actions that can be:
 
 from __future__ import annotations
 
-import yaml
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+import yaml
 
-from src.orchestrator.router import AgentType
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = structlog.get_logger(__name__)
 

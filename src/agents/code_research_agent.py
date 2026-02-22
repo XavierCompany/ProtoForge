@@ -11,7 +11,9 @@ from src.orchestrator.context import AgentResult, ConversationContext
 
 logger = structlog.get_logger(__name__)
 
-CODE_RESEARCH_SYSTEM_PROMPT = """You are the Code Research Agent — an expert in codebase navigation, code search, and implementation analysis.
+CODE_RESEARCH_SYSTEM_PROMPT = """
+You are the Code Research Agent — an expert in codebase navigation,
+code search, and implementation analysis.
 
 Your responsibilities:
 1. Search codebases for specific functions, classes, patterns
@@ -46,7 +48,7 @@ class CodeResearchAgent(BaseAgent):
     ) -> AgentResult:
         logger.info("code_research_agent_executing", message_length=len(message))
 
-        messages = self._build_messages(message, context)
+        self._build_messages(message, context)
 
         response = (
             f"**Code Research Analysis**\n\n"

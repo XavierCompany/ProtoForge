@@ -47,10 +47,13 @@ packages = ["src"]
 
 [tool.ruff]
 target-version = "py311"
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "TCH"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/server.py" = ["E501"]  # HTML/CSS/JS templates in dashboard
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

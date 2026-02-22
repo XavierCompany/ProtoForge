@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class AgentType(str, Enum):
+class AgentType(StrEnum):
     """All available subagent types."""
 
     PLAN = "plan"

@@ -12,7 +12,9 @@ from src.orchestrator.context import AgentResult, ConversationContext
 
 logger = structlog.get_logger(__name__)
 
-LOG_ANALYSIS_SYSTEM_PROMPT = """You are the Log Analysis Agent — an expert in parsing, analyzing, and diagnosing application logs.
+LOG_ANALYSIS_SYSTEM_PROMPT = """
+You are the Log Analysis Agent — an expert in parsing, analyzing,
+and diagnosing application logs.
 
 Your responsibilities:
 1. Parse structured and unstructured log formats (JSON, syslog, plaintext)
@@ -50,7 +52,7 @@ class LogAnalysisAgent(BaseAgent):
         # Quick pattern detection for common log signatures
         patterns_found = self._detect_patterns(message)
 
-        messages = self._build_messages(message, context)
+        self._build_messages(message, context)
 
         response = (
             f"**Log Analysis Report**\n\n"
@@ -63,8 +65,8 @@ class LogAnalysisAgent(BaseAgent):
             response += "- No immediate patterns detected in the provided text\n"
 
         response += (
-            f"\n\n**Severity:** Requires LLM analysis for full assessment\n"
-            f"**Next Steps:** Connect LLM backend for deep log analysis\n"
+            "\n\n**Severity:** Requires LLM analysis for full assessment\n"
+            "**Next Steps:** Connect LLM backend for deep log analysis\n"
         )
 
         return AgentResult(

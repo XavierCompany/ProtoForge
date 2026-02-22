@@ -10,15 +10,16 @@ This is the central registry that tracks:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from src.mcp.skills import Skill
-from src.orchestrator.router import AgentType
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from src.mcp.skills import Skill
 
 logger = structlog.get_logger(__name__)
 
@@ -35,7 +36,7 @@ class AgentRegistration:
     skills: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     registered_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     usage_count: int = 0
     avg_latency_ms: float = 0.0

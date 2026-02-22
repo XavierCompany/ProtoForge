@@ -53,16 +53,37 @@ def bootstrap() -> tuple:
 
     # 2. Register all 7 subagents
     agent_map: dict[AgentType, tuple] = {
-        AgentType.PLAN: (PlanAgent(), "Plan Agent", "Task planning and decomposition"),
-        AgentType.LOG_ANALYSIS: (LogAnalysisAgent(), "Log Analysis Agent", "Log parsing and error analysis"),
-        AgentType.CODE_RESEARCH: (CodeResearchAgent(), "Code Research Agent", "Code search and analysis"),
-        AgentType.REMEDIATION: (RemediationAgent(), "Remediation Agent", "Bug fixes and patches"),
-        AgentType.KNOWLEDGE_BASE: (KnowledgeBaseAgent(), "Knowledge Base Agent", "Documentation and knowledge retrieval"),
-        AgentType.DATA_ANALYSIS: (DataAnalysisAgent(), "Data Analysis Agent", "Data analysis and metrics"),
-        AgentType.SECURITY_SENTINEL: (SecuritySentinelAgent(), "Security Sentinel Agent", "Security scanning and audits"),
+        AgentType.PLAN: (
+            PlanAgent(), "Plan Agent",
+            "Task planning and decomposition",
+        ),
+        AgentType.LOG_ANALYSIS: (
+            LogAnalysisAgent(), "Log Analysis Agent",
+            "Log parsing and error analysis",
+        ),
+        AgentType.CODE_RESEARCH: (
+            CodeResearchAgent(), "Code Research Agent",
+            "Code search and analysis",
+        ),
+        AgentType.REMEDIATION: (
+            RemediationAgent(), "Remediation Agent",
+            "Bug fixes and patches",
+        ),
+        AgentType.KNOWLEDGE_BASE: (
+            KnowledgeBaseAgent(), "Knowledge Base Agent",
+            "Documentation and knowledge retrieval",
+        ),
+        AgentType.DATA_ANALYSIS: (
+            DataAnalysisAgent(), "Data Analysis Agent",
+            "Data analysis and metrics",
+        ),
+        AgentType.SECURITY_SENTINEL: (
+            SecuritySentinelAgent(), "Security Sentinel Agent",
+            "Security scanning and audits",
+        ),
     }
 
-    for agent_type, (agent, name, desc) in agent_map.items():
+    for agent_type, (agent, _name, _desc) in agent_map.items():
         orchestrator.register_agent(agent_type, agent)
 
     # 3. Load skills and create MCP server
@@ -81,7 +102,7 @@ def bootstrap() -> tuple:
 
     # 4. Create agent catalog
     catalog = AgentCatalog(storage_path=settings.registry_path)
-    for agent_type, (agent, name, desc) in agent_map.items():
+    for agent_type, (_agent, name, desc) in agent_map.items():
         catalog.register_agent(AgentRegistration(
             agent_type=agent_type.value,
             name=name,

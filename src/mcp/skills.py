@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import yaml
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+import yaml
 
 from src.mcp.protocol import MCPToolDefinition
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = structlog.get_logger(__name__)
 

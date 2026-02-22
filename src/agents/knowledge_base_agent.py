@@ -56,7 +56,7 @@ class KnowledgeBaseAgent(BaseAgent):
             sources=len(self._knowledge_sources),
         )
 
-        messages = self._build_messages(message, context)
+        self._build_messages(message, context)
 
         response = (
             f"**Knowledge Base Response**\n\n"

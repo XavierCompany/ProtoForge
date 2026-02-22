@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from src.orchestrator.context import AgentResult, ConversationContext
+if TYPE_CHECKING:
+    from src.orchestrator.context import AgentResult, ConversationContext
 
 
 class BaseAgent(ABC):

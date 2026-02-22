@@ -67,7 +67,7 @@ class PlanAgent(BaseAgent):
     ) -> AgentResult:
         logger.info("plan_agent_executing", message_length=len(message), role="top_level")
 
-        messages = self._build_messages(message, context)
+        self._build_messages(message, context)
 
         # Determine which sub-agents are relevant based on routing params
         recommended_agents = self._identify_sub_agents(message, params)
