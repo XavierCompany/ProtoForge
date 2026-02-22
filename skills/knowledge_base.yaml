@@ -1,0 +1,17 @@
+name: query_knowledge
+description: "Search documentation, wikis, and knowledge bases for answers"
+agent_type: knowledge_base
+version: "1.0.0"
+tags: [docs, documentation, knowledge, howto]
+parameters:
+  - name: question
+    type: string
+    description: "The question or topic to look up"
+    required: true
+  - name: sources
+    type: string
+    description: "Specific knowledge sources to search (comma-separated)"
+    required: false
+examples:
+  - input: "How do I configure CORS for the API gateway?"
+    output: "Configuration guide with code examples for CORS setup"

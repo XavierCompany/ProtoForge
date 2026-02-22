@@ -1,0 +1,21 @@
+name: fix_issue
+description: "Generate a code fix, patch, or workaround for a reported issue"
+agent_type: remediation
+version: "1.0.0"
+tags: [fix, patch, remediation, bugfix]
+parameters:
+  - name: issue_description
+    type: string
+    description: "Description of the issue to fix"
+    required: true
+  - name: error_context
+    type: string
+    description: "Error messages, stack traces, or log context"
+    required: false
+  - name: target_file
+    type: string
+    description: "File path where the fix should be applied"
+    required: false
+examples:
+  - input: "TypeError: Cannot read property 'map' of undefined in Dashboard.tsx"
+    output: "Add null check before .map() call with optional chaining"

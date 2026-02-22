@@ -1,0 +1,23 @@
+name: security_scan
+description: "Scan code or configurations for security vulnerabilities, CVEs, and compliance issues"
+agent_type: security_sentinel
+version: "1.0.0"
+tags: [security, vulnerability, cve, audit, compliance]
+parameters:
+  - name: target
+    type: string
+    description: "What to scan (code snippet, file path, dependency list, or description)"
+    required: true
+  - name: scan_type
+    type: string
+    description: "Type of scan (code, dependencies, config, full)"
+    required: false
+    default: "full"
+  - name: compliance_framework
+    type: string
+    description: "Compliance framework to check against (SOC2, PCI, HIPAA, none)"
+    required: false
+    default: "none"
+examples:
+  - input: "Scan the authentication module for OWASP Top 10 vulnerabilities"
+    output: "2 findings: SQL injection risk (HIGH), missing rate limiting (MEDIUM)"

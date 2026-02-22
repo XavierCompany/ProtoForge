@@ -1,0 +1,22 @@
+name: analyze_data
+description: "Analyze datasets, compute metrics, detect trends, and generate visualizations"
+agent_type: data_analysis
+version: "1.0.0"
+tags: [data, metrics, analysis, visualization]
+parameters:
+  - name: query
+    type: string
+    description: "What to analyze or compute"
+    required: true
+  - name: data_source
+    type: string
+    description: "Data source identifier or inline data"
+    required: false
+  - name: output_format
+    type: string
+    description: "Output format (text, json, chart_spec)"
+    required: false
+    default: "text"
+examples:
+  - input: "Show me API latency trends for the past week"
+    output: "P50: 120ms, P95: 450ms, P99: 1200ms — upward trend detected"

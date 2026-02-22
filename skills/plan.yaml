@@ -1,0 +1,24 @@
+name: plan_task
+description: "Break down a complex task into actionable, ordered steps with effort estimates and dependencies"
+agent_type: plan
+version: "1.0.0"
+tags: [planning, decomposition, strategy, architecture]
+parameters:
+  - name: task_description
+    type: string
+    description: "The task or goal to plan"
+    required: true
+  - name: constraints
+    type: string
+    description: "Any constraints or requirements to consider"
+    required: false
+  - name: max_steps
+    type: integer
+    description: "Maximum number of steps in the plan"
+    required: false
+    default: 10
+examples:
+  - input: "Migrate the authentication system from JWT to OAuth2"
+    output: "5-step migration plan with rollback strategy"
+  - input: "Design a caching layer for the API"
+    output: "Architecture proposal with Redis vs Memcached trade-offs"

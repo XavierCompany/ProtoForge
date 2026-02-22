@@ -1,0 +1,22 @@
+name: analyze_logs
+description: "Parse and analyze application logs to identify errors, patterns, and root causes"
+agent_type: log_analysis
+version: "1.0.0"
+tags: [logs, errors, debugging, monitoring]
+parameters:
+  - name: log_content
+    type: string
+    description: "The log content to analyze"
+    required: true
+  - name: log_format
+    type: string
+    description: "Log format hint (json, syslog, plaintext, auto)"
+    required: false
+    default: "auto"
+  - name: time_range
+    type: string
+    description: "Time range to focus on (e.g., 'last 1h', '2025-01-01 to 2025-01-02')"
+    required: false
+examples:
+  - input: "ERROR 2025-01-15T10:30:00Z [api] NullPointerException at UserService.java:42"
+    output: "Critical error in UserService — null reference at line 42"

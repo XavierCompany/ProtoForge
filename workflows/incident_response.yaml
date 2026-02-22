@@ -1,0 +1,35 @@
+name: incident_response
+description: "Full incident response workflow — analyze logs, research code, diagnose, and fix"
+version: "1.0.0"
+tags: [incident, debugging, automated]
+steps:
+  - name: analyze_logs
+    agent_type: log_analysis
+    prompt_template: "Analyze these logs for errors and anomalies: {incident_description}"
+    timeout_seconds: 30
+    retry_count: 1
+
+  - name: research_code
+    agent_type: code_research
+    prompt_template: "Find the code related to: {incident_description}. Focus on the error patterns identified."
+    depends_on: [analyze_logs]
+    timeout_seconds: 30
+
+  - name: security_check
+    agent_type: security_sentinel
+    prompt_template: "Check if this incident has security implications: {incident_description}"
+    depends_on: [analyze_logs]
+    timeout_seconds: 30
+
+  - name: diagnose
+    agent_type: plan
+    prompt_template: "Based on log analysis and code research, create a diagnosis and remediation plan for: {incident_description}"
+    depends_on: [analyze_logs, research_code, security_check]
+    timeout_seconds: 45
+
+  - name: generate_fix
+    agent_type: remediation
+    prompt_template: "Generate a code fix based on the diagnosis for: {incident_description}"
+    depends_on: [diagnose]
+    timeout_seconds: 60
+    retry_count: 1

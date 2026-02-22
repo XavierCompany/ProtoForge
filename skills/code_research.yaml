@@ -1,0 +1,22 @@
+name: search_code
+description: "Search a codebase for functions, classes, patterns, and architectural elements"
+agent_type: code_research
+version: "1.0.0"
+tags: [code, search, functions, architecture]
+parameters:
+  - name: query
+    type: string
+    description: "What to search for (function name, pattern, concept)"
+    required: true
+  - name: scope
+    type: string
+    description: "Search scope (file path, module, or 'all')"
+    required: false
+    default: "all"
+  - name: language
+    type: string
+    description: "Programming language filter"
+    required: false
+examples:
+  - input: "Find all authentication middleware functions"
+    output: "3 middleware functions found across auth/ module"

@@ -1,0 +1,25 @@
+name: code_review
+description: "Automated code review — security scan, code quality, and documentation check"
+version: "1.0.0"
+tags: [review, quality, security]
+steps:
+  - name: security_scan
+    agent_type: security_sentinel
+    prompt_template: "Perform a security scan on this code: {code_or_pr_description}"
+    timeout_seconds: 45
+
+  - name: code_analysis
+    agent_type: code_research
+    prompt_template: "Analyze code quality, patterns, and potential issues: {code_or_pr_description}"
+    timeout_seconds: 45
+
+  - name: doc_check
+    agent_type: knowledge_base
+    prompt_template: "Check if the code follows documentation standards and has adequate comments: {code_or_pr_description}"
+    timeout_seconds: 30
+
+  - name: review_summary
+    agent_type: plan
+    prompt_template: "Synthesize the security scan, code analysis, and documentation check into a final code review report"
+    depends_on: [security_scan, code_analysis, doc_check]
+    timeout_seconds: 30
