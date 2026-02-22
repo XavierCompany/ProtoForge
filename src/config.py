@@ -26,22 +26,22 @@ class LLMProvider(str, Enum):
 class LLMConfig(BaseSettings):
     """LLM provider configuration — platform-agnostic across Opus/Codex/Gemini/GPT."""
 
-    # Azure AI Foundry (primary)
+    # Azure AI Foundry (primary — recommended for quality/cost/throughput)
     azure_endpoint: Optional[str] = Field(None, alias="AZURE_AI_FOUNDRY_ENDPOINT")
-    azure_model: str = Field("gpt-5.1", alias="AZURE_AI_FOUNDRY_MODEL")
-    azure_api_version: str = Field("2025-01-01", alias="AZURE_AI_FOUNDRY_API_VERSION")
+    azure_model: str = Field("gpt-5.3-codex", alias="AZURE_AI_FOUNDRY_MODEL")
+    azure_api_version: str = Field("2026-01-01", alias="AZURE_AI_FOUNDRY_API_VERSION")
 
-    # OpenAI
+    # OpenAI (GPT-4o for general, Codex 5.3 for code-heavy tasks)
     openai_api_key: Optional[str] = Field(None, alias="OPENAI_API_KEY")
-    openai_model: str = Field("gpt-4o", alias="OPENAI_MODEL")
+    openai_model: str = Field("codex-5.3", alias="OPENAI_MODEL")
 
-    # Anthropic
+    # Anthropic (latest Opus as default)
     anthropic_api_key: Optional[str] = Field(None, alias="ANTHROPIC_API_KEY")
-    anthropic_model: str = Field("claude-opus-4", alias="ANTHROPIC_MODEL")
+    anthropic_model: str = Field("claude-opus-4-0625", alias="ANTHROPIC_MODEL")
 
     # Google
     google_api_key: Optional[str] = Field(None, alias="GOOGLE_API_KEY")
-    google_model: str = Field("gemini-2.5-pro", alias="GOOGLE_MODEL")
+    google_model: str = Field("gemini-3-pro", alias="GOOGLE_MODEL")
 
     # Auth
     auth_method: AuthMethod = Field(AuthMethod.AZURE_DEFAULT, alias="AUTH_METHOD")

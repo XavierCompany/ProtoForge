@@ -52,10 +52,10 @@ A production-ready multi-agent orchestrator with MCP skills distribution, agent 
 ## Platform-Agnostic LLM Support
 
 Works with any LLM provider:
-- **Azure AI Foundry** — `gpt-5.1` (recommended for quality/cost/throughput)
-- **OpenAI** — GPT-4o, Codex
-- **Anthropic** — Claude Opus, Sonnet
-- **Google** — Gemini 2.5 Pro
+- **Azure AI Foundry** — `gpt-5.3-codex` (recommended for quality/cost/throughput)
+- **OpenAI** — GPT-4o, Codex 5.3
+- **Anthropic** — Claude Opus 4 (`claude-opus-4-0625`, default), Claude Sonnet 4
+- **Google** — Gemini 3 Pro, Gemini 3.1 Pro
 
 ## Quick Start
 
