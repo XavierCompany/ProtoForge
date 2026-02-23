@@ -13,6 +13,7 @@ from src.agents.log_analysis_agent import LogAnalysisAgent
 from src.agents.plan_agent import PlanAgent
 from src.agents.remediation_agent import RemediationAgent
 from src.agents.security_sentinel_agent import SecuritySentinelAgent
+from src.agents.workiq_agent import WorkIQAgent
 
 __all__ = [
     "BaseAgent",
@@ -22,4 +23,5 @@ __all__ = [
     "PlanAgent",
     "RemediationAgent",
     "SecuritySentinelAgent",
+    "WorkIQAgent",
 ]

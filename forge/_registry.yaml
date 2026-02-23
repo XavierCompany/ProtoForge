@@ -35,6 +35,10 @@ agents:
     path: agents/security_sentinel/
     type: specialist
     description: "Security scanning, CVE detection, compliance auditing"
+  workiq:
+    path: agents/workiq/
+    type: specialist
+    description: "Microsoft 365 organisational context via Work IQ (people, calendar, email, docs)"
 
 shared:
   prompts:

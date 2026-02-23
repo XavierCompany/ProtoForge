@@ -1,0 +1,16 @@
+name: query_workiq
+description: >
+  Query Microsoft Work IQ for organisational context.
+  Returns people info, calendar events, emails, documents,
+  Teams messages based on natural language questions.
+agent_type: workiq
+version: "1.0.0"
+parameters:
+  - name: question
+    type: string
+    description: Natural language question to ask Work IQ (e.g. "who is my manager", "what meetings do I have today")
+    required: true
+  - name: auto_select
+    type: boolean
+    description: If true, skip human selection and use all returned sections
+    required: false

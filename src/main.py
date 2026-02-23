@@ -25,6 +25,7 @@ from src.agents.log_analysis_agent import LogAnalysisAgent
 from src.agents.plan_agent import PlanAgent
 from src.agents.remediation_agent import RemediationAgent
 from src.agents.security_sentinel_agent import SecuritySentinelAgent
+from src.agents.workiq_agent import WorkIQAgent
 from src.config import get_settings
 from src.forge.loader import AgentManifest, ForgeLoader
 from src.mcp.server import MCPSkillServer
@@ -34,6 +35,8 @@ from src.orchestrator.router import AgentType
 from src.registry.catalog import AgentCatalog, AgentRegistration
 from src.registry.workflows import WorkflowEngine, WorkflowLoader
 from src.server import create_app
+from src.workiq.client import WorkIQClient
+from src.workiq.selector import WorkIQSelector
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +51,7 @@ _SPECIALISED_CLASSES: dict[str, type] = {
     AgentType.REMEDIATION: RemediationAgent,
     AgentType.KNOWLEDGE_BASE: KnowledgeBaseAgent,
     AgentType.SECURITY_SENTINEL: SecuritySentinelAgent,
+    AgentType.WORKIQ: WorkIQAgent,
 }
 
 
@@ -67,7 +71,7 @@ def _create_agent_from_manifest(manifest: AgentManifest):
 def bootstrap() -> tuple:
     """Bootstrap all components and wire them together.
 
-    Returns (app, orchestrator, mcp_server, catalog, workflow_engine)
+    Returns (app, orchestrator, mcp_server, catalog, workflow_engine, workiq_selector)
     """
     settings = get_settings()
 
@@ -100,6 +104,8 @@ def bootstrap() -> tuple:
         agent_descriptions[agent_id] = (manifest.name, manifest.description)
 
     # 2c. Ensure well-known agents exist even if forge/ doesn't list them
+    workiq_client = WorkIQClient()
+    workiq_selector = WorkIQSelector()
     _default_agents: dict[str, tuple[type, str, str]] = {
         AgentType.LOG_ANALYSIS: (LogAnalysisAgent, "Log Analysis Agent", "Log parsing and error analysis"),
         AgentType.CODE_RESEARCH: (GenericAgent, "Code Research Agent", "Code search and analysis"),
@@ -107,10 +113,21 @@ def bootstrap() -> tuple:
         AgentType.KNOWLEDGE_BASE: (KnowledgeBaseAgent, "Knowledge Base Agent", "Documentation and knowledge retrieval"),
         AgentType.DATA_ANALYSIS: (GenericAgent, "Data Analysis Agent", "Data analysis and metrics"),
         AgentType.SECURITY_SENTINEL: (SecuritySentinelAgent, "Security Sentinel Agent", "Security scanning and audits"),
+        AgentType.WORKIQ: (
+            WorkIQAgent, "Work IQ Agent",
+            "Microsoft 365 organisational context (people, calendar, docs)",
+        ),
     }
     for aid, (cls, name, desc) in _default_agents.items():
         if aid not in agent_descriptions:
-            orchestrator.register_agent(aid, cls(agent_id=aid, description=desc))
+            if cls is WorkIQAgent:
+                agent = WorkIQAgent(
+                    agent_id=aid, description=desc,
+                    client=workiq_client, selector=workiq_selector,
+                )
+            else:
+                agent = cls(agent_id=aid, description=desc)
+            orchestrator.register_agent(aid, agent)
             agent_descriptions[aid] = (name, desc)
 
     # 3. Load skills from forge/ ecosystem + legacy skills/ dir
@@ -167,7 +184,7 @@ def bootstrap() -> tuple:
                 pass
 
     # 6. Create FastAPI app
-    app = create_app(orchestrator, mcp_server, catalog, workflow_engine)
+    app = create_app(orchestrator, mcp_server, catalog, workflow_engine, workiq_selector)
 
     logger.info(
         "protoforge_bootstrapped",
@@ -177,9 +194,10 @@ def bootstrap() -> tuple:
         forge_agents=len(forge_registry.agents) + (1 if forge_registry.coordinator else 0),
         forge_skills=len(forge_registry.skills),
         provider=settings.llm.active_provider.value,
+        workiq_available=workiq_client.available,
     )
 
-    return app, orchestrator, mcp_server, catalog, workflow_engine
+    return app, orchestrator, mcp_server, catalog, workflow_engine, workiq_selector
 
 
 @cli_app.command()
@@ -232,7 +250,7 @@ def chat() -> None:
 @cli_app.command()
 def status() -> None:
     """Show current ProtoForge status."""
-    _, orchestrator, mcp_server, catalog, workflow_engine = bootstrap()
+    _, orchestrator, mcp_server, catalog, workflow_engine, _ = bootstrap()
 
     from rich.console import Console
     from rich.table import Table

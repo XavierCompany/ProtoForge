@@ -31,6 +31,7 @@ class AgentType(StrEnum):
     KNOWLEDGE_BASE = "knowledge_base"
     DATA_ANALYSIS = "data_analysis"
     SECURITY_SENTINEL = "security_sentinel"
+    WORKIQ = "workiq"
 
 
 @dataclass
@@ -78,6 +79,14 @@ _BUILTIN_KEYWORD_ROUTES: dict[str, list[str]] = {
     AgentType.SECURITY_SENTINEL: [
         r"\bsecurity\b", r"\bvulnerab", r"\bcve\b", r"\bscan\b",
         r"\baudit\b", r"\bpermission\b", r"\baccess\s*control\b", r"\bthreat\b",
+    ],
+    AgentType.WORKIQ: [
+        r"\bworkiq\b", r"\bwork\s*iq\b", r"\bm365\b", r"\bmicrosoft\s*365\b",
+        r"\bmanager\b", r"\borg\s*chart\b", r"\bdirect\s*report",
+        r"\bmeeting[s]?\b", r"\bcalendar\b", r"\bschedule\b",
+        r"\bemail[s]?\b", r"\binbox\b", r"\bteams\s*(?:chat|channel|message)",
+        r"\bsharepoint\b", r"\bonedrive\b",
+        r"\bwho\s+is\s+my\b", r"\bmy\s+(?:team|org|organization)\b",
     ],
 }
 
@@ -164,6 +173,7 @@ class IntentRouter:
             AgentType.KNOWLEDGE_BASE: "Documentation, how-to guides, explanations, knowledge retrieval",
             AgentType.DATA_ANALYSIS: "Data analysis, metrics, charts, trends, statistical analysis",
             AgentType.SECURITY_SENTINEL: "Security scanning, vulnerability assessment, CVE lookup, audits",
+            AgentType.WORKIQ: "Microsoft 365 organisational context — people, calendar, email, documents",
         }
 
         agents_str = "\n".join(

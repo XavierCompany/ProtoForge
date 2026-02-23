@@ -1,14 +1,17 @@
 """HTTP Server — FastAPI app exposing the orchestrator and MCP server.
 
 Endpoints:
-- POST /chat           — Send message to orchestrator
-- POST /mcp            — MCP JSON-RPC endpoint
-- GET  /agents         — List registered agents
-- GET  /skills         — List available skills
-- GET  /workflows      — List available workflows
-- POST /workflows/run  — Execute a workflow
-- GET  /health         — Health check
-- GET  /inspector      — Agent Inspector dashboard
+- POST /chat              — Send message to orchestrator
+- POST /mcp               — MCP JSON-RPC endpoint
+- GET  /agents            — List registered agents
+- GET  /skills            — List available skills
+- GET  /workflows         — List available workflows
+- POST /workflows/run     — Execute a workflow
+- POST /workiq/query      — Send question to Work IQ, returns selection options
+- GET  /workiq/pending    — List pending WorkIQ selections (HITL)
+- POST /workiq/select     — Resolve a WorkIQ selection with chosen indices
+- GET  /health            — Health check
+- GET  /inspector         — Agent Inspector dashboard
 """
 
 from __future__ import annotations
@@ -47,11 +50,21 @@ class MCPRequestBody(BaseModel):
     id: str | int | None = None
 
 
+class WorkIQQueryRequest(BaseModel):
+    question: str
+
+
+class WorkIQSelectRequest(BaseModel):
+    request_id: str
+    selected_indices: list[int]
+
+
 def create_app(
     orchestrator: Any,
     mcp_server: Any,
     catalog: Any,
     workflow_engine: Any,
+    workiq_selector: Any | None = None,
 ) -> FastAPI:
     """Create the FastAPI application with all routes wired up."""
 
@@ -145,6 +158,63 @@ def create_app(
             request.params,
         )
         return JSONResponse(content=result)
+
+    # ── WorkIQ Human-in-the-Loop Endpoints ────────────────────────
+
+    @app.post("/workiq/query")
+    async def workiq_query(request: WorkIQQueryRequest) -> JSONResponse:
+        """Send a question to Work IQ and return selection options.
+
+        The response contains ``request_id`` and ``options`` — the caller
+        should present the options to the user and POST back to
+        ``/workiq/select`` with the chosen indices.
+        """
+        if workiq_selector is None:
+            return JSONResponse(
+                status_code=501,
+                content={"error": "WorkIQ integration not configured"},
+            )
+
+        # Ask orchestrator to process via the workiq agent
+        response = await orchestrator.process(request.question)
+        pending = workiq_selector.pending_requests()
+
+        return JSONResponse(content={
+            "response": response,
+            "pending_selections": pending,
+        })
+
+    @app.get("/workiq/pending")
+    async def workiq_pending() -> JSONResponse:
+        """List pending WorkIQ selection requests awaiting user input."""
+        if workiq_selector is None:
+            return JSONResponse(content={"pending": []})
+        return JSONResponse(content={"pending": workiq_selector.pending_requests()})
+
+    @app.post("/workiq/select")
+    async def workiq_select(request: WorkIQSelectRequest) -> JSONResponse:
+        """Resolve a pending selection — user picks which sections to use."""
+        if workiq_selector is None:
+            return JSONResponse(
+                status_code=501,
+                content={"error": "WorkIQ integration not configured"},
+            )
+
+        ok = workiq_selector.resolve(request.request_id, request.selected_indices)
+        if not ok:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No pending selection with id {request.request_id}"},
+            )
+
+        selected = workiq_selector.selected_content(request.request_id)
+        workiq_selector.cleanup(request.request_id)
+
+        return JSONResponse(content={
+            "request_id": request.request_id,
+            "selected_content": selected,
+            "status": "resolved",
+        })
 
     # ── Health & Status ─────────────────────────────────────────
 

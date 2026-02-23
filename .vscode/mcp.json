@@ -11,6 +11,11 @@
       "command": "azd",
       "args": ["mcp"],
       "env": {}
+    },
+    "WorkIQ": {
+      "command": "workiq",
+      "args": ["mcp"],
+      "env": {}
     }
   },
   "inputs": [

@@ -1,0 +1,43 @@
+id: workiq
+name: Work IQ Agent
+type: specialist
+description: >
+  Bridges Microsoft Work IQ (M365 Copilot) into the orchestrator.
+  Queries organisational context — people, calendar, emails, documents,
+  Teams messages — and presents results for human-in-the-loop selection
+  before feeding them into the multi-agent pipeline.
+
+version: "1.0.0"
+
+context_budget:
+  max_input_tokens: 16000
+  max_output_tokens: 8000
+  strategy: priority
+  priority_order:
+    - system_prompt
+    - current_message
+    - workiq_response
+    - recent_history
+
+subagents: []
+
+prompts:
+  system: system.md
+
+skills:
+  - query_workiq.yaml
+
+instructions:
+  - workiq_usage.md
+
+tags:
+  - workiq
+  - m365
+  - people
+  - calendar
+  - email
+  - teams
+  - manager
+  - organization
+  - meeting
+  - document
