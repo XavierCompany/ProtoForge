@@ -6,19 +6,19 @@ version: "1.0.0"
 # Global budget for a single orchestration run
 global:
   max_total_tokens: 128000      # total across all agents in one run
-  reserve_for_plan: 12000       # guaranteed allocation for Plan Agent
-  reserve_for_aggregation: 4000 # held back for final aggregation step
+  reserve_for_plan: 32000       # guaranteed allocation for Plan Agent
+  reserve_for_aggregation: 16000 # held back for final aggregation step
 
 # Default per-agent budgets (overridden by agent.yaml if present)
 defaults:
   specialist:
-    max_input_tokens: 6000
-    max_output_tokens: 3000
+    max_input_tokens: 16000
+    max_output_tokens: 8000
     strategy: priority           # priority | sliding_window | summarize
 
   coordinator:
-    max_input_tokens: 8000
-    max_output_tokens: 4000
+    max_input_tokens: 24000
+    max_output_tokens: 12000
     strategy: priority
 
 # Context window strategies

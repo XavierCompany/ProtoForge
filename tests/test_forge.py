@@ -37,7 +37,7 @@ def forge_dir(tmp_path: Path) -> Path:
         "type": "coordinator",
         "version": "1.0.0",
         "description": "Coordinator",
-        "context_budget": {"max_input_tokens": 8000, "max_output_tokens": 4000, "strategy": "priority"},
+        "context_budget": {"max_input_tokens": 24000, "max_output_tokens": 12000, "strategy": "priority"},
         "skills": ["skills/plan_task.yaml"],
         "prompts": ["prompts/system.md"],
         "instructions": ["instructions/routing_rules.md"],
@@ -101,8 +101,8 @@ def forge_dir(tmp_path: Path) -> Path:
         "version": "1.0.0",
         "global": {"max_total_tokens": 128000},
         "defaults": {
-            "specialist": {"max_input_tokens": 6000, "max_output_tokens": 3000, "strategy": "priority"},
-            "coordinator": {"max_input_tokens": 8000, "max_output_tokens": 4000, "strategy": "priority"},
+            "specialist": {"max_input_tokens": 16000, "max_output_tokens": 8000, "strategy": "priority"},
+            "coordinator": {"max_input_tokens": 24000, "max_output_tokens": 12000, "strategy": "priority"},
         },
         "token_counting": {"method": "character_estimate"},
         "strategies": {"sliding_window": {"overlap_tokens": 200}},
@@ -220,13 +220,13 @@ class TestContextBudgetManager:
     def test_allocate_with_defaults(self) -> None:
         config = {
             "defaults": {
-                "specialist": {"max_input_tokens": 6000, "max_output_tokens": 3000, "strategy": "priority"},
+                "specialist": {"max_input_tokens": 16000, "max_output_tokens": 8000, "strategy": "priority"},
             },
         }
         mgr = ContextBudgetManager(config)
         budget = mgr.allocate("test_agent", "specialist")
-        assert budget.max_input == 6000
-        assert budget.max_output == 3000
+        assert budget.max_input == 16000
+        assert budget.max_output == 8000
         assert budget.strategy == "priority"
 
     def test_allocate_with_override(self) -> None:

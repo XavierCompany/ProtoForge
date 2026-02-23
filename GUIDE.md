@@ -207,8 +207,8 @@ description: >                  # What this agent does
 version: "1.0.0"
 
 context_budget:                  # Token budget (overrides global defaults)
-  max_input_tokens: 6000
-  max_output_tokens: 3000
+  max_input_tokens: 16000
+  max_output_tokens: 8000
   strategy: sliding_window       # priority | sliding_window | summarize
   priority_order: [system_prompt, current_message, log_content, recent_history]
 
@@ -553,8 +553,8 @@ description: >
 version: "1.0.0"
 
 context_budget:
-  max_input_tokens: 8000
-  max_output_tokens: 4000
+  max_input_tokens: 24000
+  max_output_tokens: 12000
   strategy: priority
   priority_order: [system_prompt, current_message, profiling_data, recent_history]
 
@@ -622,7 +622,7 @@ contrib.create_agent(
         "type": "specialist",
         "description": "Performance profiling and optimization",
         "version": "1.0.0",
-        "context_budget": {"max_input_tokens": 8000, "max_output_tokens": 4000, "strategy": "priority"},
+        "context_budget": {"max_input_tokens": 24000, "max_output_tokens": 12000, "strategy": "priority"},
         "tags": ["performance", "profiling"],
     },
     system_prompt="You are a Performance Profiler Agent...",
@@ -716,8 +716,8 @@ type: specialist
 description: "Performance profiling and optimization"
 version: "1.0.0"
 context_budget:
-  max_input_tokens: 8000
-  max_output_tokens: 4000
+  max_input_tokens: 24000
+  max_output_tokens: 12000
   strategy: priority
 prompts:
   system: system.md

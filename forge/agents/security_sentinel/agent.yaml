@@ -7,8 +7,8 @@ description: >
   CVEs, and compliance violations. Maps findings to OWASP, CWE, and CVSS frameworks.
 
 context_budget:
-  max_input_tokens: 6000
-  max_output_tokens: 4000
+  max_input_tokens: 16000
+  max_output_tokens: 10000
   strategy: priority            # security findings ranked by severity
 
 skills:

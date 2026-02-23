@@ -9,8 +9,8 @@ description: >
 version: "1.0.0"
 
 context_budget:
-  max_input_tokens: 6000
-  max_output_tokens: 3000
+  max_input_tokens: 16000
+  max_output_tokens: 8000
   strategy: priority
   priority_order:
     - system_prompt

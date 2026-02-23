@@ -16,8 +16,8 @@ version: "1.0.0"
 
 # ── Context Window Budget ───────────────────────────────────
 context_budget:
-  max_input_tokens: 8000   # Budget for incoming context
-  max_output_tokens: 4000  # Budget for plan output
+  max_input_tokens: 24000  # Budget for incoming context
+  max_output_tokens: 12000 # Budget for plan output
   strategy: priority       # priority | sliding_window | summarize
   priority_order:           # What to keep when budget is tight
     - system_prompt

@@ -118,8 +118,8 @@ description: >
   specialist sub-agents should be invoked downstream.
 version: "1.0.0"
 context_budget:
-  max_input_tokens: 8000
-  max_output_tokens: 4000
+  max_input_tokens: 24000
+  max_output_tokens: 12000
   strategy: priority       # priority | sliding_window | summarize
 subagents:
   - log_analysis
@@ -143,8 +143,8 @@ instructions:
 
 Token budgets are centrally configured in `forge/_context_window.yaml` and enforced by the `ContextBudgetManager`:
 
-- **Global budget:** 128K tokens per orchestration run (12K reserved for Plan, 4K for aggregation)
-- **Per-agent budgets:** Defined in each `agent.yaml` or defaults by type (specialist: 6K/3K, coordinator: 8K/4K)
+- **Global budget:** 128K tokens per orchestration run (32K reserved for Plan, 16K for aggregation)
+- **Per-agent budgets:** Defined in each `agent.yaml` or defaults by type (specialist: 16K/8K, coordinator: 24K/12K)
 - **Strategies:** `priority` (keep highest-priority content), `sliding_window` (keep most recent), `summarize` (LLM-compress)
 - **Token counting:** tiktoken (`cl100k_base`) with character-estimate fallback
 - **Dynamic scaling:** Rebalances unused budget across agents when overflow detected

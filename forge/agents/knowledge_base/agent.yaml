@@ -7,8 +7,8 @@ description: >
   answers, how-to guides, and reference material. Returns sourced, cited responses.
 
 context_budget:
-  max_input_tokens: 6000
-  max_output_tokens: 3000
+  max_input_tokens: 16000
+  max_output_tokens: 8000
   strategy: summarize          # summarize long docs to fit budget
 
 skills:

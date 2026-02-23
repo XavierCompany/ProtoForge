@@ -72,16 +72,16 @@ class ContextBudgetManager:
         if override:
             budget = TokenBudget(
                 agent_id=agent_id,
-                max_input=override.get("max_input_tokens", 6000),
-                max_output=override.get("max_output_tokens", 3000),
+                max_input=override.get("max_input_tokens", 16000),
+                max_output=override.get("max_output_tokens", 8000),
                 strategy=override.get("strategy", "priority"),
             )
         else:
             defaults = self.config.get("defaults", {}).get(agent_type, {})
             budget = TokenBudget(
                 agent_id=agent_id,
-                max_input=defaults.get("max_input_tokens", 6000),
-                max_output=defaults.get("max_output_tokens", 3000),
+                max_input=defaults.get("max_input_tokens", 16000),
+                max_output=defaults.get("max_output_tokens", 8000),
                 strategy=defaults.get("strategy", "priority"),
             )
 

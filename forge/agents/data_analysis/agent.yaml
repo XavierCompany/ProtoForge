@@ -7,8 +7,8 @@ description: >
   generates visualization specifications. Works with structured and semi-structured data.
 
 context_budget:
-  max_input_tokens: 8000
-  max_output_tokens: 4000
+  max_input_tokens: 24000
+  max_output_tokens: 12000
   strategy: sliding_window      # large datasets need windowed processing
 
 skills:
