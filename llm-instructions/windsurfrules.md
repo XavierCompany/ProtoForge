@@ -30,4 +30,4 @@ forge/_context_window.yaml — Token budget config
 
 # Documentation — Read ALL: copilot-instructions.md → ARCHITECTURE.md →
 # SOURCE_OF_TRUTH.md → MAINTENANCE.md → TODO.md → CHANGELOG.md →
-# README.md → GUIDE.md → GUIDE2.md
+# README.md → GUIDE.md → GUIDE2.md → BUILDING_AGENTS.md

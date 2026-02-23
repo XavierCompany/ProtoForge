@@ -53,6 +53,7 @@ forge/agents/*/agent.yaml — Per-agent manifests
 4. MAINTENANCE.md — update protocol (~455 lines)
 5. TODO.md — prioritised backlog (~240 lines)
 6. CHANGELOG.md — version history (~140 lines)
-7. README.md — onboarding, endpoints (~810 lines)
+7. README.md — onboarding, endpoints (~820 lines)
 8. GUIDE.md — deep-dive reference, 19 sections (~2760 lines)
 9. GUIDE2.md — maintenance & tuning guide (~905 lines)
+10. BUILDING_AGENTS.md — agent building tutorial with AI Foundry (~350 lines)

@@ -43,6 +43,10 @@ agents:
     path: agents/github_tracker/
     type: specialist
     description: "GitHub commit documentation, issue management, changelogs, and release notes"
+  sub_plan:
+    path: agents/sub_plan/
+    type: specialist
+    description: "Plans prerequisite resources (infra, connectors, APIs, auth) for task agents"
 
 shared:
   prompts:

@@ -602,7 +602,7 @@ Sub-Agent = Context Isolation
 When the governance system triggers a context decomposition:
 
 ```
-1. GovernanceGuardian detects: cumulative tokens > 120K
+1. GovernanceGuardian detects: cumulative tokens > 110K
 
 2. HITL Review created:
    "Agent 'knowledge_base' would push context to 125K.
@@ -754,12 +754,11 @@ selector.resolve_skill_review(request_id, accepted=False, overridden=True)
 |--------|------|-------------|
 | GET | `/governance/status` | Full governance report: cumulative tokens, utilisation %, per-agent usage, alert counts, violations |
 | GET | `/governance/alerts` | All alerts (resolved + unresolved) |
-| GET | `/governance/alerts/unresolved` | Only unresolved alerts |
-| POST | `/governance/alerts/{id}/resolve` | Resolve an alert (`{resolution: "accepted"}`) |
+| POST | `/governance/resolve-alert` | Resolve a governance alert (`{alert_id, resolution}`) |
 | GET | `/governance/context-reviews` | Pending context window HITL reviews (includes token breakdown + decomposition suggestion) |
-| POST | `/governance/context-reviews/{id}/resolve` | Accept/reject context decomposition (`{accepted: true, user_note: "..."}`) |
+| POST | `/governance/context-reviews/resolve` | Accept/reject context decomposition (`{request_id, accepted, user_note}`) |
 | GET | `/governance/skill-reviews` | Pending skill cap HITL reviews (includes split suggestion) |
-| POST | `/governance/skill-reviews/{id}/resolve` | Accept/reject/customise skill split |
+| POST | `/governance/skill-reviews/resolve` | Accept/reject/customise skill split |
 
 ### Example: Governance Status Response
 
@@ -769,7 +768,7 @@ GET /governance/status
 {
   "cumulative_tokens": 95000,
   "hard_cap": 128000,
-  "warning_threshold": 120000,
+  "warning_threshold": 110000,
   "utilisation_pct": 74.2,
   "agent_usage": {
     "plan": 12000,

@@ -53,9 +53,10 @@ User → FastAPI /chat → IntentRouter (keyword + LLM)
 4. `MAINTENANCE.md` — update protocol, anti-drift rules (~455 lines)
 5. `TODO.md` — prioritised backlog P0→P3 (~240 lines)
 6. `CHANGELOG.md` — version history (~140 lines)
-7. `README.md` — onboarding, full endpoint table, quick-start (~810 lines)
+7. `README.md` — onboarding, full endpoint table, quick-start (~820 lines)
 8. `GUIDE.md` — deep-dive reference, 19 sections (~2760 lines)
 9. `GUIDE2.md` — maintenance & tuning guide, 13 sections (~905 lines)
+10. `BUILDING_AGENTS.md` — practical tutorial: build a new agent with AI Foundry (~350 lines)
 
 ## What NOT to Change Without Care
 

@@ -4,10 +4,33 @@
 > Contains: architecture diagram, agent table, quick-start, full endpoint table,
 > WorkIQ integration guide, project structure.
 >
-> This is doc **7 of 9** in the reading order. Read
+> This is doc **7 of 10** in the reading order. Read
 > [.github/copilot-instructions.md](.github/copilot-instructions.md)
 > → [ARCHITECTURE.md](ARCHITECTURE.md) first for orientation.
-> → [ARCHITECTURE.md](ARCHITECTURE.md) for a compact overview first.
+
+## Document Map — Where to Find What
+
+| I want to… | Read this | Size |
+|---|---|---|
+| **Get oriented quickly** | [.github/copilot-instructions.md](.github/copilot-instructions.md) | ~140 lines |
+| **Understand the architecture** | [ARCHITECTURE.md](ARCHITECTURE.md) | ~255 lines |
+| **Know what is canonical** | [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md) | ~195 lines |
+| **See the backlog / priorities** | [TODO.md](TODO.md) | ~240 lines |
+| **Read the change history** | [CHANGELOG.md](CHANGELOG.md) | ~140 lines |
+| **Maintain or tune the system** | [GUIDE2.md](GUIDE2.md) | ~910 lines |
+| **Get the full onboarding + API ref** | [README.md](README.md) *(this file)* | ~820 lines |
+| **Deep-dive every subsystem** | [GUIDE.md](GUIDE.md) | ~2760 lines |
+| **Build a new agent (tutorial)** | [BUILDING_AGENTS.md](BUILDING_AGENTS.md) | ~350 lines |
+| **Follow update procedures** | [MAINTENANCE.md](MAINTENANCE.md) | ~455 lines |
+
+**Recommended reading order for humans:**
+1. This file (README) — architecture diagram, agent table, quick start
+2. ARCHITECTURE.md — compact module graph and API surface
+3. BUILDING_AGENTS.md — hands-on tutorial with AI Foundry example
+4. GUIDE2.md — DE critique, tuning, maintenance checklist
+5. GUIDE.md — full reference (use ARCHITECTURE.md §10 for section index)
+
+**Recommended reading order for LLMs:** see [.github/copilot-instructions.md](.github/copilot-instructions.md).
 
 A production-ready multi-agent orchestrator built on the [Microsoft Agent Framework (Python)](https://learn.microsoft.com/en-us/agent-framework/overview/?pivots=programming-language-python) with a declarative `forge/` agent ecosystem, MCP skills distribution, context window management, dynamic contributions, and platform-agnostic LLM support.
 
@@ -211,7 +234,7 @@ forge/
 │   ├── skills/                 #   plan_task, identify_agents, build_strategy
 │   ├── instructions/           #   routing_rules, coordination
 │   └── workflows/              #   plan_and_execute.yaml
-├── agents/                     # 8 specialist agents
+├── agents/                     # 9 agent directories (sub_plan + 8 specialists)
 │   ├── sub_plan/               #   Sub-Plan Agent (resource planner + dual HITL)
 │   ├── log_analysis/           #   agent.yaml + prompts/ + skills/ + instructions/
 │   ├── code_research/
@@ -511,19 +534,21 @@ Steps with no dependencies run in parallel. The workflow engine handles dependen
 | POST | `/plan/accept` | Accept/reject Plan Agent suggestions |
 | GET | `/sub-plan/pending` | List pending Sub-Plan resource reviews (HITL) |
 | POST | `/sub-plan/accept` | Accept/reject resources + optional user brief override |
+| POST | `/github/document-commit` | Document a commit (GitHub Tracker) |
+| POST | `/github/manage-issue` | Create/update GitHub issues |
+| POST | `/github/changelog` | Generate changelog entries |
 | GET | `/governance/status` | Full governance report (tokens, alerts, violations) |
 | GET | `/governance/alerts` | All governance alerts |
-| GET | `/governance/alerts/unresolved` | Only unresolved alerts |
-| POST | `/governance/alerts/{id}/resolve` | Resolve a governance alert |
+| POST | `/governance/resolve-alert` | Resolve a governance alert |
 | GET | `/governance/context-reviews` | Pending context window HITL reviews |
-| POST | `/governance/context-reviews/{id}/resolve` | Accept/reject context decomposition |
+| POST | `/governance/context-reviews/resolve` | Accept/reject context decomposition |
 | GET | `/governance/skill-reviews` | Pending skill cap HITL reviews |
-| POST | `/governance/skill-reviews/{id}/resolve` | Accept/reject/customise skill split |
+| POST | `/governance/skill-reviews/resolve` | Accept/reject/customise skill split |
 | GET | `/governance/lifecycle-reviews` | Pending agent lifecycle HITL reviews |
 | POST | `/governance/lifecycle-reviews/resolve` | Accept/reject agent disable/remove action |
-| POST | `/agents/{id}/disable` | Disable agent at runtime (HITL-gated) |
-| POST | `/agents/{id}/enable` | Re-enable a disabled agent (no HITL) |
-| DELETE | `/agents/{id}` | Permanently remove agent (HITL-gated) |
+| POST | `/agents/{agent_id}/disable` | Disable agent at runtime (HITL-gated) |
+| POST | `/agents/{agent_id}/enable` | Re-enable a disabled agent (no HITL) |
+| DELETE | `/agents/{agent_id}` | Permanently remove agent (HITL-gated) |
 | GET | `/agents/enabled` | List currently enabled agents |
 | GET | `/agents/disabled` | List currently disabled agents |
 
@@ -692,7 +717,8 @@ ProtoForge/
 │   │   ├── skills/
 │   │   ├── instructions/
 │   │   └── workflows/
-│   ├── agents/                 #   8 specialist agents
+│   ├── agents/                 #   9 agent directories (sub_plan + 8 specialists)
+│   │   ├── sub_plan/
 │   │   ├── log_analysis/
 │   │   ├── code_research/
 │   │   ├── remediation/

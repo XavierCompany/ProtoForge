@@ -1,9 +1,9 @@
 # Changelog
 
-> **TL;DR for LLMs**: Version history (100+ lines). Current version: **0.1.1**.
+> **TL;DR for LLMs**: Version history (140+ lines). Current version: **0.1.1**.
 > Two releases: v0.1.1 (lifecycle HITL + P0 fixes) and v0.1.0 (initial release).
 >
-> This is doc **6 of 9** in the reading order.
+> This is doc **6 of 10** in the reading order.
 > See [ARCHITECTURE.md](ARCHITECTURE.md) for the system overview.
 
 All notable changes to ProtoForge are documented in this file.
@@ -16,6 +16,8 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 ## [Unreleased]
 
 ### Added
+- **BUILDING_AGENTS.md** — practical tutorial for building a new agent with Azure AI Foundry, covering Plan Agent conversation, LLM wiring, and full pipeline walkthrough (~350 lines)
+- **Document Map** in README.md — human-friendly navigation table with recommended reading orders for humans vs LLMs
 - **Multi-model policy** — Claude Opus 4.6 (default), Codex 5.3, Gemini Pro 3.1 as first-class alternatives (see ADR-002)
 - 4 new model-policy tests in `TestModelPolicy` class — validates config.py defaults for all providers (378 total, up from 374)
 - `ALLOWED_MODELS` constant in `test_copilot_customization.py` — centralises model policy validation
@@ -46,6 +48,16 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - **SOURCE_OF_TRUTH.md**: Fixed copilot-instructions.md "~120 lines" → "~140 lines"
 - **copilot-instructions.md**: Fixed reading order positions 6-9 to match ARCHITECTURE.md and TL;DR headers, updated all per-doc line counts, total "~4550 lines (~18K tokens)" → "~5850 lines (~60K tokens)"
 - **TODO.md**: Fixed P1-7 "898-line" → "~900-line"
+
+### Fixed (continued — documentation audit phase 2)
+- **README.md**: Fixed governance endpoint paths — removed non-existent `/governance/alerts/unresolved`, corrected `/governance/resolve-alert`, `/governance/context-reviews/resolve`, `/governance/skill-reviews/resolve`
+- **README.md**: Added 3 missing GitHub endpoints (`/github/document-commit`, `/github/manage-issue`, `/github/changelog`)
+- **README.md**: Fixed `forge/agents/` directory count — "8 specialist agents" → "9 agent directories (sub_plan + 8 specialists)"
+- **GUIDE.md**: Fixed same governance endpoint path errors as README (§7 REST endpoints table)
+- **GUIDE.md**: Fixed warning threshold from 120K → 110K in governance status example JSON (§7)
+- **GUIDE.md**: Fixed "cumulative tokens > 120K" → "> 110K" in sub-agent spawning section (§6)
+- **forge/_registry.yaml**: Added missing `sub_plan` agent entry
+- **LLM instruction variants**: Updated reading order in claude.md, cursorrules.md, windsurfrules.md to include BUILDING_AGENTS.md (doc 10 of 10)
 
 ---
 

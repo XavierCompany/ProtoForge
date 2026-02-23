@@ -446,6 +446,11 @@ The following claims were verified against the actual codebase:
 | 35 | `deallocate()` releases budget on disable/remove | `context_budget.py` | ✅ |
 | 36 | 7 new lifecycle HTTP endpoints | `server.py` | ✅ |
 | 37 | 378 tests passing (30 new lifecycle tests) | `pytest --tb=no` output | ✅ |
+| 38 | Governance endpoint paths match `server.py` decorators | `server.py`, README, GUIDE | ✅ |
+| 39 | `sub_plan` entry present in `forge/_registry.yaml` | `_registry.yaml` | ✅ |
+| 40 | Warning threshold = 110K in all docs (not 120K) | GUIDE.md, `_context_window.yaml` | ✅ |
+| 41 | BUILDING_AGENTS.md exists (doc 10 of 10) | `BUILDING_AGENTS.md` | ✅ |
+| 42 | All 3 LLM instruction variants list 10 docs | `llm-instructions/` | ✅ |
 
 ---
 
