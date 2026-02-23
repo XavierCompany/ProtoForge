@@ -1,48 +1,52 @@
 # ProtoForge — Multi-Agent Orchestrator
 
-A production-ready multi-agent orchestrator built on the [Microsoft Agent Framework (Python)](https://learn.microsoft.com/en-us/agent-framework/overview/?pivots=programming-language-python) with MCP skills distribution, agent registry/catalog, workflow bundling, and platform-agnostic LLM support.
+A production-ready multi-agent orchestrator built on the [Microsoft Agent Framework (Python)](https://learn.microsoft.com/en-us/agent-framework/overview/?pivots=programming-language-python) with a declarative `forge/` agent ecosystem, MCP skills distribution, context window management, dynamic contributions, and platform-agnostic LLM support.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    HTTP Server (FastAPI)                      │
-│  /chat   /mcp   /agents   /skills   /workflows   /inspector │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                ┌────────▼────────┐
-                │   Orchestrator   │ ← Intent Router (keyword + LLM)
-                │     Engine       │
-                └────────┬────────┘
-                         │  ALWAYS first
-                ┌────────▼────────┐
-                │   Plan Agent    │ ← Top-level coordinator
-                │  (Coordinator)  │    Analyzes, strategizes,
-                │                 │    identifies sub-agents
-                └──┬──┬──┬──┬──┬─┘
-       ┌───────────┘  │  │  │  └───────────┐
-       ▼              ▼  │  ▼              ▼
-  ┌──────────┐ ┌─────────┐│┌─────────────────┐
-  │   Log    │ │  Code   │││   Remediation   │
-  │ Analysis │ │Research ││└─────────────────┘
-  └──────────┘ └─────────┘│
-       ▼              ▼   │        ▼
-  ┌──────────┐ ┌──────────┐ ┌────────────────┐
-  │Knowledge │ │  Data    │ │   Security     │
-  │  Base    │ │ Analysis │ │   Sentinel     │
-  └──────────┘ └──────────┘ └────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    HTTP Server (FastAPI)                       │
+│  /chat   /mcp   /agents   /skills   /workflows   /inspector  │
+└─────────────────────────┬────────────────────────────────────┘
+                          │
+                 ┌────────▼────────┐
+                 │   Orchestrator   │ ← Intent Router (keyword + LLM)
+                 │     Engine       │
+                 └────────┬────────┘
+                          │  ALWAYS first
+                 ┌────────▼────────┐
+                 │   Plan Agent    │ ← Top-level coordinator
+                 │  (Coordinator)  │    Analyzes, strategizes,
+                 │                 │    identifies sub-agents
+                 └──┬──┬──┬──┬──┬─┘
+        ┌───────────┘  │  │  │  └───────────┐
+        ▼              ▼  │  ▼              ▼
+   ┌──────────┐ ┌─────────┐│┌─────────────────┐
+   │   Log    │ │  Code   │││   Remediation   │
+   │ Analysis │ │Research ││└─────────────────┘
+   └──────────┘ └─────────┘│
+        ▼              ▼   │        ▼
+   ┌──────────┐ ┌──────────┐ ┌────────────────┐
+   │Knowledge │ │  Data    │ │   Security     │
+   │  Base    │ │ Analysis │ │   Sentinel     │
+   └──────────┘ └──────────┘ └────────────────┘
 
-  ─── Plan-First Flow ────────────────────────────────
-  User Message
-    → Orchestrator (intent routing)
-      → Plan Agent (ALWAYS first — produces strategy)
-        → Sub-Agents (parallel fan-out based on plan)
-          → Aggregated Response
-  ────────────────────────────────────────────────────
+   ─── Plan-First Flow ────────────────────────────────
+   User Message
+     → Orchestrator (intent routing)
+       → Plan Agent (ALWAYS first — produces strategy)
+         → Sub-Agents (parallel fan-out based on plan)
+           → Aggregated Response
+   ────────────────────────────────────────────────────
 
 ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐
-│  MCP Server     │  │  Agent Catalog  │  │ Workflow Engine   │
-│  (Skills Dist.) │  │  (Registry)     │  │ (Bundling)        │
+│  Forge Loader   │  │  Context Budget  │  │  Contribution    │
+│  (Agent YAML)   │  │  Manager         │  │  Manager (CRUD)  │
+└─────────────────┘  └─────────────────┘  └──────────────────┘
+┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐
+│  MCP Server     │  │  Agent Catalog  │  │  Workflow Engine  │
+│  (Skills Dist.) │  │  (Registry)     │  │  (Bundling)       │
 └─────────────────┘  └─────────────────┘  └──────────────────┘
 ```
 
@@ -65,6 +69,103 @@ The **Plan Agent** is the top-level coordinator. Every request goes through Plan
 | **Knowledge Base** | Sub-Agent | Documentation retrieval, how-to guides, RAG |
 | **Data Analysis** | Sub-Agent | Metrics, trends, charts, statistical analysis |
 | **Security Sentinel** | Sub-Agent | Vulnerability scanning, CVE lookup, compliance audits |
+
+## The Forge Ecosystem
+
+The `forge/` directory is the declarative heart of ProtoForge — every agent, prompt, skill, workflow, and context budget is defined in YAML and Markdown, auto-discovered at startup by `ForgeLoader`.
+
+### Forge Directory Layout
+
+```
+forge/
+├── _registry.yaml              # Master registry of all agents
+├── _context_window.yaml        # Global token budget configuration
+├── plan/                       # Plan Agent (coordinator)
+│   ├── agent.yaml              #   Manifest: id, subagents, context_budget
+│   ├── prompts/                #   System & strategy prompts (.md)
+│   ├── skills/                 #   plan_task, identify_agents, build_strategy
+│   ├── instructions/           #   routing_rules, coordination
+│   └── workflows/              #   plan_and_execute.yaml
+├── agents/                     # 6 specialist agents
+│   ├── log_analysis/           #   agent.yaml + prompts/ + skills/ + instructions/
+│   ├── code_research/
+│   ├── remediation/
+│   ├── knowledge_base/
+│   ├── data_analysis/
+│   └── security_sentinel/
+├── shared/                     # Cross-agent resources
+│   ├── prompts/                #   error_handling.md, output_format.md
+│   ├── instructions/           #   quality_standards.md, security_baseline.md
+│   └── workflows/              #   code_review.yaml, incident_response.yaml
+└── contrib/                    # Dynamic contributions (CRUD via API)
+    ├── audit_log.yaml          #   Timestamped audit trail
+    ├── agents/                 #   Community-contributed agents
+    ├── skills/                 #   Community-contributed skills
+    └── workflows/              #   Community-contributed workflows
+```
+
+### Agent Manifests (`agent.yaml`)
+
+Each agent is fully described by a YAML manifest:
+
+```yaml
+id: plan_agent
+name: Plan Agent
+type: coordinator          # coordinator | specialist
+description: >
+  Top-level coordinator that analyzes every incoming request,
+  produces a strategic execution plan, and identifies which
+  specialist sub-agents should be invoked downstream.
+version: "1.0.0"
+context_budget:
+  max_input_tokens: 8000
+  max_output_tokens: 4000
+  strategy: priority       # priority | sliding_window | summarize
+subagents:
+  - log_analysis
+  - code_research
+  - remediation
+  - knowledge_base
+  - data_analysis
+  - security_sentinel
+prompts:
+  system: system.md
+skills:
+  - plan_task.yaml
+  - identify_agents.yaml
+  - build_strategy.yaml
+instructions:
+  - routing_rules.md
+  - coordination.md
+```
+
+### Context Window Management
+
+Token budgets are centrally configured in `forge/_context_window.yaml` and enforced by the `ContextBudgetManager`:
+
+- **Global budget:** 32K tokens per orchestration run (12K reserved for Plan, 4K for aggregation)
+- **Per-agent budgets:** Defined in each `agent.yaml` or defaults by type (specialist: 6K/3K, coordinator: 8K/4K)
+- **Strategies:** `priority` (keep highest-priority content), `sliding_window` (keep most recent), `summarize` (LLM-compress)
+- **Token counting:** tiktoken (`cl100k_base`) with character-estimate fallback
+- **Dynamic scaling:** Rebalances unused budget across agents when overflow detected
+
+### Dynamic Contributions
+
+The `ContributionManager` provides full CRUD for adding agents, skills, and workflows at runtime:
+
+```python
+from src.forge.contributions import ContributionManager
+
+contrib = ContributionManager("forge")
+
+# Create a new agent
+contrib.create_agent("my_agent", manifest={...}, system_prompt="...", author="team-x")
+
+# Add a skill
+contrib.create_skill("my_skill", skill_def={...}, author="team-x")
+
+# All changes are audit-logged in forge/contrib/audit_log.yaml
+```
 
 ## Platform-Agnostic LLM Support
 
@@ -105,6 +206,8 @@ protoforge status
 
 ProtoForge exposes all agent skills via the **Model Context Protocol (MCP)**, making them available to any MCP-compatible AI client (VS Code Copilot, Claude Desktop, etc.).
 
+Skills are auto-discovered from `forge/` at startup — every `skills/*.yaml` inside an agent directory or `forge/shared/` or `forge/contrib/` is collected and exposed as an MCP tool.
+
 ```json
 // POST /mcp
 {
@@ -113,14 +216,15 @@ ProtoForge exposes all agent skills via the **Model Context Protocol (MCP)**, ma
   "id": 1
 }
 
-// Response: all 7 agent skills as MCP tools
+// Response: all agent skills as MCP tools
 ```
 
 ### Skills (YAML-defined)
 
-Skills are defined in `skills/*.yaml` and auto-loaded:
+Skills live inside each agent's directory under `forge/`:
 
 ```yaml
+# forge/plan/skills/plan_task.yaml
 name: plan_task
 description: "Break down a complex task into actionable steps"
 agent_type: plan
@@ -136,18 +240,25 @@ parameters:
 Compose multi-agent workflows from YAML definitions:
 
 ```yaml
-# workflows/incident_response.yaml
+# forge/shared/workflows/incident_response.yaml
 name: incident_response
+description: "Full incident response: logs → code → security → diagnose → fix"
 steps:
   - name: analyze_logs
     agent_type: log_analysis
-    prompt_template: "Analyze logs: {incident_description}"
+    prompt_template: "Analyze logs for incident: {incident_description}"
   - name: research_code
     agent_type: code_research
     depends_on: [analyze_logs]
+  - name: security_check
+    agent_type: security_sentinel
+    depends_on: [analyze_logs]
+  - name: diagnose
+    agent_type: knowledge_base
+    depends_on: [research_code, security_check]
   - name: generate_fix
     agent_type: remediation
-    depends_on: [research_code]
+    depends_on: [diagnose]
 ```
 
 Steps with no dependencies run in parallel. The workflow engine handles dependency ordering automatically.
@@ -184,13 +295,13 @@ GET /health
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests
+# Run tests (73 tests)
 pytest
 
 # Run with coverage
 pytest --cov=src
 
-# Lint
+# Lint (ruff, line-length 120)
 ruff check src/
 
 # Type check
@@ -201,24 +312,37 @@ mypy src/
 
 ```
 ProtoForge/
-├── pyproject.toml          # Project config & dependencies
-├── .env.example            # Environment template
-├── skills/                 # MCP skill definitions (YAML)
-│   ├── plan.yaml
-│   ├── log_analysis.yaml
-│   ├── code_research.yaml
-│   ├── remediation.yaml
-│   ├── knowledge_base.yaml
-│   ├── data_analysis.yaml
-│   └── security_scan.yaml
-├── workflows/              # Workflow bundle definitions
-│   ├── incident_response.yaml
-│   └── code_review.yaml
+├── pyproject.toml              # Project config & dependencies
+├── GUIDE.md                    # Developer guide (architecture, extending, ADRs)
+├── README.md                   # This file
+├── forge/                      # ★ Declarative agent ecosystem
+│   ├── _registry.yaml          #   Master agent registry
+│   ├── _context_window.yaml    #   Token budget configuration
+│   ├── plan/                   #   Plan Agent (coordinator)
+│   │   ├── agent.yaml
+│   │   ├── prompts/
+│   │   ├── skills/
+│   │   ├── instructions/
+│   │   └── workflows/
+│   ├── agents/                 #   6 specialist agents
+│   │   ├── log_analysis/
+│   │   ├── code_research/
+│   │   ├── remediation/
+│   │   ├── knowledge_base/
+│   │   ├── data_analysis/
+│   │   └── security_sentinel/
+│   ├── shared/                 #   Cross-agent prompts, instructions, workflows
+│   │   ├── prompts/
+│   │   ├── instructions/
+│   │   └── workflows/
+│   └── contrib/                #   Dynamic contributions (CRUD + audit)
+│       ├── audit_log.yaml
+│       └── README.md
 ├── src/
-│   ├── main.py             # Entry point & bootstrap
-│   ├── config.py           # Settings (pydantic-settings)
-│   ├── server.py           # FastAPI HTTP server
-│   ├── agents/             # 7 specialized subagents
+│   ├── main.py                 # Entry point & bootstrap
+│   ├── config.py               # Settings (pydantic-settings + ForgeConfig)
+│   ├── server.py               # FastAPI HTTP server
+│   ├── agents/                 # 7 agent implementations (Python)
 │   │   ├── base.py
 │   │   ├── plan_agent.py
 │   │   ├── log_analysis_agent.py
@@ -227,18 +351,23 @@ ProtoForge/
 │   │   ├── knowledge_base_agent.py
 │   │   ├── data_analysis_agent.py
 │   │   └── security_sentinel_agent.py
-│   ├── orchestrator/       # Core orchestration engine
-│   │   ├── engine.py       # Switch-case router + fan-out
-│   │   ├── router.py       # Intent classification
-│   │   └── context.py      # Shared conversation context
-│   ├── mcp/                # MCP protocol server
-│   │   ├── server.py       # MCP request handler
-│   │   ├── protocol.py     # MCP message types
-│   │   └── skills.py       # YAML skill loader
-│   └── registry/           # Agent catalog & workflows
-│       ├── catalog.py      # Agent registration & discovery
-│       └── workflows.py    # Workflow bundling & execution
+│   ├── forge/                  # ★ Forge runtime modules
+│   │   ├── loader.py           #   ForgeLoader — discovers forge/ tree
+│   │   ├── context_budget.py   #   ContextBudgetManager — token budgets
+│   │   └── contributions.py    #   ContributionManager — CRUD + audit
+│   ├── orchestrator/           # Core orchestration engine
+│   │   ├── engine.py           #   Plan-first dispatch + fan-out
+│   │   ├── router.py           #   Intent classification
+│   │   └── context.py          #   Shared conversation context
+│   ├── mcp/                    # MCP protocol server
+│   │   ├── server.py           #   MCP request handler
+│   │   ├── protocol.py         #   MCP message types
+│   │   └── skills.py           #   YAML skill loader
+│   └── registry/               # Agent catalog & workflows
+│       ├── catalog.py          #   Agent registration & discovery
+│       └── workflows.py        #   Workflow bundling & execution
 └── tests/
+    ├── test_forge.py           # 34 tests — loader, context budget, contributions
     ├── test_router.py
     ├── test_orchestrator.py
     ├── test_mcp.py
@@ -249,7 +378,9 @@ ProtoForge/
 
 See **[GUIDE.md](GUIDE.md)** for:
 - Why this architecture was chosen (Plan-first vs flat dispatch)
+- The Forge ecosystem in depth (manifests, context budgets, contributions)
 - How to expand Plan Agent and sub-agent capabilities
-- How to add brand-new agents, skills, and workflows
+- How to add brand-new agents via code or the `forge/contrib/` system
+- Adding new skills, workflows, and shared resources
 - **Multi-model code review with GitHub Copilot CLI** — run Claude Opus 4.6 and Codex 5.3 in parallel terminals for critical feedback
 - Architecture Decision Records (ADRs)
