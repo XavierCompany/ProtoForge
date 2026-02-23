@@ -40,6 +40,7 @@ Endpoints:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -103,17 +104,23 @@ class WorkIQAcceptHintsRequest(BaseModel):
 
 
 class PlanAcceptRequest(BaseModel):
+    """Human acceptance of Plan Agent suggestions — selects which sub-agents proceed."""
+
     request_id: str
     accepted_indices: list[int]
 
 
 class SubPlanAcceptRequest(BaseModel):
+    """Human acceptance of Sub-Plan resources, with optional brief override."""
+
     request_id: str
     accepted_indices: list[int]
     user_brief: str = ""
 
 
 class GitHubDocumentCommitRequest(BaseModel):
+    """Request to classify and document a git commit (Conventional Commits)."""
+
     commit_sha: str = ""
     commit_message: str = ""
     diff: str = ""
@@ -121,6 +128,8 @@ class GitHubDocumentCommitRequest(BaseModel):
 
 
 class GitHubManageIssueRequest(BaseModel):
+    """Request to create, update, close, or comment on a GitHub issue."""
+
     action: str = "create"  # create, update, close, comment
     repo: str = ""
     issue_number: int | None = None
@@ -131,6 +140,8 @@ class GitHubManageIssueRequest(BaseModel):
 
 
 class GitHubChangelogRequest(BaseModel):
+    """Request to generate a grouped changelog from commit history."""
+
     repo: str = ""
     from_ref: str = ""
     to_ref: str = "HEAD"
@@ -138,12 +149,16 @@ class GitHubChangelogRequest(BaseModel):
 
 
 class GovernanceContextResolveRequest(BaseModel):
+    """Accept or reject a context-window decomposition suggestion."""
+
     request_id: str
     accepted: bool = True
     user_note: str = ""
 
 
 class GovernanceSkillResolveRequest(BaseModel):
+    """Accept, customise, or override a skill-cap violation split."""
+
     request_id: str
     accepted: bool = True
     custom_keep: list[str] = []
@@ -152,11 +167,15 @@ class GovernanceSkillResolveRequest(BaseModel):
 
 
 class GovernanceAlertResolveRequest(BaseModel):
+    """Resolve an individual governance alert by ID."""
+
     alert_id: str
     resolution: str = "accepted"
 
 
 class GovernanceLifecycleResolveRequest(BaseModel):
+    """Accept or reject an agent lifecycle action (disable / remove)."""
+
     request_id: str
     accepted: bool = True
     user_note: str = ""
@@ -171,7 +190,30 @@ def create_app(
     plan_selector: Any | None = None,
     governance_selector: Any | None = None,
 ) -> FastAPI:
-    """Create the FastAPI application with all routes wired up."""
+    """Create the FastAPI application with all routes wired up.
+
+    Route groups (in definition order):
+        Lines ~190-210   POST /chat, /chat/enriched      — Core chat pipeline
+        Lines ~215-235   POST /mcp                        — MCP JSON-RPC
+        Lines ~240-280   GET  /agents, /skills            — Agent catalog
+        Lines ~285-305   GET+POST /workflows              — Workflow engine
+        Lines ~310-410   /workiq/*                         — WorkIQ 2-phase HITL (5 routes)
+        Lines ~415-470   /plan/*, /sub-plan/*              — Plan & Sub-Plan HITL (4 routes)
+        Lines ~475-615   /github/*                         — GitHub Tracker (3 routes)
+        Lines ~620-810   /governance/*                     — Governance HITL (8 routes)
+        Lines ~815-845   /agents/{id}/disable|enable|remove — Lifecycle (3 routes)
+        Lines ~850-870   GET /health                       — Health check
+        Lines ~875-885   GET /inspector                    — HTML dashboard
+
+    Parameters:
+        orchestrator: OrchestratorEngine instance (typed Any to avoid circular import)
+        mcp_server: MCPServer instance
+        catalog: AgentCatalog instance
+        workflow_engine: WorkflowEngine instance
+        workiq_selector: Optional WorkIQSelector for enriched pipeline
+        plan_selector: Optional PlanSelector for plan/sub-plan HITL
+        governance_selector: Optional GovernanceSelector for governance HITL
+    """
 
     app = FastAPI(
         title="ProtoForge",
@@ -843,173 +885,12 @@ def create_app(
 
     @app.get("/inspector", response_class=HTMLResponse)
     async def inspector() -> HTMLResponse:
-        """Agent Inspector — debugging dashboard."""
-        return HTMLResponse(content=INSPECTOR_HTML)
+        """Agent Inspector — debugging dashboard.
+
+        HTML is loaded from ``src/templates/inspector.html`` (extracted to
+        keep this module focused on route definitions).
+        """
+        html_path = Path(__file__).parent / "templates" / "inspector.html"
+        return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
     return app
-
-
-# ── Inspector Dashboard HTML ────────────────────────────────────────
-
-INSPECTOR_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ProtoForge — Agent Inspector</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d1117; color: #c9d1d9; }
-        .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; }
-        .header h1 { font-size: 20px; color: #58a6ff; }
-        .header p { font-size: 13px; color: #8b949e; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
-        .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
-        .card h2 { font-size: 14px; color: #58a6ff; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .stat { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #21262d; }
-        .stat:last-child { border-bottom: none; }
-        .stat-label { color: #8b949e; }
-        .stat-value { color: #c9d1d9; font-weight: 600; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
-        .badge-active { background: #1b4332; color: #3fb950; }
-        .badge-error { background: #3d1f28; color: #f85149; }
-        .chat-box { grid-column: span 2; }
-        .chat-input { display: flex; gap: 8px; margin-top: 12px; }
-        .chat-input input { flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px 14px; color: #c9d1d9; font-size: 14px; }
-        .chat-input button { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 10px 20px; cursor: pointer; }
-        .chat-input button:hover { background: #2ea043; }
-        #messages { max-height: 300px; overflow-y: auto; padding: 8px; }
-        .msg { padding: 8px 12px; margin: 4px 0; border-radius: 6px; font-size: 14px; }
-        .msg-user { background: #1f2937; }
-        .msg-agent { background: #0d2137; border-left: 3px solid #58a6ff; }
-        #agents-list, #skills-list { max-height: 250px; overflow-y: auto; }
-        .item { padding: 8px; border-bottom: 1px solid #21262d; font-size: 13px; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>🔧 ProtoForge Agent Inspector</h1>
-        <p>Multi-Agent Orchestrator — Debug & Monitor</p>
-    </div>
-    <div class="container">
-        <div class="grid">
-            <div class="card">
-                <h2>System Status</h2>
-                <div id="status">Loading...</div>
-            </div>
-            <div class="card">
-                <h2>Registered Agents</h2>
-                <div id="agents-list">Loading...</div>
-            </div>
-            <div class="card">
-                <h2>Skill Catalog</h2>
-                <div id="skills-list">Loading...</div>
-            </div>
-            <div class="card">
-                <h2>Workflows</h2>
-                <div id="workflows-list">Loading...</div>
-            </div>
-            <div class="card chat-box">
-                <h2>Chat Console</h2>
-                <div id="messages"></div>
-                <div class="chat-input">
-                    <input id="chat-input" placeholder="Send a message to the orchestrator..." onkeydown="if(event.key==='Enter')sendMessage()">
-                    <button onclick="sendMessage()">Send</button>
-                </div>
-            </div>
-        </div>
-    </div>
-    <script>
-        async function loadStatus() {
-            try {
-                const res = await fetch('/health');
-                const data = await res.json();
-                const el = document.getElementById('status');
-                el.innerHTML = `
-                    <div class="stat"><span class="stat-label">Status</span><span class="badge badge-active">${data.status}</span></div>
-                    <div class="stat"><span class="stat-label">Provider</span><span class="stat-value">${data.orchestrator.provider}</span></div>
-                    <div class="stat"><span class="stat-label">Session</span><span class="stat-value">${data.orchestrator.session_id.slice(0,8)}...</span></div>
-                    <div class="stat"><span class="stat-label">Messages</span><span class="stat-value">${data.orchestrator.message_count}</span></div>
-                    <div class="stat"><span class="stat-label">MCP Tools</span><span class="stat-value">${data.mcp.tools_count}</span></div>
-                    <div class="stat"><span class="stat-label">Installed Skills</span><span class="stat-value">${data.catalog.installed_skills}</span></div>
-                `;
-            } catch(e) { document.getElementById('status').textContent = 'Error loading status'; }
-        }
-
-        async function loadAgents() {
-            try {
-                const res = await fetch('/agents');
-                const agents = await res.json();
-                const el = document.getElementById('agents-list');
-                el.innerHTML = agents.map(a => `
-                    <div class="item">
-                        <strong>${a.name}</strong> <span class="badge badge-active">${a.status}</span><br>
-                        <span style="color:#8b949e">${a.description}</span><br>
-                        <span style="color:#8b949e">Calls: ${a.usage_count} | Avg: ${a.avg_latency_ms}ms</span>
-                    </div>
-                `).join('') || '<div class="item">No agents registered</div>';
-            } catch(e) { document.getElementById('agents-list').textContent = 'Error loading agents'; }
-        }
-
-        async function loadSkills() {
-            try {
-                const res = await fetch('/skills');
-                const skills = await res.json();
-                const el = document.getElementById('skills-list');
-                el.innerHTML = skills.map(s => `
-                    <div class="item">
-                        <strong>${s.name}</strong> v${s.version} ${s.installed ? '<span class="badge badge-active">installed</span>' : ''}<br>
-                        <span style="color:#8b949e">${s.description}</span>
-                    </div>
-                `).join('') || '<div class="item">No skills in catalog</div>';
-            } catch(e) { document.getElementById('skills-list').textContent = 'Error loading skills'; }
-        }
-
-        async function loadWorkflows() {
-            try {
-                const res = await fetch('/workflows');
-                const workflows = await res.json();
-                const el = document.getElementById('workflows-list');
-                el.innerHTML = workflows.map(w => `
-                    <div class="item">
-                        <strong>${w.name}</strong> v${w.version}<br>
-                        <span style="color:#8b949e">${w.description} (${w.steps} steps)</span>
-                    </div>
-                `).join('') || '<div class="item">No workflows registered</div>';
-            } catch(e) { document.getElementById('workflows-list').textContent = 'Error loading workflows'; }
-        }
-
-        async function sendMessage() {
-            const input = document.getElementById('chat-input');
-            const msg = input.value.trim();
-            if (!msg) return;
-            input.value = '';
-
-            const messagesEl = document.getElementById('messages');
-            messagesEl.innerHTML += `<div class="msg msg-user">🧑 ${msg}</div>`;
-
-            try {
-                const res = await fetch('/chat', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({message: msg}),
-                });
-                const data = await res.json();
-                messagesEl.innerHTML += `<div class="msg msg-agent">🤖 ${data.response.replace(/\\n/g, '<br>')}</div>`;
-                messagesEl.scrollTop = messagesEl.scrollHeight;
-                loadStatus();
-            } catch(e) {
-                messagesEl.innerHTML += `<div class="msg msg-agent" style="border-color:#f85149">❌ Error: ${e.message}</div>`;
-            }
-        }
-
-        // Init
-        loadStatus();
-        loadAgents();
-        loadSkills();
-        loadWorkflows();
-        setInterval(loadStatus, 10000);
-    </script>
-</body>
-</html>"""

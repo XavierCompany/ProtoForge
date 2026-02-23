@@ -33,7 +33,7 @@ src/
   agents/
     base.py            # ABC for all agents (from_manifest or explicit)
     generic.py         # Default no-op agent implementation
-    *_agent.py         # Specialist implementations (9 agents)
+    *_agent.py         # Agent implementations (8 files: plan, sub-plan, 6 specialists)
   forge/
     loader.py          # Reads forge/ YAML ecosystem at startup
     context_budget.py  # Per-agent token budget allocation + truncation
@@ -117,18 +117,18 @@ See SOURCE_OF_TRUTH.md for the full ownership map.
 ## Documentation Reading Order
 
 Read **ALL** documentation files in the order below. Each contains unique
-information not duplicated elsewhere. Total: ~5400 lines (~18 K tokens) — fits
+information not duplicated elsewhere. Total: ~4550 lines (~18 K tokens) — fits
 easily in modern context windows.
 
-1. **This file** (copilot-instructions.md) — orientation & conventions (~140 lines)
-2. **ARCHITECTURE.md** — compact architecture, APIs, module graph (~260 lines)
-3. **SOURCE_OF_TRUTH.md** — canonical ownership map (~190 lines)
-4. **MAINTENANCE.md** — update protocol, anti-drift rules (~450 lines)
-5. **TODO.md** — prioritised backlog P0→P3 (~240 lines)
-6. **GUIDE.md** — deep-dive reference, 19 sections (~2750 lines, use ARCHITECTURE.md §10 section index for navigation)
-7. **GUIDE2.md** — maintenance & tuning guide, 13 sections (~940 lines)
-8. **README.md** — onboarding, full endpoint table, quick-start (~810 lines)
-9. **CHANGELOG.md** — version history (~100 lines)
+1. **This file** (copilot-instructions.md) — orientation & conventions (~115 lines)
+2. **ARCHITECTURE.md** — compact architecture, APIs, module graph (~200 lines)
+3. **SOURCE_OF_TRUTH.md** — canonical ownership map (~140 lines)
+4. **MAINTENANCE.md** — update protocol, anti-drift rules (~360 lines)
+5. **TODO.md** — prioritised backlog P0→P3 (~200 lines)
+6. **GUIDE.md** — deep-dive reference, 19 sections (~2125 lines, use ARCHITECTURE.md §10 section index for navigation)
+7. **GUIDE2.md** — maintenance & tuning guide, 13 sections (~665 lines)
+8. **README.md** — onboarding, full endpoint table, quick-start (~665 lines)
+9. **CHANGELOG.md** — version history (~85 lines)
 
 ## Version
 

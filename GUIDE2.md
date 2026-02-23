@@ -886,47 +886,17 @@ POST /chat {"message": "...", "session_id": null}
 
 ## 13. Improvement Roadmap
 
-Prioritised by impact and effort:
+> **Canonical source**: See [TODO.md](TODO.md) for the full prioritised backlog
+> (P0-P3, 20 items, status tracking, completion log).
+>
+> This section previously duplicated the roadmap. It now cross-references
+> the single source of truth to avoid drift.
 
-### P0 — Must do before production
-
-| # | Item | Effort | Files |
-|---|------|--------|-------|
-| 1 | Wire LLM calls in `GenericAgent.execute()` | 2-3 days | `generic.py`, `config.py` |
-| 2 | ~~Fix `process()` / `_process_after_routing()` duplication~~ | ✅ Done | `engine.py` — commit `4d5128c` |
-| 3 | ~~Fix `_governance._budget_manager` encapsulation leak~~ | ✅ Done | `guardian.py`, `engine.py` — commit `4d5128c` |
-| 4 | ~~Count tokens once per dispatch (not 3x)~~ | ✅ Done | `engine.py` — commit `4d5128c` |
-| 5 | ~~Install tiktoken in dependencies~~ | ✅ Done | `pyproject.toml` — commit `4d5128c` |
-
-### P1 — Should do for maintainability
-
-| # | Item | Effort | Files |
-|---|------|--------|-------|
-| 6 | Extract `bootstrap()` into builder pattern | 2 hours | `main.py` |
-| 7 | Split `server.py` into route modules | 2 hours | `server.py` → `server/` |
-| 8 | Eliminate double ForgeLoader in bootstrap | 30 min | `main.py` |
-| 9 | ~~Add ConversationContext history limit~~ | ✅ Done | `context.py` — commit `4d5128c` |
-| 10 | ~~Move `ContextWindowExceededError` import to top~~ | ✅ Done | `engine.py` — commit `4d5128c` |
-
-### P2 — Should do for robustness
-
-| # | Item | Effort | Files |
-|---|------|--------|-------|
-| 11 | Add retry/circuit-breaker for LLM calls | 1 day | new `src/resilience.py` |
-| 12 | Add input sanitisation layer | 2 hours | new `src/sanitize.py`, `engine.py` |
-| 13 | Define SelectorProtocol ABC | 1 hour | new `src/orchestrator/protocols.py` |
-| 14 | Dynamic `python_class` import in manifests | 2 hours | `loader.py`, `main.py` |
-| 15 | Settings dependency injection (remove singleton) | 2 hours | `config.py`, all consumers |
-
-### P3 — Nice to have
-
-| # | Item | Effort | Files |
-|---|------|--------|-------|
-| 16 | Auto-generate `AgentType` enum from `_registry.yaml` | 1 hour | `router.py` |
-| 17 | Smart aggregation (dedup, conflict resolution) | 1 day | `engine.py` |
-| 18 | Summarize truncation strategy (LLM-based) | 1 day | `context_budget.py` |
-| 19 | Integration tests with real LLM | 2 days | new `tests/integration/` |
-| 20 | Agent health dashboards (Grafana/AppInsights) | 1 day | new `dashboards/` |
+**Quick status** (updated 2026-02-23):
+- **P0**: 4/5 done (remaining: P0-5 — wire LLM calls)
+- **P1**: 2/5 done
+- **P2**: 0/5
+- **P3**: 0/5
 
 ---
 

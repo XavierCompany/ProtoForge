@@ -2,7 +2,7 @@
 
 Packages
 --------
-agents        All subagents (BaseAgent ABC + 9 specialist implementations)
+agents        All agents (BaseAgent ABC + 8 implementations + GenericAgent for 2 more)
 forge         Declarative YAML ecosystem loader, token budget manager, contributions
 governance    Context window guardian + agent lifecycle HITL selector
 mcp           Model Context Protocol server (tools, resources, prompts)

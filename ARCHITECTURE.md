@@ -206,7 +206,7 @@ Settings are loaded from `.env` file. Access via `get_settings()` singleton.
 
 ## 10. LLM Documentation Reading Order
 
-ProtoForge has 9 documentation files totalling ~5 400 lines (~18 K tokens).
+ProtoForge has 9 documentation files totalling ~4 550 lines (~18 K tokens).
 Read **all of them** in the order below — each contains unique information not
 duplicated elsewhere and the total fits easily in modern context windows.
 
@@ -214,19 +214,19 @@ duplicated elsewhere and the total fits easily in modern context windows.
 
 | Order | Document | ~Lines | What it contains |
 |-------|----------|-------:|------------------|
-| 1 | `.github/copilot-instructions.md` | 140 | Orientation & coding conventions — **always read first** |
-| 2 | `ARCHITECTURE.md` (this file) | 260 | Compact architecture, APIs, common tasks, this reading order |
-| 3 | `SOURCE_OF_TRUTH.md` | 190 | Canonical ownership map — where every value is defined + its copies |
-| 4 | `MAINTENANCE.md` | 450 | Update protocol, anti-drift rules, validated module line counts |
-| 5 | `TODO.md` | 240 | Prioritised backlog P0→P3 with completion status |
-| 6 | `CHANGELOG.md` | 100 | Version history — what changed between releases |
-| 7 | `README.md` | 810 | Onboarding, full endpoint table, quick-start, project structure |
-| 8 | `GUIDE.md` | 2750 | Deep-dive developer reference — 19 sections (see navigation index below) |
-| 9 | `GUIDE2.md` | 940 | Maintenance & tuning guide — budget tuning, governance, debugging |
+| 1 | `.github/copilot-instructions.md` | 115 | Orientation & coding conventions — **always read first** |
+| 2 | `ARCHITECTURE.md` (this file) | 200 | Compact architecture, APIs, common tasks, this reading order |
+| 3 | `SOURCE_OF_TRUTH.md` | 140 | Canonical ownership map — where every value is defined + its copies |
+| 4 | `MAINTENANCE.md` | 360 | Update protocol, anti-drift rules, validated module line counts |
+| 5 | `TODO.md` | 200 | Prioritised backlog P0→P3 with completion status |
+| 6 | `CHANGELOG.md` | 85 | Version history — what changed between releases |
+| 7 | `README.md` | 665 | Onboarding, full endpoint table, quick-start, project structure |
+| 8 | `GUIDE.md` | 2125 | Deep-dive developer reference — 19 sections (see navigation index below) |
+| 9 | `GUIDE2.md` | 665 | Maintenance & tuning guide — budget tuning, governance, debugging |
 
 ### GUIDE.md Section Index (navigation aid)
 
-GUIDE.md is the largest doc at 2750 lines. Read it fully, but use this index
+GUIDE.md is the largest doc at ~2125 lines. Read it fully, but use this index
 to locate specific sections quickly:
 
 | § | Title | Lines | Covers |
