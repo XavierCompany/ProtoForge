@@ -1,17 +1,25 @@
-"""Knowledge Base Agent — documentation, RAG retrieval, how-to guides."""
+"""Knowledge Base Agent — documentation, RAG retrieval, how-to guides.
+
+Keeps ``add_knowledge_source()`` for registering retrieval backends.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from src.agents.base import BaseAgent
 from src.orchestrator.context import AgentResult, ConversationContext
 
+if TYPE_CHECKING:
+    from src.forge.loader import AgentManifest
+
 logger = structlog.get_logger(__name__)
 
-KB_SYSTEM_PROMPT = """You are the Knowledge Base Agent — an expert in documentation retrieval and knowledge management.
+_DEFAULT_KB_PROMPT = """\
+You are the Knowledge Base Agent \u2014 an expert in documentation \
+retrieval and knowledge management.
 
 Your responsibilities:
 1. Search internal documentation, wikis, and knowledge bases
@@ -31,11 +39,19 @@ Be comprehensive but concise. Cite sources. Distinguish between facts and infere
 
 
 class KnowledgeBaseAgent(BaseAgent):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        agent_id: str = "knowledge_base",
+        description: str = "Documentation retrieval, how-to guides, explanations, and knowledge queries",
+        system_prompt: str = _DEFAULT_KB_PROMPT,
+        *,
+        manifest: AgentManifest | None = None,
+    ) -> None:
         super().__init__(
-            agent_id="knowledge_base_agent",
-            description="Documentation retrieval, how-to guides, explanations, and knowledge queries",
-            system_prompt=KB_SYSTEM_PROMPT,
+            agent_id=agent_id,
+            description=description,
+            system_prompt=system_prompt,
+            manifest=manifest,
         )
         self._knowledge_sources: list[str] = []
 

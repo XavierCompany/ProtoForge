@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────
 # Log Analysis Agent — Specialist
 # ─────────────────────────────────────────────────────────────
-id: log_analysis_agent
+id: log_analysis
 name: Log Analysis Agent
 type: specialist
 description: >

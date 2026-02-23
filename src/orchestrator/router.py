@@ -1,15 +1,28 @@
-"""Intent classification and routing logic for the orchestrator."""
+"""Intent classification and routing logic for the orchestrator.
+
+The router maps incoming user messages to agent IDs (plain ``str`` values).
+The legacy :class:`AgentType` enum is kept for convenience and backward-
+compat — its members are valid ``str`` values thanks to :class:`~enum.StrEnum`.
+
+New agents can register routing patterns at runtime via
+:meth:`IntentRouter.register_patterns`, so adding a forge-contributed agent
+no longer requires editing this file.
+"""
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
 
 class AgentType(StrEnum):
-    """All available subagent types."""
+    """Well-known agent IDs shipped with ProtoForge.
+
+    Kept as a convenience — the router and engine operate on plain ``str``
+    IDs so that forge-contributed agents work without touching this enum.
+    """
 
     PLAN = "plan"
     LOG_ANALYSIS = "log_analysis"
@@ -24,15 +37,18 @@ class AgentType(StrEnum):
 class RoutingDecision:
     """Result of intent classification — which agent(s) to dispatch to."""
 
-    primary_agent: AgentType
-    secondary_agents: list[AgentType]
-    confidence: float
-    reasoning: str
-    extracted_params: dict[str, Any]
+    primary_agent: str
+    secondary_agents: list[str] = field(default_factory=list)
+    confidence: float = 0.5
+    reasoning: str = ""
+    extracted_params: dict[str, Any] = field(default_factory=dict)
 
 
-# Keyword-based fast routing (fallback when LLM routing is unavailable)
-KEYWORD_ROUTES: dict[AgentType, list[str]] = {
+# ── built-in keyword routes ────────────────────────────────────────────────
+# These ship with ProtoForge.  Additional patterns can be registered at
+# runtime via ``IntentRouter.register_patterns()``.
+
+_BUILTIN_KEYWORD_ROUTES: dict[str, list[str]] = {
     AgentType.PLAN: [
         r"\bplan\b", r"\bbreak\s*down\b", r"\bdecompose\b", r"\bstrategy\b",
         r"\bsteps?\b", r"\bapproach\b", r"\barchitect\b",
@@ -65,6 +81,9 @@ KEYWORD_ROUTES: dict[AgentType, list[str]] = {
     ],
 }
 
+# Default agent when nothing matches
+_DEFAULT_AGENT: str = AgentType.KNOWLEDGE_BASE
+
 
 class IntentRouter:
     """Routes user messages to the appropriate subagent(s).
@@ -72,29 +91,49 @@ class IntentRouter:
     Uses a two-tier approach:
     1. Fast keyword matching for obvious intents
     2. LLM-based classification for ambiguous queries
+
+    Use :meth:`register_patterns` to add routing keywords for new agents
+    discovered from forge manifests at bootstrap time.
     """
 
     def __init__(self) -> None:
-        self._compiled_patterns: dict[AgentType, list[re.Pattern[str]]] = {
-            agent: [re.compile(p, re.IGNORECASE) for p in patterns]
-            for agent, patterns in KEYWORD_ROUTES.items()
+        # str → compiled patterns; starts with built-ins, extended at runtime
+        self._compiled_patterns: dict[str, list[re.Pattern[str]]] = {
+            agent_id: [re.compile(p, re.IGNORECASE) for p in patterns]
+            for agent_id, patterns in _BUILTIN_KEYWORD_ROUTES.items()
         }
+
+    # ── public API ──────────────────────────────────────────────────────
+
+    def register_patterns(self, agent_id: str, patterns: list[str]) -> None:
+        """Register (or extend) keyword patterns for *agent_id*.
+
+        Called during bootstrap for every forge manifest that declares
+        routing keywords in its ``tags`` or ``skills`` metadata.
+        """
+        compiled = [re.compile(p, re.IGNORECASE) for p in patterns]
+        existing = self._compiled_patterns.get(agent_id, [])
+        self._compiled_patterns[agent_id] = existing + compiled
+
+    @property
+    def known_agent_ids(self) -> list[str]:
+        """All agent IDs that have at least one routing pattern."""
+        return list(self._compiled_patterns)
 
     def route_by_keywords(self, message: str) -> RoutingDecision:
         """Fast keyword-based routing (no LLM call needed)."""
-        scores: dict[AgentType, int] = {agent: 0 for agent in AgentType}
+        scores: dict[str, int] = {aid: 0 for aid in self._compiled_patterns}
 
-        for agent, patterns in self._compiled_patterns.items():
+        for agent_id, patterns in self._compiled_patterns.items():
             for pattern in patterns:
                 if pattern.search(message):
-                    scores[agent] += 1
+                    scores[agent_id] += 1
 
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
         if ranked[0][1] == 0:
-            # No keywords matched — default to knowledge base
             return RoutingDecision(
-                primary_agent=AgentType.KNOWLEDGE_BASE,
+                primary_agent=_DEFAULT_AGENT,
                 secondary_agents=[],
                 confidence=0.3,
                 reasoning="No keyword matches; defaulting to knowledge base",
@@ -105,19 +144,19 @@ class IntentRouter:
         total_score = sum(s for _, s in ranked if s > 0)
         confidence = min(primary[1] / max(total_score, 1), 1.0)
 
-        secondary = [agent for agent, score in ranked[1:3] if score > 0]
+        secondary = [agent_id for agent_id, score in ranked[1:3] if score > 0]
 
         return RoutingDecision(
             primary_agent=primary[0],
             secondary_agents=secondary,
             confidence=confidence,
-            reasoning=f"Keyword match: {primary[0].value} scored {primary[1]}/{total_score}",
+            reasoning=f"Keyword match: {primary[0]} scored {primary[1]}/{total_score}",
             extracted_params={},
         )
 
     def get_llm_routing_prompt(self, message: str) -> str:
         """Generate a prompt for LLM-based intent classification."""
-        agent_descriptions = {
+        agent_descriptions: dict[str, str] = {
             AgentType.PLAN: "Task planning, decomposition, strategy, architecture decisions",
             AgentType.LOG_ANALYSIS: "Log parsing, error analysis, stack traces, crash investigation",
             AgentType.CODE_RESEARCH: "Code search, function lookup, implementation understanding",
@@ -128,7 +167,7 @@ class IntentRouter:
         }
 
         agents_str = "\n".join(
-            f"  - {agent.value}: {desc}" for agent, desc in agent_descriptions.items()
+            f"  - {agent_id}: {desc}" for agent_id, desc in agent_descriptions.items()
         )
 
         return f"""Classify the user's intent and select the best agent to handle it.

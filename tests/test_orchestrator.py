@@ -2,20 +2,19 @@
 
 import pytest
 
-from src.agents.plan_agent import PlanAgent
-from src.agents.log_analysis_agent import LogAnalysisAgent
 from src.agents.knowledge_base_agent import KnowledgeBaseAgent
+from src.agents.log_analysis_agent import LogAnalysisAgent
+from src.agents.plan_agent import PlanAgent
 from src.orchestrator.context import ConversationContext, MessageRole
 from src.orchestrator.engine import OrchestratorEngine
-from src.orchestrator.router import AgentType
 
 
 @pytest.fixture
 def engine() -> OrchestratorEngine:
     engine = OrchestratorEngine()
-    engine.register_agent(AgentType.PLAN, PlanAgent())
-    engine.register_agent(AgentType.LOG_ANALYSIS, LogAnalysisAgent())
-    engine.register_agent(AgentType.KNOWLEDGE_BASE, KnowledgeBaseAgent())
+    engine.register_agent("plan", PlanAgent())
+    engine.register_agent("log_analysis", LogAnalysisAgent())
+    engine.register_agent("knowledge_base", KnowledgeBaseAgent())
     return engine
 
 

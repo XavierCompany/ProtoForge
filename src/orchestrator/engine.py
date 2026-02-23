@@ -1,4 +1,9 @@
-"""Core orchestration engine — Plan-first dispatch to subagents."""
+"""Core orchestration engine — Plan-first dispatch to subagents.
+
+All agent registration and dispatch now uses plain ``str`` agent IDs
+rather than the :class:`AgentType` enum, so forge-contributed agents
+work without touching the enum.
+"""
 
 from __future__ import annotations
 
@@ -31,14 +36,25 @@ class OrchestratorEngine:
 
     def __init__(self) -> None:
         self._router = IntentRouter()
-        self._agents: dict[AgentType, BaseAgent] = {}
+        self._agents: dict[str, BaseAgent] = {}
         self._context = ConversationContext()
         self._settings = get_settings()
 
-    def register_agent(self, agent_type: AgentType, agent: BaseAgent) -> None:
-        """Register a subagent for a specific agent type."""
-        self._agents[agent_type] = agent
-        logger.info("agent_registered", agent_type=agent_type.value, agent_id=agent.agent_id)
+    # ── agent registration ──────────────────────────────────────────────
+
+    def register_agent(self, agent_id: str, agent: BaseAgent) -> None:
+        """Register a subagent under a plain string ID.
+
+        Accepts both ``AgentType`` enum members and free-form strings so that
+        forge-contributed agents can be registered without touching the enum.
+        """
+        self._agents[str(agent_id)] = agent
+        logger.info("agent_registered", agent_id=str(agent_id), agent_class=type(agent).__name__)
+
+    @property
+    def router(self) -> IntentRouter:
+        """Expose the router so callers can ``register_patterns`` at bootstrap."""
+        return self._router
 
     @property
     def context(self) -> ConversationContext:
@@ -64,7 +80,7 @@ class OrchestratorEngine:
         routing = self._router.route_by_keywords(user_message)
         logger.info(
             "intent_routed",
-            primary=routing.primary_agent.value,
+            primary=routing.primary_agent,
             confidence=routing.confidence,
             reasoning=routing.reasoning,
         )
@@ -76,7 +92,7 @@ class OrchestratorEngine:
                 routing = llm_routing
                 logger.info(
                     "llm_routing_override",
-                    primary=routing.primary_agent.value,
+                    primary=routing.primary_agent,
                     confidence=routing.confidence,
                 )
 
@@ -92,7 +108,7 @@ class OrchestratorEngine:
         logger.info(
             "plan_first_dispatch",
             plan_agent="plan",
-            sub_agents=[a.value for a in sub_agents],
+            sub_agents=sub_agents,
         )
 
         # Step 5: Fan out to sub-agents in parallel
@@ -103,35 +119,33 @@ class OrchestratorEngine:
         # Step 6: Aggregate Plan + sub-agent results
         return self._aggregate(plan_result, sub_results)
 
-    def _resolve_sub_agents(self, routing: RoutingDecision) -> list[AgentType]:
+    def _resolve_sub_agents(self, routing: RoutingDecision) -> list[str]:
         """Build the list of sub-agents to invoke after the Plan Agent.
 
         Collects the primary + secondary agents from routing, removes PLAN
         (since it already ran), and deduplicates.
         """
-        candidates: list[AgentType] = []
+        candidates: list[str] = []
 
-        # Primary agent from routing (skip if it was PLAN — already executed)
         if routing.primary_agent != AgentType.PLAN:
             candidates.append(routing.primary_agent)
 
-        # Secondary agents from routing
-        for agent in routing.secondary_agents:
-            if agent != AgentType.PLAN and agent not in candidates:
-                candidates.append(agent)
+        for agent_id in routing.secondary_agents:
+            if agent_id != AgentType.PLAN and agent_id not in candidates:
+                candidates.append(agent_id)
 
         return candidates
 
     async def _dispatch(
-        self, agent_type: AgentType, message: str, routing: RoutingDecision
+        self, agent_id: str, message: str, routing: RoutingDecision,
     ) -> AgentResult:
-        """Dispatch to a single agent by type (the switch-case)."""
-        agent = self._agents.get(agent_type)
+        """Dispatch to a single agent by ID."""
+        agent = self._agents.get(str(agent_id))
         if not agent:
-            logger.warning("agent_not_found", agent_type=agent_type.value)
+            logger.warning("agent_not_found", agent_id=str(agent_id))
             return AgentResult(
-                agent_id=f"missing_{agent_type.value}",
-                content=f"No agent registered for type '{agent_type.value}'.",
+                agent_id=f"missing_{agent_id}",
+                content=f"No agent registered for type '{agent_id}'.",
                 confidence=0.0,
             )
 
@@ -159,25 +173,23 @@ class OrchestratorEngine:
 
     async def _fan_out(
         self,
-        agent_types: list[AgentType],
+        agent_ids: list[str],
         message: str,
         routing: RoutingDecision,
     ) -> list[AgentResult]:
         """Execute multiple secondary agents in parallel."""
-        tasks = [self._dispatch(at, message, routing) for at in agent_types]
+        tasks = [self._dispatch(aid, message, routing) for aid in agent_ids]
         return list(await asyncio.gather(*tasks, return_exceptions=False))
 
     async def _route_with_llm(self, message: str) -> RoutingDecision | None:
         """Use LLM for intent classification when keyword routing is uncertain."""
-        # This would call the LLM with the routing prompt
-        # For now, return None to use keyword routing as fallback
         prompt = self._router.get_llm_routing_prompt(message)
         logger.debug("llm_routing_requested", prompt_length=len(prompt))
         # TODO: Wire up to kernel.invoke() when LLM is configured
         return None
 
     def _aggregate(
-        self, plan_result: AgentResult, sub_results: list[AgentResult]
+        self, plan_result: AgentResult, sub_results: list[AgentResult],
     ) -> str:
         """Aggregate Plan Agent output with sub-agent results into a unified response."""
         parts = [f"**Plan:**\n{plan_result.content}"]
@@ -194,7 +206,7 @@ class OrchestratorEngine:
         """Return current orchestrator status for health checks."""
         return {
             "session_id": self._context.session_id,
-            "registered_agents": [at.value for at in self._agents],
+            "registered_agents": list(self._agents.keys()),
             "message_count": len(self._context.messages),
             "active_workflow": self._context.active_workflow,
             "provider": self._settings.llm.active_provider.value,

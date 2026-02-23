@@ -2,7 +2,7 @@
 
 Wires together:
 - Orchestrator engine with intent router
-- All 7 specialized subagents
+- All subagents (specialized + generic, built from forge manifests)
 - MCP server for skills distribution
 - Agent catalog for registry/discovery
 - Workflow engine for bundled workflows
@@ -19,17 +19,14 @@ import structlog
 import typer
 import uvicorn
 
-from src.agents import (
-    CodeResearchAgent,
-    DataAnalysisAgent,
-    KnowledgeBaseAgent,
-    LogAnalysisAgent,
-    PlanAgent,
-    RemediationAgent,
-    SecuritySentinelAgent,
-)
+from src.agents.generic import GenericAgent
+from src.agents.knowledge_base_agent import KnowledgeBaseAgent
+from src.agents.log_analysis_agent import LogAnalysisAgent
+from src.agents.plan_agent import PlanAgent
+from src.agents.remediation_agent import RemediationAgent
+from src.agents.security_sentinel_agent import SecuritySentinelAgent
 from src.config import get_settings
-from src.forge.loader import ForgeLoader
+from src.forge.loader import AgentManifest, ForgeLoader
 from src.mcp.server import MCPSkillServer
 from src.mcp.skills import SkillLoader
 from src.orchestrator.engine import OrchestratorEngine
@@ -41,6 +38,30 @@ from src.server import create_app
 logger = structlog.get_logger(__name__)
 
 cli_app = typer.Typer(name="protoforge", help="ProtoForge Multi-Agent Orchestrator")
+
+# ── Mapping from forge agent ID → specialised class ────────────────────────
+# If an agent has a custom subclass, use it.  Otherwise fall back to
+# GenericAgent whose behaviour is driven entirely by the forge manifest.
+_SPECIALISED_CLASSES: dict[str, type] = {
+    AgentType.PLAN: PlanAgent,
+    AgentType.LOG_ANALYSIS: LogAnalysisAgent,
+    AgentType.REMEDIATION: RemediationAgent,
+    AgentType.KNOWLEDGE_BASE: KnowledgeBaseAgent,
+    AgentType.SECURITY_SENTINEL: SecuritySentinelAgent,
+}
+
+
+def _create_agent_from_manifest(manifest: AgentManifest):
+    """Instantiate the right agent class for a forge manifest.
+
+    If the manifest's ``id`` matches a known specialised class, uses it
+    and passes the manifest through so the system prompt comes from
+    ``forge/``.  Otherwise falls back to :class:`GenericAgent`.
+    """
+    cls = _SPECIALISED_CLASSES.get(manifest.id)
+    if cls is not None:
+        return cls.from_manifest(manifest)
+    return GenericAgent.from_manifest(manifest)
 
 
 def bootstrap() -> tuple:
@@ -57,40 +78,40 @@ def bootstrap() -> tuple:
     # 1. Create orchestrator
     orchestrator = OrchestratorEngine()
 
-    # 2. Register all 7 subagents
-    agent_map: dict[AgentType, tuple] = {
-        AgentType.PLAN: (
-            PlanAgent(), "Plan Agent",
-            "Task planning and decomposition",
-        ),
-        AgentType.LOG_ANALYSIS: (
-            LogAnalysisAgent(), "Log Analysis Agent",
-            "Log parsing and error analysis",
-        ),
-        AgentType.CODE_RESEARCH: (
-            CodeResearchAgent(), "Code Research Agent",
-            "Code search and analysis",
-        ),
-        AgentType.REMEDIATION: (
-            RemediationAgent(), "Remediation Agent",
-            "Bug fixes and patches",
-        ),
-        AgentType.KNOWLEDGE_BASE: (
-            KnowledgeBaseAgent(), "Knowledge Base Agent",
-            "Documentation and knowledge retrieval",
-        ),
-        AgentType.DATA_ANALYSIS: (
-            DataAnalysisAgent(), "Data Analysis Agent",
-            "Data analysis and metrics",
-        ),
-        AgentType.SECURITY_SENTINEL: (
-            SecuritySentinelAgent(), "Security Sentinel Agent",
-            "Security scanning and audits",
-        ),
-    }
+    # 2. Register agents — prefer manifests, fall back to defaults
+    agent_descriptions: dict[str, tuple[str, str]] = {}  # id → (name, description)
 
-    for agent_type, (agent, _name, _desc) in agent_map.items():
-        orchestrator.register_agent(agent_type, agent)
+    # 2a. Coordinator (Plan Agent) from forge
+    if forge_registry.coordinator:
+        m = forge_registry.coordinator
+        agent = _create_agent_from_manifest(m)
+        orchestrator.register_agent(m.id, agent)
+        agent_descriptions[m.id] = (m.name, m.description)
+    else:
+        # Fallback: no forge manifest for plan
+        agent = PlanAgent()
+        orchestrator.register_agent(AgentType.PLAN, agent)
+        agent_descriptions[AgentType.PLAN] = ("Plan Agent", agent.description)
+
+    # 2b. Specialist agents from forge
+    for agent_id, manifest in forge_registry.agents.items():
+        agent = _create_agent_from_manifest(manifest)
+        orchestrator.register_agent(agent_id, agent)
+        agent_descriptions[agent_id] = (manifest.name, manifest.description)
+
+    # 2c. Ensure well-known agents exist even if forge/ doesn't list them
+    _default_agents: dict[str, tuple[type, str, str]] = {
+        AgentType.LOG_ANALYSIS: (LogAnalysisAgent, "Log Analysis Agent", "Log parsing and error analysis"),
+        AgentType.CODE_RESEARCH: (GenericAgent, "Code Research Agent", "Code search and analysis"),
+        AgentType.REMEDIATION: (RemediationAgent, "Remediation Agent", "Bug fixes and patches"),
+        AgentType.KNOWLEDGE_BASE: (KnowledgeBaseAgent, "Knowledge Base Agent", "Documentation and knowledge retrieval"),
+        AgentType.DATA_ANALYSIS: (GenericAgent, "Data Analysis Agent", "Data analysis and metrics"),
+        AgentType.SECURITY_SENTINEL: (SecuritySentinelAgent, "Security Sentinel Agent", "Security scanning and audits"),
+    }
+    for aid, (cls, name, desc) in _default_agents.items():
+        if aid not in agent_descriptions:
+            orchestrator.register_agent(aid, cls(agent_id=aid, description=desc))
+            agent_descriptions[aid] = (name, desc)
 
     # 3. Load skills from forge/ ecosystem + legacy skills/ dir
     skills_dir = Path(settings.mcp.skills_dir)
@@ -118,13 +139,13 @@ def bootstrap() -> tuple:
 
     # 4. Create agent catalog
     catalog = AgentCatalog(storage_path=settings.registry_path)
-    for agent_type, (_agent, name, desc) in agent_map.items():
+    for agent_id, (name, desc) in agent_descriptions.items():
         catalog.register_agent(AgentRegistration(
-            agent_type=agent_type.value,
+            agent_type=agent_id,
             name=name,
             description=desc,
-            skills=[s.name for s in skills if s.agent_type == agent_type.value],
-            tags=[agent_type.value],
+            skills=[s.name for s in skills if s.agent_type == agent_id],
+            tags=[agent_id],
         ))
     catalog.populate_from_skills(skills)
 
@@ -150,7 +171,7 @@ def bootstrap() -> tuple:
 
     logger.info(
         "protoforge_bootstrapped",
-        agents=len(agent_map),
+        agents=len(agent_descriptions),
         skills=len(skills),
         workflows=len(workflow_engine.list_workflows()),
         forge_agents=len(forge_registry.agents) + (1 if forge_registry.coordinator else 0),

@@ -1,17 +1,24 @@
-"""Remediation Agent — fix suggestions, patches, and auto-remediation."""
+"""Remediation Agent — fix suggestions, patches, and auto-remediation.
+
+Keeps prior-context awareness: checks for results from log_analysis and
+code_research agents before generating fixes.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from src.agents.base import BaseAgent
 from src.orchestrator.context import AgentResult, ConversationContext
 
+if TYPE_CHECKING:
+    from src.forge.loader import AgentManifest
+
 logger = structlog.get_logger(__name__)
 
-REMEDIATION_SYSTEM_PROMPT = """You are the Remediation Agent — an expert in diagnosing issues and generating fixes.
+_DEFAULT_REMEDIATION_PROMPT = """You are the Remediation Agent — an expert in diagnosing issues and generating fixes.
 
 Your responsibilities:
 1. Analyze errors and propose concrete fixes
@@ -32,11 +39,19 @@ Always provide code diffs. Explain WHY the fix works. Consider edge cases."""
 
 
 class RemediationAgent(BaseAgent):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        agent_id: str = "remediation",
+        description: str = "Bug fixes, patches, hotfixes, workarounds, and resolution steps",
+        system_prompt: str = _DEFAULT_REMEDIATION_PROMPT,
+        *,
+        manifest: AgentManifest | None = None,
+    ) -> None:
         super().__init__(
-            agent_id="remediation_agent",
-            description="Bug fixes, patches, hotfixes, workarounds, and resolution steps",
-            system_prompt=REMEDIATION_SYSTEM_PROMPT,
+            agent_id=agent_id,
+            description=description,
+            system_prompt=system_prompt,
+            manifest=manifest,
         )
 
     async def execute(
@@ -50,7 +65,7 @@ class RemediationAgent(BaseAgent):
         # Check if there's prior analysis from log_analysis or code_research
         prior_results = [
             r for r in context.agent_results
-            if r.agent_id in ("log_analysis_agent", "code_research_agent")
+            if r.agent_id in ("log_analysis", "code_research")
         ]
 
         self._build_messages(message, context)

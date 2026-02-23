@@ -4,20 +4,28 @@ The Plan Agent is always invoked first for every user message. It:
 1. Analyzes the request and produces a strategic plan
 2. Identifies which sub-agents should be invoked
 3. Provides structured context that downstream sub-agents can reference
+
+When a forge ``AgentManifest`` is provided (the preferred path), the system
+prompt is read from ``forge/plan/prompts/system.md`` — keeping the
+declarative YAML as the single source of truth.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from src.agents.base import BaseAgent
 from src.orchestrator.context import AgentResult, ConversationContext
 
+if TYPE_CHECKING:
+    from src.forge.loader import AgentManifest
+
 logger = structlog.get_logger(__name__)
 
-PLAN_SYSTEM_PROMPT = """You are the Plan Agent — the top-level coordinator in a multi-agent system.
+# Fallback prompt used only when no forge manifest is available (e.g. tests)
+_DEFAULT_PLAN_PROMPT = """You are the Plan Agent — the top-level coordinator in a multi-agent system.
 
 You are ALWAYS invoked FIRST for every user request. Your job is to:
 
@@ -42,21 +50,29 @@ Output format:
 
 Always be specific and actionable. Avoid vague recommendations."""
 
-# Sub-agent types the Plan Agent can recommend (everything except itself)
-SUB_AGENT_TYPES = [
-    "log_analysis", "code_research", "remediation",
-    "knowledge_base", "data_analysis", "security_sentinel",
-]
-
 
 class PlanAgent(BaseAgent):
-    """Top-level planning agent — always runs first in the orchestration pipeline."""
+    """Top-level planning agent — always runs first in the orchestration pipeline.
 
-    def __init__(self) -> None:
+    Can be created two ways:
+
+    * ``PlanAgent()`` — uses the built-in fallback prompt (tests, legacy).
+    * ``PlanAgent.from_manifest(manifest)`` — reads prompt from forge/.
+    """
+
+    def __init__(
+        self,
+        agent_id: str = "plan",
+        description: str = "Top-level coordinator: analyzes requests, produces plans, and identifies sub-agents",
+        system_prompt: str = _DEFAULT_PLAN_PROMPT,
+        *,
+        manifest: AgentManifest | None = None,
+    ) -> None:
         super().__init__(
-            agent_id="plan_agent",
-            description="Top-level coordinator: analyzes requests, produces plans, and identifies sub-agents",
-            system_prompt=PLAN_SYSTEM_PROMPT,
+            agent_id=agent_id,
+            description=description,
+            system_prompt=system_prompt,
+            manifest=manifest,
         )
 
     async def execute(

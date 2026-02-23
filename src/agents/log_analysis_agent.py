@@ -1,18 +1,26 @@
-"""Log Analysis Agent — log parsing, error analysis, and crash investigation."""
+"""Log Analysis Agent — log parsing, error analysis, and crash investigation.
+
+Keeps a lightweight ``_detect_patterns()`` helper that performs fast regex
+checks before handing off to the LLM.  System prompt is sourced from the
+forge manifest when available.
+"""
 
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from src.agents.base import BaseAgent
 from src.orchestrator.context import AgentResult, ConversationContext
 
+if TYPE_CHECKING:
+    from src.forge.loader import AgentManifest
+
 logger = structlog.get_logger(__name__)
 
-LOG_ANALYSIS_SYSTEM_PROMPT = """
+_DEFAULT_LOG_PROMPT = """
 You are the Log Analysis Agent — an expert in parsing, analyzing,
 and diagnosing application logs.
 
@@ -34,11 +42,19 @@ Be precise. Quote exact log lines. Identify patterns statistically when possible
 
 
 class LogAnalysisAgent(BaseAgent):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        agent_id: str = "log_analysis",
+        description: str = "Log parsing, error analysis, stack traces, and crash investigation",
+        system_prompt: str = _DEFAULT_LOG_PROMPT,
+        *,
+        manifest: AgentManifest | None = None,
+    ) -> None:
         super().__init__(
-            agent_id="log_analysis_agent",
-            description="Log parsing, error analysis, stack traces, and crash investigation",
-            system_prompt=LOG_ANALYSIS_SYSTEM_PROMPT,
+            agent_id=agent_id,
+            description=description,
+            system_prompt=system_prompt,
+            manifest=manifest,
         )
 
     async def execute(

@@ -1,17 +1,24 @@
-"""Security Sentinel Agent — vulnerability scanning, CVE lookup, and security audits."""
+"""Security Sentinel Agent — vulnerability scanning, CVE lookup, and security audits.
+
+Keeps ``_classify_security_concern()`` for fast categorisation before LLM.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from src.agents.base import BaseAgent
 from src.orchestrator.context import AgentResult, ConversationContext
 
+if TYPE_CHECKING:
+    from src.forge.loader import AgentManifest
+
 logger = structlog.get_logger(__name__)
 
-SECURITY_SYSTEM_PROMPT = """
+_DEFAULT_SECURITY_PROMPT = """
 You are the Security Sentinel Agent — an expert in application security,
 vulnerability assessment, and threat analysis.
 
@@ -34,11 +41,19 @@ Be thorough but avoid false positives. Prioritize by actual risk, not theoretica
 
 
 class SecuritySentinelAgent(BaseAgent):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        agent_id: str = "security_sentinel",
+        description: str = "Security scanning, vulnerability assessment, CVE lookup, and compliance audits",
+        system_prompt: str = _DEFAULT_SECURITY_PROMPT,
+        *,
+        manifest: AgentManifest | None = None,
+    ) -> None:
         super().__init__(
-            agent_id="security_sentinel_agent",
-            description="Security scanning, vulnerability assessment, CVE lookup, and compliance audits",
-            system_prompt=SECURITY_SYSTEM_PROMPT,
+            agent_id=agent_id,
+            description=description,
+            system_prompt=system_prompt,
+            manifest=manifest,
         )
 
     async def execute(
@@ -75,8 +90,6 @@ class SecuritySentinelAgent(BaseAgent):
 
     def _classify_security_concern(self, text: str) -> list[str]:
         """Classify the security concern into categories."""
-        import re
-
         categories: list[str] = []
         checks = {
             "Injection": r"(?i)(inject|sql|xss|command\s*inject)",

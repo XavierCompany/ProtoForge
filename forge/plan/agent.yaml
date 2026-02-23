@@ -3,7 +3,7 @@
 # Always invoked FIRST for every user request.
 # Analyzes, strategizes, decomposes, and identifies sub-agents.
 # ─────────────────────────────────────────────────────────────
-id: plan_agent
+id: plan
 name: Plan Agent
 type: coordinator          # coordinator | specialist
 description: >
