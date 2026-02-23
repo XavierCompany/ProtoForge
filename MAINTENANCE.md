@@ -1,6 +1,16 @@
 # ProtoForge — Maintenance & Versioning Guide
 
-> **Validated against codebase commit `2487ccc` on 2025-07-25.**
+> **TL;DR for LLMs**: Codebase-validated maintenance guide (442 lines / 9 sections).
+> Covers: document hierarchy, update protocol, versioning, architecture layers
+> (verified module map with line counts), common maintenance tasks, anti-drift rules.
+>
+> **Read this doc when**: maintaining code, following the update protocol,
+> verifying architecture claims, or checking the anti-drift rules.
+>
+> **Start with** [ARCHITECTURE.md](ARCHITECTURE.md) for the compact overview first.
+> **See also**: [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md) for canonical ownership.
+
+> **Validated against codebase commit `72d25e8` on 2026-02-23.**
 > Every claim in this document was verified by scanning the actual source files.
 > Where a number or path is cited, the corresponding file and line range are noted.
 
@@ -8,14 +18,17 @@
 
 ## 1. Document Hierarchy — What Lives Where
 
-ProtoForge uses six documentation files plus one new maintenance guide.
-Each has a clear scope; update the right file for the right change.
+ProtoForge uses nine documentation files with progressive disclosure.
+LLMs should start with `copilot-instructions.md` → `ARCHITECTURE.md`, then
+read deeper docs only when the task requires it.
 
 | Document             | Purpose                                          | When to Update                                       |
 |----------------------|--------------------------------------------------|------------------------------------------------------|
+| `copilot-instructions.md` | LLM first-read orientation (~120 lines)     | Agent identity, directory map, coding conventions    |
+| `ARCHITECTURE.md`    | Compact architecture reference (~220 lines)      | Module graph, APIs, HITL patterns, common tasks      |
 | `SOURCE_OF_TRUTH.md` | Architectural ownership map (§1–§9)              | Structural changes (new agent, new layer, new YAML)  |
 | `GUIDE.md`           | Implementation deep-dives (§1–§19, ~2 700 lines) | New features, enrichment sources, pipeline changes   |
-| `GUIDE2.md`          | DE critique / backlog (§1–§4)                    | When critique items are completed or new ones found  |
+| `GUIDE2.md`          | DE critique / tuning guide (§1–§13)              | When critique items are completed or new ones found  |
 | `README.md`          | Onboarding, quick-start, project overview        | Dependency changes, CLI changes, new endpoints       |
 | `CHANGELOG.md`       | Version history (Keep a Changelog format)        | Every commit to `master`                             |
 | `TODO.md`            | Prioritised backlog (P0→P3)                      | When items are completed or new work is identified   |
@@ -43,7 +56,7 @@ CHANGELOG / TODO structure.
    ```powershell
    .venv\Scripts\python.exe -m pytest -q --tb=short
    ```
-   *Current: 333 tests passing in ≈12 s (verified).*
+   *Current: 363 tests passing in ≈12 s (verified).*
 
 2. Keep commits atomic — one logical change per commit.
 
@@ -96,7 +109,7 @@ The API is not yet stable.
 
 ## 4. Architecture Layers — Verified Map
 
-The following is verified against actual source files as of commit `2487ccc`.
+The following is verified against actual source files as of commit `72d25e8`.
 
 ### 4.1 Request Flow
 
@@ -122,20 +135,20 @@ _process_after_routing()              ← src/orchestrator/engine.py L248
 
 | Module                           | Lines | Purpose                                            |
 |----------------------------------|------:|-----------------------------------------------------|
-| `src/orchestrator/engine.py`     |   632 | Core pipeline: process → dispatch → fan-out → aggregate |
-| `src/orchestrator/router.py`     |   400 | Keyword + LLM routing, WorkIQ-enriched routing      |
-| `src/orchestrator/context.py`    |    82 | `ConversationContext`, `AgentResult`, `Message`      |
-| `src/orchestrator/plan_selector.py` | 375 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B)       |
-| `src/agents/base.py`            |   116 | `BaseAgent` ABC, `from_manifest()`, `_build_messages()` |
-| `src/agents/generic.py`         |    66 | `GenericAgent` — manifest-driven, placeholder execute |
-| `src/governance/guardian.py`     |   478 | `GovernanceGuardian`: context window + skill cap + architectural audit |
-| `src/governance/selector.py`    |   307 | HITL gate for governance alerts                      |
-| `src/forge/loader.py`           |   277 | `ForgeLoader`: walks `forge/`, builds `ForgeRegistry` |
-| `src/forge/context_budget.py`   |   193 | `ContextBudgetManager`: allocate, truncate, fits_budget |
-| `src/forge/contributions.py`    |   259 | `ContributionManager`: CRUD for contrib/ with audit  |
-| `src/config.py`                 |   131 | `Settings`: LLM, Server, MCP, Forge, Observability  |
-| `src/main.py`                   |   360 | Bootstrap, CLI (serve / chat / status)               |
-| `src/server.py`                 |   800+ | FastAPI app: 28 HTTP endpoints + inspector dashboard |
+| `src/orchestrator/engine.py`     |   644 | Core pipeline: process → dispatch → fan-out → aggregate |
+| `src/orchestrator/router.py`     |   353 | Keyword + LLM routing, WorkIQ-enriched routing      |
+| `src/orchestrator/context.py`    |    58 | `ConversationContext`, `AgentResult`, `Message`      |
+| `src/orchestrator/plan_selector.py` | 310 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B)       |
+| `src/agents/base.py`            |    96 | `BaseAgent` ABC, `from_manifest()`, `_build_messages()` |
+| `src/agents/generic.py`         |    50 | `GenericAgent` — manifest-driven, placeholder execute |
+| `src/governance/guardian.py`     |   386 | `GovernanceGuardian`: context window + skill cap + architectural audit |
+| `src/governance/selector.py`    |   365 | HITL gate for governance alerts + agent lifecycle    |
+| `src/forge/loader.py`           |   227 | `ForgeLoader`: walks `forge/`, builds `ForgeRegistry` |
+| `src/forge/context_budget.py`   |   172 | `ContextBudgetManager`: allocate, truncate, fits_budget |
+| `src/forge/contributions.py`    |   201 | `ContributionManager`: CRUD for contrib/ with audit  |
+| `src/config.py`                 |    88 | `Settings`: LLM, Server, MCP, Forge, Observability  |
+| `src/main.py`                   |   303 | Bootstrap, CLI (serve / chat / status)               |
+| `src/server.py`                 |   866 | FastAPI app: 35 HTTP endpoints + inspector dashboard |
 | `src/mcp/`                      |     — | MCP protocol, skill server, skill loader             |
 | `src/workiq/`                   |     — | WorkIQ CLI client + HITL selector                    |
 | `src/registry/`                 |     — | `AgentCatalog`, `WorkflowEngine`                     |
@@ -419,12 +432,12 @@ The following claims were verified against the actual codebase:
 | 19 | Budget: allocate → fits_budget → truncate pipeline | `context_budget.py` | ✅ |
 | 20 | tiktoken in `pyproject.toml` dependencies | `pyproject.toml` L28 | ✅ |
 | 21 | Version `0.1.1` | `pyproject.toml` L3 | ✅ |
-| 22 | 28 HTTP endpoints in `server.py` | `server.py` (grep count) | ✅ |
+| 22 | 35 HTTP endpoints in `server.py` | `server.py` (grep count) | ✅ |
 | 23 | ForgeLoader loads: context_config → coordinator → agents → shared → contrib | `loader.py` L93–101 | ✅ |
 | 24 | ForgeLoader instantiated twice in `bootstrap()` | `main.py` ~L87, ~L110 | ✅ |
 | 25 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B) | `plan_selector.py`, `engine.py` L322–400 | ✅ |
 | 26 | GovernanceSelector: ContextWindowReview + SkillCapReview | `selector.py` L41–59 | ✅ |
-| 27 | 333 tests passing | `pytest --tb=no` output | ✅ |
+| 27 | 363 tests passing | `pytest --tb=no` output | ✅ |
 | 28 | Plan budget = 32K, Sub-Plan = 20K, Specialist = 22K | agent.yaml files | ✅ |
 | 29 | Worst-case = 126K (with 8K reserve) ≤ 128K cap | Calculated from YAML | ✅ |
 | 30 | `AgentLifecycleReview` dataclass in `GovernanceSelector` | `selector.py` | ✅ |

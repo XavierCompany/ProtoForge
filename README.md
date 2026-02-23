@@ -1,5 +1,15 @@
 # ProtoForge — Multi-Agent Orchestrator
 
+> **TL;DR for LLMs**: Onboarding & API reference (805 lines).
+> Contains: architecture diagram, agent table, quick-start, full endpoint table,
+> WorkIQ integration guide, project structure.
+>
+> **Read this doc when**: onboarding new developers, checking API endpoints,
+> or reviewing the project structure.
+>
+> **Start with** [.github/copilot-instructions.md](.github/copilot-instructions.md)
+> → [ARCHITECTURE.md](ARCHITECTURE.md) for a compact overview first.
+
 A production-ready multi-agent orchestrator built on the [Microsoft Agent Framework (Python)](https://learn.microsoft.com/en-us/agent-framework/overview/?pivots=programming-language-python) with a declarative `forge/` agent ecosystem, MCP skills distribution, context window management, dynamic contributions, and platform-agnostic LLM support.
 
 ## Architecture
@@ -654,7 +664,7 @@ workiq --version
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (333 tests)
+# Run tests (363 tests)
 pytest
 
 # Run with coverage

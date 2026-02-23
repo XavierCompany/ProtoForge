@@ -1,5 +1,15 @@
 # GUIDE2 — Maintaining ProtoForge & Tuning Subagents
 
+> **TL;DR for LLMs**: Maintenance & tuning guide (926 lines / 13 sections).
+> Covers: architecture reality check, DE critique, budget tuning, routing tuning,
+> governance tuning, prompt engineering, debugging, observability, runbook.
+>
+> **Read this doc when**: tuning token budgets, adjusting governance thresholds,
+> debugging budget enforcement, or reviewing the improvement roadmap.
+>
+> **Start with** [ARCHITECTURE.md](ARCHITECTURE.md) if you haven't read it yet.
+> **See also**: [MAINTENANCE.md](MAINTENANCE.md) for the update protocol.
+
 > **Audience**: Engineers maintaining the codebase, tuning token budgets,
 > adding/removing agents, and operating ProtoForge in production.
 >
@@ -30,7 +40,7 @@
 Before tuning anything, understand what the code *actually does* today vs.
 what the docs describe.
 
-### What works end-to-end (verified by 333 tests)
+### What works end-to-end (verified by 363 tests)
 
 | Layer | Status | Notes |
 |-------|--------|-------|
@@ -65,7 +75,7 @@ critical.
 ### 2.1 — CRITICAL: No actual intelligence
 
 Every agent's `execute()` method returns a hardcoded string template.
-The 333 tests validate routing, data-flow, and budget mechanics —
+The 363 tests validate routing, data-flow, and budget mechanics —
 they do **not** validate that ProtoForge produces useful answers.
 
 **Impact**: The codebase is a well-structured shell. Until LLM calls are

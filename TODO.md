@@ -1,5 +1,12 @@
 # TODO — ProtoForge Backlog
 
+> **TL;DR for LLMs**: Prioritised backlog (232 lines).
+> P0: 5 items (4 done, 1 remaining — LLM wiring).
+> P1: 5 items (2 done, 3 remaining). P2: 5 items. P3: 5 items.
+>
+> **Read this doc when**: planning what to work on next.
+> **See also**: [ARCHITECTURE.md](ARCHITECTURE.md) for system overview.
+
 > **Source**: Derived from [GUIDE2.md §13 — Improvement Roadmap](GUIDE2.md#13-improvement-roadmap)
 > **Tracking**: Update status here. Record completions in [CHANGELOG.md](CHANGELOG.md).
 > **Canonical ownership**: See [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md) for where things live.

@@ -201,3 +201,52 @@ Settings are loaded from `.env` file. Access via `get_settings()` singleton.
 | Add a HITL gate | Follow pattern in `src/governance/selector.py` or `src/orchestrator/plan_selector.py` |
 | Add a skill | `forge/agents/<id>/skills/<name>.yaml` |
 | Change routing | `src/orchestrator/router.py` — add keyword patterns to `AgentType` |
+
+---
+
+## 10. LLM Documentation Reading Order
+
+ProtoForge documentation uses **progressive disclosure** — start small, go
+deeper only when the task requires it. Every doc has a TL;DR header at the
+top so an LLM can decide whether to read further.
+
+### Reading order (start → detail)
+
+| Order | Document | ~Lines | When to read |
+|-------|----------|-------:|--------------|
+| 1 | `.github/copilot-instructions.md` | 120 | **Always** — first-read orientation for any LLM session |
+| 2 | `ARCHITECTURE.md` (this file) | 220 | **Always** — compact architecture, APIs, common tasks |
+| 3 | `SOURCE_OF_TRUTH.md` | 186 | When changing agent identity, budgets, routing, or prompts — canonical ownership map |
+| 4 | `MAINTENANCE.md` | 442 | When maintaining code — update protocol, anti-drift rules, validated reference |
+| 5 | `TODO.md` | 232 | When planning work — prioritised backlog (P0→P3) |
+| 6 | `CHANGELOG.md` | 97 | When reviewing history — version-by-version changes |
+| 7 | `README.md` | 805 | When onboarding or checking API endpoints — full endpoint table, quick-start |
+| 8 | `GUIDE.md` | 2751 | **Selectively by section** — deep-dive reference (see section index below) |
+| 9 | `GUIDE2.md` | 926 | When tuning budgets, governance, routing, or debugging — maintenance & tuning guide |
+
+### GUIDE.md Section Index (read selectively)
+
+GUIDE.md is 2751 lines — **do not read it all at once**. Use this index to
+jump to the section you need:
+
+| § | Title | Lines | Read when you need to… |
+|---|-------|------:|------------------------|
+| 1 | Why This Architecture? | ~53 | Understand the plan-first rationale |
+| 2 | Plan-First Design | ~98 | Understand engine.py pipeline flow |
+| 3 | Architecture Design & Flow | ~105 | See the full pipeline diagram |
+| 4 | Context Window Management | ~243 | Adjust token budgets or understand truncation |
+| 5 | Splitting Tasks | ~115 | Decide: agent vs skill vs sub-agent |
+| 6 | Governance Guardian | ~136 | Understand enforcement pillars |
+| 7 | The Forge Ecosystem | ~154 | Work with forge/ YAML manifests |
+| 8 | Agent Registry / Catalog | ~158 | Manage agent registration and skills |
+| 9 | Expanding Plan Agent | ~91 | Enhance the coordinator agent |
+| 10 | Expanding Sub-Agent | ~156 | Add capabilities to specialist agents |
+| 11 | Adding a Brand-New Agent | ~247 | Step-by-step new agent creation |
+| 12 | Adding Skills & Workflows | ~63 | Add YAML skill/workflow definitions |
+| 13 | Dynamic Contributions | ~67 | Runtime CRUD for skills/agents |
+| 14 | Sub-Plan Agent | ~130 | Dual HITL resource planning pipeline |
+| 15 | WorkIQ Integration | ~294 | M365 enrichment, 2-phase HITL |
+| 16 | GitHub Copilot CLI | ~45 | Dev workflow with Copilot |
+| 17 | Multi-Model Code Review | ~246 | Run multiple LLMs in parallel for review |
+| 18 | Architecture Decision Records | ~95 | Historical design decisions (13 ADRs) |
+| 19 | Pre-Router Enrichment Source | ~216 | Add new data sources (Jira, Slack, etc.) |

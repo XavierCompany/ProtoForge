@@ -114,6 +114,20 @@ tests/
 Agent identity defined in 4 places — canonical is `forge/agents/<id>/agent.yaml`.
 See SOURCE_OF_TRUTH.md for the full ownership map.
 
+## Documentation Reading Order
+
+Every doc has a TL;DR header. Read progressively — stop when you have enough context.
+
+1. **This file** (copilot-instructions.md) — always read first (~120 lines)
+2. **ARCHITECTURE.md** — compact architecture, APIs, module graph (~220 lines)
+3. **SOURCE_OF_TRUTH.md** — canonical ownership map (when changing agents, budgets, routing)
+4. **MAINTENANCE.md** — update protocol, anti-drift rules (when maintaining code)
+5. **TODO.md** — prioritised backlog P0→P3 (when planning work)
+6. **GUIDE.md** — deep-dive reference, **read selectively by section** (see ARCHITECTURE.md §10 for section index)
+7. **GUIDE2.md** — maintenance & tuning guide (when tuning budgets, governance, routing)
+8. **README.md** — onboarding, full endpoint table, quick-start
+9. **CHANGELOG.md** — version history
+
 ## Version
 
 Current: `0.1.1` — defined in `pyproject.toml` (canonical), mirrored in

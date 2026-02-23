@@ -1,5 +1,13 @@
 # ProtoForge — Developer Guide
 
+> **TL;DR for LLMs**: Deep-dive reference (2751 lines / 19 sections).
+> **Do NOT read this entire file.** Use the section index in
+> [ARCHITECTURE.md §10](ARCHITECTURE.md#10-llm-documentation-reading-order)
+> to jump to the specific section you need.
+>
+> Start with [.github/copilot-instructions.md](.github/copilot-instructions.md)
+> → [ARCHITECTURE.md](ARCHITECTURE.md) instead if you haven't read them yet.
+
 A comprehensive guide covering architecture rationale, extending agent capabilities, and leveraging GitHub Copilot CLI for AI-powered code review workflows.
 
 ---
