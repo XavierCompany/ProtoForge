@@ -143,7 +143,7 @@ instructions:
 
 Token budgets are centrally configured in `forge/_context_window.yaml` and enforced by the `ContextBudgetManager`:
 
-- **Global budget:** 32K tokens per orchestration run (12K reserved for Plan, 4K for aggregation)
+- **Global budget:** 128K tokens per orchestration run (12K reserved for Plan, 4K for aggregation)
 - **Per-agent budgets:** Defined in each `agent.yaml` or defaults by type (specialist: 6K/3K, coordinator: 8K/4K)
 - **Strategies:** `priority` (keep highest-priority content), `sliding_window` (keep most recent), `summarize` (LLM-compress)
 - **Token counting:** tiktoken (`cl100k_base`) with character-estimate fallback

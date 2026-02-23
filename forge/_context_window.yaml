@@ -5,7 +5,7 @@ version: "1.0.0"
 
 # Global budget for a single orchestration run
 global:
-  max_total_tokens: 32000       # total across all agents in one run
+  max_total_tokens: 128000      # total across all agents in one run
   reserve_for_plan: 12000       # guaranteed allocation for Plan Agent
   reserve_for_aggregation: 4000 # held back for final aggregation step
 

@@ -1237,7 +1237,7 @@ gh copilot explain "What does this regex match: \bfix\s.*\b(?:error|exception|bu
 **Status:** Accepted  
 **Context:** LLM context windows are finite and expensive. Without management, agents could consume unbounded tokens  
 **Decision:** Centralized `ContextBudgetManager` with per-agent budgets (defined in `agent.yaml` or `_context_window.yaml` defaults), three truncation strategies (priority, sliding_window, summarize), and tiktoken-based counting  
-**Consequences:** Predictable token usage per orchestration run. Global budget (32K) can be tuned. Dynamic rebalancing redistributes unused allocation. Requires tiktoken as optional dependency  
+**Consequences:** Predictable token usage per orchestration run. Global budget (128K) can be tuned. Dynamic rebalancing redistributes unused allocation. Requires tiktoken as optional dependency  
 
 ### ADR-008: Dynamic Contribution System with Audit Trail
 

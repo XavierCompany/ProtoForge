@@ -99,7 +99,7 @@ def forge_dir(tmp_path: Path) -> Path:
     # Context window config
     (forge / "_context_window.yaml").write_text(yaml.dump({
         "version": "1.0.0",
-        "global": {"max_total_tokens": 32000},
+        "global": {"max_total_tokens": 128000},
         "defaults": {
             "specialist": {"max_input_tokens": 6000, "max_output_tokens": 3000, "strategy": "priority"},
             "coordinator": {"max_input_tokens": 8000, "max_output_tokens": 4000, "strategy": "priority"},
@@ -173,7 +173,7 @@ class TestForgeLoader:
     def test_load_context_config(self, forge_dir: Path) -> None:
         loader = ForgeLoader(forge_dir)
         registry = loader.load()
-        assert registry.context_config.get("global", {}).get("max_total_tokens") == 32000
+        assert registry.context_config.get("global", {}).get("max_total_tokens") == 128000
 
     def test_list_agent_ids(self, forge_dir: Path) -> None:
         loader = ForgeLoader(forge_dir)
