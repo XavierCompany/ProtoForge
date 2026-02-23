@@ -108,12 +108,14 @@ class WorkIQSelector:
         for idx, section in enumerate(result.sections):
             preview = section[:120] + ("…" if len(section) > 120 else "")
             source = result.sources[idx] if idx < len(result.sources) else ""
-            options.append(SelectionOption(
-                index=idx,
-                preview=preview,
-                full_content=section,
-                source=source,
-            ))
+            options.append(
+                SelectionOption(
+                    index=idx,
+                    preview=preview,
+                    full_content=section,
+                    source=source,
+                )
+            )
 
         req = SelectionRequest(
             request_id=request_id,
@@ -187,11 +189,7 @@ class WorkIQSelector:
         if not req.resolved:
             return ""
 
-        parts = [
-            req.options[i].full_content
-            for i in req.selected_indices
-            if 0 <= i < len(req.options)
-        ]
+        parts = [req.options[i].full_content for i in req.selected_indices if 0 <= i < len(req.options)]
         return "\n\n".join(parts)
 
     # ── Inspection ──────────────────────────────────────────────────────
@@ -255,9 +253,7 @@ class WorkIQSelector:
         )
         return req
 
-    def resolve_routing_hints(
-        self, request_id: str, accepted_indices: list[int]
-    ) -> bool:
+    def resolve_routing_hints(self, request_id: str, accepted_indices: list[int]) -> bool:
         """User has chosen which routing hints to accept."""
         req = self._pending_hints.get(request_id)
         if not req:
@@ -279,9 +275,7 @@ class WorkIQSelector:
         )
         return True
 
-    async def wait_for_routing_hints(
-        self, request_id: str
-    ) -> RoutingHintRequest:
+    async def wait_for_routing_hints(self, request_id: str) -> RoutingHintRequest:
         """Wait until the user resolves the hint selection (or timeout)."""
         req = self._pending_hints.get(request_id)
         if not req:
@@ -300,18 +294,12 @@ class WorkIQSelector:
 
         return req
 
-    def accepted_routing_hints(
-        self, request_id: str
-    ) -> list[RoutingKeywordHint]:
+    def accepted_routing_hints(self, request_id: str) -> list[RoutingKeywordHint]:
         """Return the accepted hints ready for the router."""
         req = self._pending_hints.get(request_id)
         if not req or not req.resolved:
             return []
-        return [
-            req.hints[i]
-            for i in req.accepted_indices
-            if 0 <= i < len(req.hints)
-        ]
+        return [req.hints[i] for i in req.accepted_indices if 0 <= i < len(req.hints)]
 
     def pending_routing_hint_requests(self) -> list[dict[str, Any]]:
         """Return all unresolved routing-hint requests (for the REST API)."""

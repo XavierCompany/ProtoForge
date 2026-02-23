@@ -29,8 +29,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 _DEFAULT_SUB_PLAN_BRIEF = (
-    "You should aim to create the minimum resources needed "
-    "to demonstrate the functionality as an example."
+    "You should aim to create the minimum resources needed to demonstrate the functionality as an example."
 )
 
 
@@ -100,11 +99,11 @@ class PlanSelector:
     def __init__(self, timeout: float = 120.0) -> None:
         self._timeout = timeout
 
-        # Phase A – Plan Agent HITL
+        # Phase A - Plan Agent HITL
         self._plan_pending: dict[str, PlanReviewRequest] = {}
         self._plan_events: dict[str, asyncio.Event] = {}
 
-        # Phase B – Sub-Plan Agent HITL
+        # Phase B - Sub-Plan Agent HITL
         self._resource_pending: dict[str, ResourceReviewRequest] = {}
         self._resource_events: dict[str, asyncio.Event] = {}
 
@@ -127,12 +126,14 @@ class PlanSelector:
                 steps = plan_artifacts.get("steps", [])
                 if idx < len(steps):
                     keywords.append(str(steps[idx]))
-            suggestions.append(PlanSuggestion(
-                index=idx,
-                agent_id=agent_id,
-                summary=f"Invoke {agent_id} agent",
-                keywords=keywords,
-            ))
+            suggestions.append(
+                PlanSuggestion(
+                    index=idx,
+                    agent_id=agent_id,
+                    summary=f"Invoke {agent_id} agent",
+                    keywords=keywords,
+                )
+            )
 
         req = PlanReviewRequest(
             request_id=request_id,
@@ -156,7 +157,9 @@ class PlanSelector:
         return req
 
     def resolve_plan_review(
-        self, request_id: str, accepted_indices: list[int],
+        self,
+        request_id: str,
+        accepted_indices: list[int],
     ) -> bool:
         """Human accepts / rejects plan suggestions."""
         req = self._plan_pending.get(request_id)
@@ -202,11 +205,7 @@ class PlanSelector:
         req = self._plan_pending.get(request_id)
         if not req or not req.resolved:
             return []
-        return [
-            req.suggestions[i].agent_id
-            for i in req.accepted_indices
-            if 0 <= i < len(req.suggestions)
-        ]
+        return [req.suggestions[i].agent_id for i in req.accepted_indices if 0 <= i < len(req.suggestions)]
 
     def pending_plan_reviews(self) -> list[dict[str, Any]]:
         """Unresolved plan review requests (for REST API)."""
@@ -246,14 +245,16 @@ class PlanSelector:
         """Build a HITL request from the Sub-Plan Agent's resource plan."""
         items: list[ResourceItem] = []
         for idx, res in enumerate(resources):
-            items.append(ResourceItem(
-                index=idx,
-                name=res.get("name", f"resource_{idx}"),
-                resource_type=res.get("type", "unknown"),
-                purpose=res.get("purpose", ""),
-                effort=res.get("effort", "unknown"),
-                dependencies=res.get("dependencies", []),
-            ))
+            items.append(
+                ResourceItem(
+                    index=idx,
+                    name=res.get("name", f"resource_{idx}"),
+                    resource_type=res.get("type", "unknown"),
+                    purpose=res.get("purpose", ""),
+                    effort=res.get("effort", "unknown"),
+                    dependencies=res.get("dependencies", []),
+                )
+            )
 
         req = ResourceReviewRequest(
             request_id=request_id,
@@ -310,7 +311,8 @@ class PlanSelector:
         return True
 
     async def wait_for_resource_review(
-        self, request_id: str,
+        self,
+        request_id: str,
     ) -> ResourceReviewRequest:
         """Block until the human resolves the resource review (or timeout)."""
         req = self._resource_pending.get(request_id)
@@ -334,11 +336,7 @@ class PlanSelector:
         req = self._resource_pending.get(request_id)
         if not req or not req.resolved:
             return []
-        return [
-            req.resources[i]
-            for i in req.accepted_indices
-            if 0 <= i < len(req.resources)
-        ]
+        return [req.resources[i] for i in req.accepted_indices if 0 <= i < len(req.resources)]
 
     def resource_brief(self, request_id: str) -> str:
         """Return the user brief (default or overridden) for the resource plan."""

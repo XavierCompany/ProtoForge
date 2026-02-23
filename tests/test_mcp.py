@@ -41,9 +41,7 @@ class TestMCPServer:
         assert resp.result["tools"] == []
 
     @pytest.mark.asyncio
-    async def test_tools_list_with_skill(
-        self, mcp_server: MCPSkillServer, sample_skill: Skill
-    ) -> None:
+    async def test_tools_list_with_skill(self, mcp_server: MCPSkillServer, sample_skill: Skill) -> None:
         # Register a skill as a tool
         tool = sample_skill.to_mcp_tool()
         mcp_server.register_tool(tool)
@@ -63,9 +61,7 @@ class TestMCPServer:
 
     @pytest.mark.asyncio
     async def test_tools_call_no_handler(self, mcp_server: MCPSkillServer) -> None:
-        tool = Skill(
-            name="test_tool", description="test", agent_type="plan"
-        ).to_mcp_tool()
+        tool = Skill(name="test_tool", description="test", agent_type="plan").to_mcp_tool()
         mcp_server.register_tool(tool)
 
         req = MCPRequest(

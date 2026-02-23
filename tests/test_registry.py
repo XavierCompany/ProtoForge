@@ -21,12 +21,23 @@ class TestAgentCatalog:
 
     def test_list_agents_with_filter(self) -> None:
         catalog = AgentCatalog()
-        catalog.register_agent(AgentRegistration(
-            agent_type="plan", name="Plan", description="", status="active", tags=["planning"],
-        ))
-        catalog.register_agent(AgentRegistration(
-            agent_type="log", name="Log", description="", status="disabled",
-        ))
+        catalog.register_agent(
+            AgentRegistration(
+                agent_type="plan",
+                name="Plan",
+                description="",
+                status="active",
+                tags=["planning"],
+            )
+        )
+        catalog.register_agent(
+            AgentRegistration(
+                agent_type="log",
+                name="Log",
+                description="",
+                status="disabled",
+            )
+        )
 
         active = catalog.list_agents(status="active")
         assert len(active) == 1
@@ -37,9 +48,13 @@ class TestAgentCatalog:
 
     def test_update_metrics(self) -> None:
         catalog = AgentCatalog()
-        catalog.register_agent(AgentRegistration(
-            agent_type="plan", name="Plan", description="",
-        ))
+        catalog.register_agent(
+            AgentRegistration(
+                agent_type="plan",
+                name="Plan",
+                description="",
+            )
+        )
         catalog.update_agent_metrics("plan", latency_ms=100.0)
         catalog.update_agent_metrics("plan", latency_ms=200.0)
 
@@ -49,14 +64,25 @@ class TestAgentCatalog:
 
     def test_search_catalog(self) -> None:
         catalog = AgentCatalog()
-        catalog.add_to_catalog(CatalogEntry(
-            skill_name="plan_task", description="Planning", agent_type="plan",
-            version="1.0.0", tags=["planning"], installed=True,
-        ))
-        catalog.add_to_catalog(CatalogEntry(
-            skill_name="security_scan", description="Security", agent_type="security",
-            version="1.0.0", tags=["security"],
-        ))
+        catalog.add_to_catalog(
+            CatalogEntry(
+                skill_name="plan_task",
+                description="Planning",
+                agent_type="plan",
+                version="1.0.0",
+                tags=["planning"],
+                installed=True,
+            )
+        )
+        catalog.add_to_catalog(
+            CatalogEntry(
+                skill_name="security_scan",
+                description="Security",
+                agent_type="security",
+                version="1.0.0",
+                tags=["security"],
+            )
+        )
 
         results = catalog.search_catalog(query="plan")
         assert len(results) == 1
@@ -66,9 +92,14 @@ class TestAgentCatalog:
 
     def test_install_uninstall_skill(self) -> None:
         catalog = AgentCatalog()
-        catalog.add_to_catalog(CatalogEntry(
-            skill_name="test", description="", agent_type="plan", version="1.0.0",
-        ))
+        catalog.add_to_catalog(
+            CatalogEntry(
+                skill_name="test",
+                description="",
+                agent_type="plan",
+                version="1.0.0",
+            )
+        )
         assert not catalog.search_catalog(installed_only=True)
 
         catalog.install_skill("test")
@@ -96,7 +127,8 @@ class TestAgentCatalog:
 class TestWorkflow:
     def test_execution_order_linear(self) -> None:
         wf = Workflow(
-            name="test", description="test",
+            name="test",
+            description="test",
             steps=[
                 WorkflowStep(name="a", agent_type="plan", prompt_template=""),
                 WorkflowStep(name="b", agent_type="log", prompt_template="", depends_on=["a"]),
@@ -111,7 +143,8 @@ class TestWorkflow:
 
     def test_execution_order_parallel(self) -> None:
         wf = Workflow(
-            name="test", description="test",
+            name="test",
+            description="test",
             steps=[
                 WorkflowStep(name="a", agent_type="plan", prompt_template=""),
                 WorkflowStep(name="b", agent_type="log", prompt_template=""),

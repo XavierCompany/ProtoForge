@@ -149,7 +149,9 @@ class OrchestratorEngine:
 
         # Step 4: Plan HITL + Sub-Plan Agent + Sub-Plan HITL
         sub_plan_result = await self._run_sub_plan_pipeline(
-            user_message, plan_result, routing,
+            user_message,
+            plan_result,
+            routing,
         )
 
         # Step 5: Determine sub-agents to invoke (from routing, excluding PLAN/SUB_PLAN)
@@ -191,7 +193,8 @@ class OrchestratorEngine:
         if not workiq_result.ok:
             logger.warning("workiq_enrichment_failed", error=workiq_result.error)
             return await self._process_after_routing(
-                user_message, self._router.route_by_keywords(user_message),
+                user_message,
+                self._router.route_by_keywords(user_message),
             )
 
         # Phase 1 — HITL: user selects relevant content sections
@@ -200,9 +203,7 @@ class OrchestratorEngine:
 
         if not content_req.resolved:
             self._context.set_memory("workiq_content_pending", content_req_id)
-            content_req = await self._workiq_selector.wait_for_selection(
-                content_req_id
-            )
+            content_req = await self._workiq_selector.wait_for_selection(content_req_id)
 
         selected_text = self._workiq_selector.selected_content(content_req_id)
         self._context.set_memory("workiq_selected_content", selected_text)
@@ -211,7 +212,8 @@ class OrchestratorEngine:
             logger.info("workiq_enrichment_empty_selection")
             self._workiq_selector.cleanup(content_req_id)
             return await self._process_after_routing(
-                user_message, self._router.route_by_keywords(user_message),
+                user_message,
+                self._router.route_by_keywords(user_message),
             )
 
         # Phase 2 — extract routing keywords from selected content
@@ -221,7 +223,8 @@ class OrchestratorEngine:
             logger.info("workiq_no_routing_keywords")
             self._workiq_selector.cleanup(content_req_id)
             return await self._process_after_routing(
-                user_message, self._router.route_by_keywords(user_message),
+                user_message,
+                self._router.route_by_keywords(user_message),
             )
 
         # Phase 2b — HITL: user selects which keyword hints to accept
@@ -230,9 +233,7 @@ class OrchestratorEngine:
 
         if not hint_req.resolved:
             self._context.set_memory("workiq_hints_pending", hint_req_id)
-            hint_req = await self._workiq_selector.wait_for_routing_hints(
-                hint_req_id
-            )
+            hint_req = await self._workiq_selector.wait_for_routing_hints(hint_req_id)
 
         accepted = self._workiq_selector.accepted_routing_hints(hint_req_id)
         self._context.set_memory(
@@ -257,7 +258,9 @@ class OrchestratorEngine:
         return await self._process_after_routing(user_message, routing)
 
     async def _process_after_routing(
-        self, user_message: str, routing: RoutingDecision,
+        self,
+        user_message: str,
+        routing: RoutingDecision,
     ) -> str:
         """Continue the pipeline from an already-resolved routing decision.
 
@@ -282,7 +285,9 @@ class OrchestratorEngine:
 
         # Plan HITL + Sub-Plan Agent + Sub-Plan HITL
         sub_plan_result = await self._run_sub_plan_pipeline(
-            user_message, plan_result, routing,
+            user_message,
+            plan_result,
+            routing,
         )
 
         # Determine sub-agents to invoke (from routing, excluding PLAN/SUB_PLAN)
@@ -362,7 +367,9 @@ class OrchestratorEngine:
 
         # ── Sub-Plan Agent execution ────────────────────────────────────
         sub_plan_result = await self._dispatch(
-            AgentType.SUB_PLAN, user_message, routing,
+            AgentType.SUB_PLAN,
+            user_message,
+            routing,
         )
         self._context.set_memory("sub_plan_output", sub_plan_result.content)
         self._context.set_memory("sub_plan_artifacts", sub_plan_result.artifacts)
@@ -400,7 +407,10 @@ class OrchestratorEngine:
         return sub_plan_result
 
     async def _dispatch(
-        self, agent_id: str, message: str, routing: RoutingDecision,
+        self,
+        agent_id: str,
+        message: str,
+        routing: RoutingDecision,
     ) -> AgentResult:
         """Dispatch to a single agent by ID."""
         agent = self._agents.get(str(agent_id))
@@ -461,15 +471,13 @@ class OrchestratorEngine:
         parts = [f"**Plan:**\n{plan_result.content}"]
 
         if sub_plan_result and sub_plan_result.content:
-            parts.append(
-                f"\n---\n**Sub-Plan (Resource Deployment):**\n{sub_plan_result.content}"
-            )
+            parts.append(f"\n---\n**Sub-Plan (Resource Deployment):**\n{sub_plan_result.content}")
 
-        for result in sub_results:
-            if result.confidence > 0.3 and result.content:
-                parts.append(
-                    f"\n---\n**{result.agent_id} output:**\n{result.content}"
-                )
+        parts.extend(
+            f"\n---\n**{result.agent_id} output:**\n{result.content}"
+            for result in sub_results
+            if result.confidence > 0.3 and result.content
+        )
 
         return "\n".join(parts)
 
@@ -481,8 +489,5 @@ class OrchestratorEngine:
             "message_count": len(self._context.messages),
             "active_workflow": self._context.active_workflow,
             "provider": self._settings.llm.active_provider.value,
-            "workiq_enrichment_available": (
-                self._workiq_client is not None
-                and self._workiq_selector is not None
-            ),
+            "workiq_enrichment_available": (self._workiq_client is not None and self._workiq_selector is not None),
         }

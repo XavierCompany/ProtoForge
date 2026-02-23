@@ -108,9 +108,7 @@ class WorkIQClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=self._timeout
-            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self._timeout)
 
             raw = stdout.decode("utf-8", errors="replace").strip()
             err = stderr.decode("utf-8", errors="replace").strip()

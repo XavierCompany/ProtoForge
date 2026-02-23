@@ -223,10 +223,12 @@ class TestWorkIQAgent:
     @pytest.mark.asyncio
     async def test_execute_error_result(self) -> None:
         client = MagicMock()
-        client.ask = AsyncMock(return_value=WorkIQResult(
-            query="who is my manager?",
-            error="workiq CLI not found",
-        ))
+        client.ask = AsyncMock(
+            return_value=WorkIQResult(
+                query="who is my manager?",
+                error="workiq CLI not found",
+            )
+        )
         agent = self._make_agent(client=client)
         ctx = ConversationContext()
 
@@ -484,6 +486,7 @@ class TestEnrichedEngineRouting:
         engine = OrchestratorEngine()
         engine.register_agent("plan", PlanAgent())
         from src.agents.knowledge_base_agent import KnowledgeBaseAgent
+
         engine.register_agent("knowledge_base", KnowledgeBaseAgent())
 
         result = await engine.process_with_enrichment("how to configure CORS?")
@@ -497,9 +500,12 @@ class TestEnrichedEngineRouting:
         from src.orchestrator.engine import OrchestratorEngine
 
         client = MagicMock()
-        client.ask = AsyncMock(return_value=WorkIQResult(
-            query="test", error="CLI not found",
-        ))
+        client.ask = AsyncMock(
+            return_value=WorkIQResult(
+                query="test",
+                error="CLI not found",
+            )
+        )
         selector = WorkIQSelector()
 
         engine = OrchestratorEngine(workiq_client=client, workiq_selector=selector)

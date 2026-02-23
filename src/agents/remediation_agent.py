@@ -58,22 +58,16 @@ class RemediationAgent(BaseAgent):
         self,
         message: str,
         context: ConversationContext,
-        params: dict[str, Any] | None = None,
+        _params: dict[str, Any] | None = None,
     ) -> AgentResult:
         logger.info("remediation_agent_executing", message_length=len(message))
 
         # Check if there's prior analysis from log_analysis or code_research
-        prior_results = [
-            r for r in context.agent_results
-            if r.agent_id in ("log_analysis", "code_research")
-        ]
+        prior_results = [r for r in context.agent_results if r.agent_id in ("log_analysis", "code_research")]
 
         self._build_messages(message, context)
 
-        response = (
-            f"**Remediation Plan**\n\n"
-            f"**Issue:** {message[:100]}{'...' if len(message) > 100 else ''}\n"
-        )
+        response = f"**Remediation Plan**\n\n**Issue:** {message[:100]}{'...' if len(message) > 100 else ''}\n"
 
         if prior_results:
             response += f"\n**Building on:** {len(prior_results)} prior analysis result(s)\n"

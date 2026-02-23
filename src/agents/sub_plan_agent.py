@@ -90,9 +90,7 @@ class SubPlanAgent(BaseAgent):
         # Read the Plan Agent's output from working memory
         plan_output: str = context.get_memory("plan_output", "")
         plan_artifacts: dict = context.get_memory("plan_artifacts", {})
-        recommended_agents: list[str] = plan_artifacts.get(
-            "recommended_sub_agents", []
-        )
+        recommended_agents: list[str] = plan_artifacts.get("recommended_sub_agents", [])
         user_brief: str = (params or {}).get("user_brief", "")
 
         # Identify resources each recommended agent might need
@@ -157,67 +155,79 @@ class SubPlanAgent(BaseAgent):
 
         # Connector / workspace resources
         if any(kw in combined for kw in ["connector", "workspace", "integration", "m365"]):
-            resources.append({
-                "name": "Workspace Connector",
-                "type": "connector",
-                "purpose": "Establish connection to external service (e.g. M365, Jira, GitHub)",
-                "effort": "moderate",
-                "dependencies": [],
-            })
+            resources.append(
+                {
+                    "name": "Workspace Connector",
+                    "type": "connector",
+                    "purpose": "Establish connection to external service (e.g. M365, Jira, GitHub)",
+                    "effort": "moderate",
+                    "dependencies": [],
+                }
+            )
 
         # Storage / database resources
         if any(kw in combined for kw in ["storage", "blob", "database", "sql", "cosmos", "data"]):
-            resources.append({
-                "name": "Storage Account (dev tier)",
-                "type": "azure-storage",
-                "purpose": "Provide blob/table storage for agent data",
-                "effort": "quick",
-                "dependencies": [],
-            })
+            resources.append(
+                {
+                    "name": "Storage Account (dev tier)",
+                    "type": "azure-storage",
+                    "purpose": "Provide blob/table storage for agent data",
+                    "effort": "quick",
+                    "dependencies": [],
+                }
+            )
 
         # API / service resources
         if any(kw in combined for kw in ["api", "endpoint", "service", "function", "http"]):
-            resources.append({
-                "name": "API Endpoint (local or dev)",
-                "type": "api-service",
-                "purpose": "Expose HTTP endpoint for the demonstrated functionality",
-                "effort": "quick",
-                "dependencies": [],
-            })
+            resources.append(
+                {
+                    "name": "API Endpoint (local or dev)",
+                    "type": "api-service",
+                    "purpose": "Expose HTTP endpoint for the demonstrated functionality",
+                    "effort": "quick",
+                    "dependencies": [],
+                }
+            )
 
         # Authentication resources
         if any(kw in combined for kw in ["auth", "identity", "credential", "key vault", "secret"]):
-            resources.append({
-                "name": "App Registration / Service Principal",
-                "type": "identity",
-                "purpose": "Authenticate against required services",
-                "effort": "moderate",
-                "dependencies": [],
-            })
+            resources.append(
+                {
+                    "name": "App Registration / Service Principal",
+                    "type": "identity",
+                    "purpose": "Authenticate against required services",
+                    "effort": "moderate",
+                    "dependencies": [],
+                }
+            )
 
         # Log / monitoring resources
         if "log_analysis" in recommended_agents or any(
             kw in combined for kw in ["log", "monitor", "telemetry", "insight"]
         ):
-            resources.append({
-                "name": "Log Workspace (dev tier)",
-                "type": "monitoring",
-                "purpose": "Ingest sample logs for analysis agents to query",
-                "effort": "quick",
-                "dependencies": [],
-            })
+            resources.append(
+                {
+                    "name": "Log Workspace (dev tier)",
+                    "type": "monitoring",
+                    "purpose": "Ingest sample logs for analysis agents to query",
+                    "effort": "quick",
+                    "dependencies": [],
+                }
+            )
 
         # Security scanning resources
         if "security_sentinel" in recommended_agents or any(
             kw in combined for kw in ["scan", "vulnerability", "security"]
         ):
-            resources.append({
-                "name": "Security Scanner Config",
-                "type": "security-tool",
-                "purpose": "Provide scanning target/configuration for security agent",
-                "effort": "quick",
-                "dependencies": [],
-            })
+            resources.append(
+                {
+                    "name": "Security Scanner Config",
+                    "type": "security-tool",
+                    "purpose": "Provide scanning target/configuration for security agent",
+                    "effort": "quick",
+                    "dependencies": [],
+                }
+            )
 
         # Default: if nothing matched, note that no extra resources needed
         # (the plan may be purely advisory)

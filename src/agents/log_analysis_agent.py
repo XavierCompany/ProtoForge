@@ -61,7 +61,7 @@ class LogAnalysisAgent(BaseAgent):
         self,
         message: str,
         context: ConversationContext,
-        params: dict[str, Any] | None = None,
+        _params: dict[str, Any] | None = None,
     ) -> AgentResult:
         logger.info("log_analysis_agent_executing", message_length=len(message))
 
@@ -70,10 +70,7 @@ class LogAnalysisAgent(BaseAgent):
 
         self._build_messages(message, context)
 
-        response = (
-            f"**Log Analysis Report**\n\n"
-            f"**Patterns Detected:** {len(patterns_found)}\n"
-        )
+        response = f"**Log Analysis Report**\n\n**Patterns Detected:** {len(patterns_found)}\n"
 
         if patterns_found:
             response += "\n".join(f"- {p}" for p in patterns_found)

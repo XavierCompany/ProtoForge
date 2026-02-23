@@ -21,6 +21,7 @@ logger = structlog.get_logger(__name__)
 # Data models
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class AgentManifest:
     """Parsed agent.yaml manifest."""
@@ -58,6 +59,7 @@ class ForgeRegistry:
 # ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
+
 
 class ForgeLoader:
     """Discovers and loads the forge/ ecosystem."""

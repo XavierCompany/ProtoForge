@@ -31,8 +31,10 @@ dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.25.0",
     "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.5.0",
     "ruff>=0.9.0",
     "mypy>=1.14.0",
+    "pre-commit>=4.0.0",
 ]
 
 [project.scripts]
@@ -45,20 +47,56 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
+# ── Ruff ────────────────────────────────────────────────────────────────────
 [tool.ruff]
 target-version = "py311"
 line-length = 120
 
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "TCH"]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "W",    # pycodestyle warnings
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "ARG",  # flake8-unused-arguments
+    "C4",   # flake8-comprehensions
+    "ERA",  # eradicate (commented-out code)
+    "PT",   # flake8-pytest-style
+    "RET",  # flake8-return
+    "RUF",  # ruff-specific rules
+    "S",    # flake8-bandit (security)
+    "T20",  # flake8-print
+    "PIE",  # flake8-pie
+    "PERF", # perflint
+]
 
 [tool.ruff.lint.per-file-ignores]
-"src/server.py" = ["E501"]  # HTML/CSS/JS templates in dashboard
+"src/server.py" = ["E501"]         # HTML/CSS/JS templates in dashboard
+"tests/**" = ["S101", "ARG001"]    # assert + unused fixture args are fine in tests
 
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+# ── Pytest ──────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-q --strict-markers --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
+# ── Mypy ────────────────────────────────────────────────────────────────────
 [tool.mypy]
 python_version = "3.11"
 strict = true

@@ -116,7 +116,8 @@ def bootstrap() -> tuple:
     # 2c. Ensure well-known agents exist even if forge/ doesn't list them
     _default_agents: dict[str, tuple[type, str, str]] = {
         AgentType.SUB_PLAN: (
-            SubPlanAgent, "Sub-Plan Agent",
+            SubPlanAgent,
+            "Sub-Plan Agent",
             "Plans prerequisite resource deployment — minimum viable resources only",
         ),
         AgentType.LOG_ANALYSIS: (LogAnalysisAgent, "Log Analysis Agent", "Log parsing and error analysis"),
@@ -126,7 +127,8 @@ def bootstrap() -> tuple:
         AgentType.DATA_ANALYSIS: (GenericAgent, "Data Analysis Agent", "Data analysis and metrics"),
         AgentType.SECURITY_SENTINEL: (SecuritySentinelAgent, "Security Sentinel Agent", "Security scanning and audits"),
         AgentType.WORKIQ: (
-            WorkIQAgent, "Work IQ Agent",
+            WorkIQAgent,
+            "Work IQ Agent",
             "Microsoft 365 organisational context (people, calendar, docs)",
         ),
     }
@@ -134,8 +136,10 @@ def bootstrap() -> tuple:
         if aid not in agent_descriptions:
             if cls is WorkIQAgent:
                 agent = WorkIQAgent(
-                    agent_id=aid, description=desc,
-                    client=workiq_client, selector=workiq_selector,
+                    agent_id=aid,
+                    description=desc,
+                    client=workiq_client,
+                    selector=workiq_selector,
                 )
             else:
                 agent = cls(agent_id=aid, description=desc)
@@ -154,12 +158,12 @@ def bootstrap() -> tuple:
                 if skill.name not in {s.name for s in skills}:
                     skills.append(skill)
             except Exception:
-                pass
+                logger.debug("forge_skill_load_failed", source=source)
     mcp_server = MCPSkillServer()
     mcp_server.load_skills(skills_dir)
 
     # Wire MCP tool calls to orchestrator
-    async def handle_tool_call(tool_name: str, arguments: dict, agent_type: str | None) -> str:
+    async def handle_tool_call(tool_name: str, arguments: dict, _agent_type: str | None) -> str:
         # Build a message from the tool call
         msg = f"[Tool: {tool_name}] {' '.join(f'{k}={v}' for k, v in arguments.items())}"
         return await orchestrator.process(msg)
@@ -169,13 +173,15 @@ def bootstrap() -> tuple:
     # 4. Create agent catalog
     catalog = AgentCatalog(storage_path=settings.registry_path)
     for agent_id, (name, desc) in agent_descriptions.items():
-        catalog.register_agent(AgentRegistration(
-            agent_type=agent_id,
-            name=name,
-            description=desc,
-            skills=[s.name for s in skills if s.agent_type == agent_id],
-            tags=[agent_id],
-        ))
+        catalog.register_agent(
+            AgentRegistration(
+                agent_type=agent_id,
+                name=name,
+                description=desc,
+                skills=[s.name for s in skills if s.agent_type == agent_id],
+                tags=[agent_id],
+            )
+        )
     catalog.populate_from_skills(skills)
 
     # 5. Load workflows from forge/ ecosystem + legacy workflows/ dir
@@ -193,7 +199,7 @@ def bootstrap() -> tuple:
                     if wf.name not in {w["name"] for w in workflow_engine.list_workflows()}:
                         workflow_engine.register_workflow(wf)
             except Exception:
-                pass
+                logger.debug("forge_workflow_load_failed", source=source)
 
     # 6. Create FastAPI app
     app = create_app(orchestrator, mcp_server, catalog, workflow_engine, workiq_selector, plan_selector)
@@ -214,7 +220,7 @@ def bootstrap() -> tuple:
 
 @cli_app.command()
 def serve(
-    host: str = typer.Option("0.0.0.0", help="Host to bind to"),
+    host: str = typer.Option("0.0.0.0", help="Host to bind to"),  # noqa: S104
     port: int = typer.Option(8080, help="Port to bind to"),
     reload: bool = typer.Option(False, help="Enable auto-reload for development"),
 ) -> None:
@@ -262,7 +268,7 @@ def chat() -> None:
 @cli_app.command()
 def status() -> None:
     """Show current ProtoForge status."""
-    _, orchestrator, mcp_server, catalog, workflow_engine, _, _ = bootstrap()
+    _, _orchestrator, _mcp_server, catalog, workflow_engine, _, _ = bootstrap()
 
     from rich.console import Console
     from rich.table import Table

@@ -79,7 +79,7 @@ class WorkIQAgent(BaseAgent):
         self,
         message: str,
         context: ConversationContext,
-        params: dict[str, Any] | None = None,
+        _params: dict[str, Any] | None = None,
     ) -> AgentResult:
         logger.info("workiq_agent_executing", message_length=len(message))
 
@@ -112,10 +112,10 @@ class WorkIQAgent(BaseAgent):
             selected = self._selector.selected_content(request_id)
         else:
             # Store selection options as artifacts for the Inspector / REST
-            context.set_memory("workiq_pending_options", [
-                {"index": o.index, "preview": o.preview, "source": o.source}
-                for o in selection_req.options
-            ])
+            context.set_memory(
+                "workiq_pending_options",
+                [{"index": o.index, "preview": o.preview, "source": o.source} for o in selection_req.options],
+            )
 
             # Wait for the user to make their selection (or timeout)
             await self._selector.wait_for_selection(request_id)

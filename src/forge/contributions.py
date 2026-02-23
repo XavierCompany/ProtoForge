@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 import yaml
@@ -23,9 +23,9 @@ class ValidationError(Exception):
 class ContributionManager:
     """CRUD operations for dynamic forge/ contributions with audit logging."""
 
-    REQUIRED_AGENT_FIELDS = {"id", "name", "type", "description"}
-    REQUIRED_SKILL_FIELDS = {"name", "description", "parameters"}
-    REQUIRED_WORKFLOW_FIELDS = {"name", "steps"}
+    REQUIRED_AGENT_FIELDS: ClassVar[set[str]] = {"id", "name", "type", "description"}
+    REQUIRED_SKILL_FIELDS: ClassVar[set[str]] = {"name", "description", "parameters"}
+    REQUIRED_WORKFLOW_FIELDS: ClassVar[set[str]] = {"name", "steps"}
 
     def __init__(self, forge_root: Path | str = "forge") -> None:
         self.forge_root = Path(forge_root).resolve()
@@ -175,8 +175,10 @@ class ContributionManager:
             raise FileNotFoundError(msg)
 
         self._audit(
-            "delete_workflow", f"contrib/workflows/{workflow_name}.yaml",
-            author, f"Deleted workflow: {workflow_name}",
+            "delete_workflow",
+            f"contrib/workflows/{workflow_name}.yaml",
+            author,
+            f"Deleted workflow: {workflow_name}",
         )
         path.unlink()
         logger.info("contrib_workflow_deleted", name=workflow_name, author=author)

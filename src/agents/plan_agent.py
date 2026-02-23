@@ -114,7 +114,7 @@ class PlanAgent(BaseAgent):
             },
         )
 
-    def _identify_sub_agents(self, message: str, params: dict[str, Any] | None) -> list[str]:
+    def _identify_sub_agents(self, message: str, _params: dict[str, Any] | None) -> list[str]:
         """Identify which sub-agents the plan recommends invoking."""
         agents: list[str] = []
         msg_lower = message.lower()

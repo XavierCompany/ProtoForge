@@ -64,7 +64,7 @@ class KnowledgeBaseAgent(BaseAgent):
         self,
         message: str,
         context: ConversationContext,
-        params: dict[str, Any] | None = None,
+        _params: dict[str, Any] | None = None,
     ) -> AgentResult:
         logger.info(
             "knowledge_base_agent_executing",

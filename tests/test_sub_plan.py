@@ -29,10 +29,13 @@ class TestSubPlanAgent:
     def context_with_plan(self) -> ConversationContext:
         ctx = ConversationContext()
         ctx.set_memory("plan_output", "Create workspace connectors for M365")
-        ctx.set_memory("plan_artifacts", {
-            "recommended_sub_agents": ["log_analysis", "knowledge_base"],
-            "step_count": 3,
-        })
+        ctx.set_memory(
+            "plan_artifacts",
+            {
+                "recommended_sub_agents": ["log_analysis", "knowledge_base"],
+                "step_count": 3,
+            },
+        )
         return ctx
 
     @pytest.mark.asyncio
@@ -44,7 +47,9 @@ class TestSubPlanAgent:
 
     @pytest.mark.asyncio
     async def test_execute_identifies_connector_resource(
-        self, agent: SubPlanAgent, context_with_plan: ConversationContext,
+        self,
+        agent: SubPlanAgent,
+        context_with_plan: ConversationContext,
     ) -> None:
         result = await agent.execute("create workspace connectors", context_with_plan)
         resources = result.artifacts.get("resources", [])
@@ -53,7 +58,9 @@ class TestSubPlanAgent:
 
     @pytest.mark.asyncio
     async def test_execute_identifies_log_resource(
-        self, agent: SubPlanAgent, context_with_plan: ConversationContext,
+        self,
+        agent: SubPlanAgent,
+        context_with_plan: ConversationContext,
     ) -> None:
         result = await agent.execute("check error logs in production", context_with_plan)
         resources = result.artifacts.get("resources", [])
@@ -78,7 +85,9 @@ class TestSubPlanAgent:
 
     @pytest.mark.asyncio
     async def test_content_includes_principle(
-        self, agent: SubPlanAgent, context_with_plan: ConversationContext,
+        self,
+        agent: SubPlanAgent,
+        context_with_plan: ConversationContext,
     ) -> None:
         result = await agent.execute("create workspace connectors", context_with_plan)
         assert "minimum resources" in result.content.lower()
@@ -110,21 +119,27 @@ class TestPlanSelectorPlanReview:
 
     def test_prepare_auto_resolves_single_suggestion(self, selector: PlanSelector) -> None:
         req = selector.prepare_plan_review(
-            "req-1", "Test plan", ["log_analysis"],
+            "req-1",
+            "Test plan",
+            ["log_analysis"],
         )
         assert req.resolved is True
         assert req.accepted_indices == [0]
 
     def test_prepare_creates_pending_multiple(self, selector: PlanSelector) -> None:
         req = selector.prepare_plan_review(
-            "req-2", "Test plan", ["log_analysis", "knowledge_base"],
+            "req-2",
+            "Test plan",
+            ["log_analysis", "knowledge_base"],
         )
         assert req.resolved is False
         assert len(req.suggestions) == 2
 
     def test_resolve_plan_review(self, selector: PlanSelector) -> None:
         selector.prepare_plan_review(
-            "req-3", "Plan", ["log_analysis", "knowledge_base", "remediation"],
+            "req-3",
+            "Plan",
+            ["log_analysis", "knowledge_base", "remediation"],
         )
         ok = selector.resolve_plan_review("req-3", [0, 2])
         assert ok is True
@@ -137,7 +152,9 @@ class TestPlanSelectorPlanReview:
 
     def test_pending_plan_reviews(self, selector: PlanSelector) -> None:
         selector.prepare_plan_review(
-            "req-4", "Plan", ["a", "b"],
+            "req-4",
+            "Plan",
+            ["a", "b"],
         )
         pending = selector.pending_plan_reviews()
         assert len(pending) == 1
@@ -145,7 +162,9 @@ class TestPlanSelectorPlanReview:
 
     def test_cleanup_plan_review(self, selector: PlanSelector) -> None:
         selector.prepare_plan_review(
-            "req-5", "Plan", ["a", "b"],
+            "req-5",
+            "Plan",
+            ["a", "b"],
         )
         selector.cleanup_plan_review("req-5")
         assert selector.pending_plan_reviews() == []
@@ -153,7 +172,9 @@ class TestPlanSelectorPlanReview:
     @pytest.mark.asyncio
     async def test_wait_timeout_accepts_all(self, selector: PlanSelector) -> None:
         selector.prepare_plan_review(
-            "req-6", "Plan", ["a", "b", "c"],
+            "req-6",
+            "Plan",
+            ["a", "b", "c"],
         )
         req = await selector.wait_for_plan_review("req-6")
         assert req.resolved is True
@@ -162,7 +183,9 @@ class TestPlanSelectorPlanReview:
     @pytest.mark.asyncio
     async def test_wait_resolved_returns_immediately(self, selector: PlanSelector) -> None:
         selector.prepare_plan_review(
-            "req-7", "Plan", ["a", "b"],
+            "req-7",
+            "Plan",
+            ["a", "b"],
         )
         selector.resolve_plan_review("req-7", [1])
 
@@ -183,12 +206,18 @@ class TestPlanSelectorResourceReview:
     def sample_resources(self) -> list[dict[str, Any]]:
         return [
             {
-                "name": "Storage Account", "type": "azure-storage",
-                "purpose": "Blob storage", "effort": "quick", "dependencies": [],
+                "name": "Storage Account",
+                "type": "azure-storage",
+                "purpose": "Blob storage",
+                "effort": "quick",
+                "dependencies": [],
             },
             {
-                "name": "API Endpoint", "type": "api-service",
-                "purpose": "HTTP endpoint", "effort": "quick", "dependencies": [],
+                "name": "API Endpoint",
+                "type": "api-service",
+                "purpose": "HTTP endpoint",
+                "effort": "quick",
+                "dependencies": [],
             },
         ]
 
@@ -205,7 +234,8 @@ class TestPlanSelectorResourceReview:
     def test_resolve_with_brief(self, selector: PlanSelector, sample_resources: list) -> None:
         selector.prepare_resource_review("res-3", "Summary", sample_resources)
         ok = selector.resolve_resource_review(
-            "res-3", [0],
+            "res-3",
+            [0],
             user_brief="Use emulators only",
         )
         assert ok is True
@@ -263,9 +293,7 @@ class TestEngineSubPlanPipeline:
 
     @pytest.mark.asyncio
     async def test_sub_plan_runs_before_task_agents(self, engine_with_sub_plan: OrchestratorEngine) -> None:
-        response = await engine_with_sub_plan.process(
-            "Create workspace connectors for M365 integration"
-        )
+        response = await engine_with_sub_plan.process("Create workspace connectors for M365 integration")
         assert "Plan" in response
         assert "Sub-Plan" in response or "Resource Deployment" in response
 
@@ -286,9 +314,7 @@ class TestEngineSubPlanPipeline:
     @pytest.mark.asyncio
     async def test_plan_hitl_timeout_accepts_all(self, engine_with_sub_plan: OrchestratorEngine) -> None:
         """When HITL times out, all plan suggestions should be accepted (fail-open)."""
-        response = await engine_with_sub_plan.process(
-            "Analyze error logs and fix security vulnerabilities"
-        )
+        response = await engine_with_sub_plan.process("Analyze error logs and fix security vulnerabilities")
         # Both plan and sub-plan should run even on timeout
         assert "Plan" in response
 
@@ -322,22 +348,26 @@ class TestSubPlanRouting:
     @pytest.fixture
     def router(self):
         from src.orchestrator.router import IntentRouter
+
         return IntentRouter()
 
     def test_resource_keyword(self, router) -> None:
         from src.orchestrator.router import AgentType
+
         result = router.route_by_keywords("Deploy the prerequisite resources for the connector")
-        all_agents = [result.primary_agent] + result.secondary_agents
+        all_agents = [result.primary_agent, *result.secondary_agents]
         assert AgentType.SUB_PLAN in all_agents
 
     def test_connector_keyword(self, router) -> None:
         from src.orchestrator.router import AgentType
+
         result = router.route_by_keywords("Create a workspace connector to M365")
-        all_agents = [result.primary_agent] + result.secondary_agents
+        all_agents = [result.primary_agent, *result.secondary_agents]
         assert AgentType.SUB_PLAN in all_agents
 
     def test_infrastructure_keyword(self, router) -> None:
         from src.orchestrator.router import AgentType
+
         result = router.route_by_keywords("Set up the infrastructure for the demo")
-        all_agents = [result.primary_agent] + result.secondary_agents
+        all_agents = [result.primary_agent, *result.secondary_agents]
         assert AgentType.SUB_PLAN in all_agents

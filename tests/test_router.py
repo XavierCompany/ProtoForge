@@ -47,7 +47,7 @@ class TestKeywordRouting:
     def test_multi_agent_routing(self, router: IntentRouter) -> None:
         result = router.route_by_keywords("Fix the security vulnerability in the auth code")
         # Should match remediation, security, and code research
-        all_agents = [result.primary_agent] + result.secondary_agents
+        all_agents = [result.primary_agent, *result.secondary_agents]
         assert len(all_agents) >= 2
 
     def test_confidence_score(self, router: IntentRouter) -> None:
@@ -130,7 +130,7 @@ class TestRouteWithContext:
         ]
         result = router.route_with_context(msg, enrichment_hints=hints)
         # "fix" matches remediation, "error log" hint boosts log_analysis
-        all_agents = [result.primary_agent] + result.secondary_agents
+        all_agents = [result.primary_agent, *result.secondary_agents]
         assert len(all_agents) >= 2
         assert result.enrichment_applied is True
 

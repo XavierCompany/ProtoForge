@@ -19,43 +19,56 @@ if TYPE_CHECKING:
 # Fixtures
 # ---------------------------------------------------------------------------
 
-@pytest.fixture()
+
+@pytest.fixture
 def forge_dir(tmp_path: Path) -> Path:
     """Create a minimal forge/ directory structure for testing."""
     forge = tmp_path / "forge"
 
-    # Plan (coordinator)
+    # Plan (coordinator)  # noqa: ERA001
     plan = forge / "plan"
     (plan / "prompts").mkdir(parents=True)
     (plan / "skills").mkdir(parents=True)
     (plan / "instructions").mkdir(parents=True)
     (plan / "workflows").mkdir(parents=True)
 
-    (plan / "agent.yaml").write_text(yaml.dump({
-        "id": "plan",
-        "name": "Plan Agent",
-        "type": "coordinator",
-        "version": "1.0.0",
-        "description": "Coordinator",
-        "context_budget": {"max_input_tokens": 24000, "max_output_tokens": 12000, "strategy": "priority"},
-        "skills": ["skills/plan_task.yaml"],
-        "prompts": ["prompts/system.md"],
-        "instructions": ["instructions/routing_rules.md"],
-        "subagents": ["log_analysis", "code_research"],
-        "tags": ["plan"],
-    }))
+    (plan / "agent.yaml").write_text(
+        yaml.dump(
+            {
+                "id": "plan",
+                "name": "Plan Agent",
+                "type": "coordinator",
+                "version": "1.0.0",
+                "description": "Coordinator",
+                "context_budget": {"max_input_tokens": 24000, "max_output_tokens": 12000, "strategy": "priority"},
+                "skills": ["skills/plan_task.yaml"],
+                "prompts": ["prompts/system.md"],
+                "instructions": ["instructions/routing_rules.md"],
+                "subagents": ["log_analysis", "code_research"],
+                "tags": ["plan"],
+            }
+        )
+    )
     (plan / "prompts" / "system.md").write_text("# Plan Agent System Prompt\nYou are the Plan Agent.")
     (plan / "instructions" / "routing_rules.md").write_text("# Routing Rules\nRoute wisely.")
-    (plan / "skills" / "plan_task.yaml").write_text(yaml.dump({
-        "name": "plan_task",
-        "description": "Create a plan",
-        "agent_type": "plan",
-        "parameters": [{"name": "message", "type": "string", "description": "User message", "required": True}],
-    }))
-    (plan / "workflows" / "plan_and_execute.yaml").write_text(yaml.dump({
-        "name": "plan_and_execute",
-        "steps": [{"name": "plan", "agent_type": "plan"}],
-    }))
+    (plan / "skills" / "plan_task.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "plan_task",
+                "description": "Create a plan",
+                "agent_type": "plan",
+                "parameters": [{"name": "message", "type": "string", "description": "User message", "required": True}],
+            }
+        )
+    )
+    (plan / "workflows" / "plan_and_execute.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "plan_and_execute",
+                "steps": [{"name": "plan", "agent_type": "plan"}],
+            }
+        )
+    )
 
     # Specialist agent
     log = forge / "agents" / "log_analysis"
@@ -63,25 +76,33 @@ def forge_dir(tmp_path: Path) -> Path:
     (log / "skills").mkdir(parents=True)
     (log / "instructions").mkdir(parents=True)
 
-    (log / "agent.yaml").write_text(yaml.dump({
-        "id": "log_analysis",
-        "name": "Log Analysis Agent",
-        "type": "specialist",
-        "version": "1.0.0",
-        "description": "Analyze logs",
-        "skills": ["skills/analyze_logs.yaml"],
-        "prompts": ["prompts/system.md"],
-        "instructions": ["instructions/log_formats.md"],
-        "tags": ["logs"],
-    }))
+    (log / "agent.yaml").write_text(
+        yaml.dump(
+            {
+                "id": "log_analysis",
+                "name": "Log Analysis Agent",
+                "type": "specialist",
+                "version": "1.0.0",
+                "description": "Analyze logs",
+                "skills": ["skills/analyze_logs.yaml"],
+                "prompts": ["prompts/system.md"],
+                "instructions": ["instructions/log_formats.md"],
+                "tags": ["logs"],
+            }
+        )
+    )
     (log / "prompts" / "system.md").write_text("# Log Analysis System Prompt")
     (log / "instructions" / "log_formats.md").write_text("# Log Formats")
-    (log / "skills" / "analyze_logs.yaml").write_text(yaml.dump({
-        "name": "analyze_logs",
-        "description": "Analyze logs",
-        "agent_type": "log_analysis",
-        "parameters": [{"name": "logs", "type": "string", "description": "Log data", "required": True}],
-    }))
+    (log / "skills" / "analyze_logs.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "analyze_logs",
+                "description": "Analyze logs",
+                "agent_type": "log_analysis",
+                "parameters": [{"name": "logs", "type": "string", "description": "Log data", "required": True}],
+            }
+        )
+    )
 
     # Shared
     shared = forge / "shared"
@@ -91,22 +112,30 @@ def forge_dir(tmp_path: Path) -> Path:
 
     (shared / "prompts" / "error_handling.md").write_text("# Error Handling")
     (shared / "instructions" / "quality_standards.md").write_text("# Quality Standards")
-    (shared / "workflows" / "code_review.yaml").write_text(yaml.dump({
-        "name": "code_review",
-        "steps": [{"name": "scan", "agent_type": "security_sentinel"}],
-    }))
+    (shared / "workflows" / "code_review.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "code_review",
+                "steps": [{"name": "scan", "agent_type": "security_sentinel"}],
+            }
+        )
+    )
 
     # Context window config
-    (forge / "_context_window.yaml").write_text(yaml.dump({
-        "version": "1.0.0",
-        "global": {"max_total_tokens": 128000},
-        "defaults": {
-            "specialist": {"max_input_tokens": 16000, "max_output_tokens": 8000, "strategy": "priority"},
-            "coordinator": {"max_input_tokens": 24000, "max_output_tokens": 12000, "strategy": "priority"},
-        },
-        "token_counting": {"method": "character_estimate"},
-        "strategies": {"sliding_window": {"overlap_tokens": 200}},
-    }))
+    (forge / "_context_window.yaml").write_text(
+        yaml.dump(
+            {
+                "version": "1.0.0",
+                "global": {"max_total_tokens": 128000},
+                "defaults": {
+                    "specialist": {"max_input_tokens": 16000, "max_output_tokens": 8000, "strategy": "priority"},
+                    "coordinator": {"max_input_tokens": 24000, "max_output_tokens": 12000, "strategy": "priority"},
+                },
+                "token_counting": {"method": "character_estimate"},
+                "strategies": {"sliding_window": {"overlap_tokens": 200}},
+            }
+        )
+    )
 
     # Contrib (empty scaffolding)
     (forge / "contrib" / "agents").mkdir(parents=True)
@@ -120,6 +149,7 @@ def forge_dir(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # ForgeLoader tests
 # ---------------------------------------------------------------------------
+
 
 class TestForgeLoader:
     def test_load_discovers_coordinator(self, forge_dir: Path) -> None:
@@ -199,13 +229,17 @@ class TestForgeLoader:
         """Test that contributed agents are discovered."""
         contrib_agent = forge_dir / "contrib" / "agents" / "custom_agent"
         (contrib_agent / "prompts").mkdir(parents=True)
-        (contrib_agent / "agent.yaml").write_text(yaml.dump({
-            "id": "custom_agent",
-            "name": "Custom Agent",
-            "type": "specialist",
-            "version": "1.0.0",
-            "description": "A custom contributed agent",
-        }))
+        (contrib_agent / "agent.yaml").write_text(
+            yaml.dump(
+                {
+                    "id": "custom_agent",
+                    "name": "Custom Agent",
+                    "type": "specialist",
+                    "version": "1.0.0",
+                    "description": "A custom contributed agent",
+                }
+            )
+        )
 
         loader = ForgeLoader(forge_dir)
         registry = loader.load()
@@ -215,6 +249,7 @@ class TestForgeLoader:
 # ---------------------------------------------------------------------------
 # ContextBudgetManager tests
 # ---------------------------------------------------------------------------
+
 
 class TestContextBudgetManager:
     def test_allocate_with_defaults(self) -> None:
@@ -285,6 +320,7 @@ class TestContextBudgetManager:
 # ---------------------------------------------------------------------------
 # ContributionManager tests
 # ---------------------------------------------------------------------------
+
 
 class TestContributionManager:
     def test_create_agent(self, forge_dir: Path) -> None:

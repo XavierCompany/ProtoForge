@@ -1,0 +1,48 @@
+# ProtoForge CI — lint, format, type-check, test
+# Runs on every push and PR to master
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint + Format + Type-check + Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check src/ tests/ --output-format=github
+
+      - name: Ruff format check
+        run: ruff format --check src/ tests/
+
+      - name: Pytest
+        run: pytest --tb=short -q --strict-markers
+
+      # mypy is opt-in until all Any annotations are resolved
+      # - name: Mypy
+      #   run: mypy src/

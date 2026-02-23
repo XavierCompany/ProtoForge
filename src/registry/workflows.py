@@ -56,10 +56,7 @@ class Workflow:
 
         while remaining:
             # Find steps whose dependencies are all completed
-            ready = [
-                step for step in remaining
-                if all(dep in completed for dep in step.depends_on)
-            ]
+            ready = [step for step in remaining if all(dep in completed for dep in step.depends_on)]
 
             if not ready:
                 # Circular dependency or missing step
@@ -189,10 +186,12 @@ class WorkflowEngine:
 
             for step in wave:
                 # Resolve the prompt template with available params
-                prompt = step.prompt_template.format(**{
-                    **params,
-                    **{k: results.get(k, {}).get("content", "") for k in step.depends_on},
-                })
+                prompt = step.prompt_template.format(
+                    **{
+                        **params,
+                        **{k: results.get(k, {}).get("content", "") for k in step.depends_on},
+                    }
+                )
 
                 try:
                     result = await self._orchestrator.process(prompt)

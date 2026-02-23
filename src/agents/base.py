@@ -111,9 +111,7 @@ class BaseAgent(ABC):
 
     # -- Helpers -----------------------------------------------------------
 
-    def _build_messages(
-        self, message: str, context: ConversationContext
-    ) -> list[dict[str, str]]:
+    def _build_messages(self, message: str, context: ConversationContext) -> list[dict[str, str]]:
         """Build the message list for LLM consumption, including system prompt."""
         messages = [{"role": "system", "content": self._system_prompt}]
         messages.extend(context.get_history_for_agent(last_n=10))

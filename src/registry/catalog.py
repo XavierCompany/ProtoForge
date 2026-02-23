@@ -35,9 +35,7 @@ class AgentRegistration:
     status: str = "active"  # active, disabled, degraded
     skills: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
-    registered_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    registered_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     usage_count: int = 0
     avg_latency_ms: float = 0.0
     error_rate: float = 0.0
@@ -173,10 +171,7 @@ class AgentCatalog:
 
         if query:
             q = query.lower()
-            results = [
-                e for e in results
-                if q in e.skill_name.lower() or q in e.description.lower()
-            ]
+            results = [e for e in results if q in e.skill_name.lower() or q in e.description.lower()]
         if agent_type:
             results = [e for e in results if e.agent_type == agent_type]
         if tag:
@@ -189,15 +184,17 @@ class AgentCatalog:
     def populate_from_skills(self, skills: list[Skill]) -> None:
         """Bulk-populate the catalog from loaded skills."""
         for skill in skills:
-            self.add_to_catalog(CatalogEntry(
-                skill_name=skill.name,
-                description=skill.description,
-                agent_type=skill.agent_type,
-                version=skill.version,
-                tags=skill.tags,
-                installed=True,
-                source="local",
-            ))
+            self.add_to_catalog(
+                CatalogEntry(
+                    skill_name=skill.name,
+                    description=skill.description,
+                    agent_type=skill.agent_type,
+                    version=skill.version,
+                    tags=skill.tags,
+                    installed=True,
+                    source="local",
+                )
+            )
 
     # ── Status ──────────────────────────────────────────────────────
 

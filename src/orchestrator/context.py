@@ -54,9 +54,7 @@ class ConversationContext:
         self.messages.append(Message(role=MessageRole.USER, content=content))
 
     def add_agent_message(self, agent_id: str, content: str) -> None:
-        self.messages.append(
-            Message(role=MessageRole.ASSISTANT, content=content, agent_id=agent_id)
-        )
+        self.messages.append(Message(role=MessageRole.ASSISTANT, content=content, agent_id=agent_id))
 
     def add_result(self, result: AgentResult) -> None:
         self.agent_results.append(result)

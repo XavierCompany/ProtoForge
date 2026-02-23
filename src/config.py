@@ -74,7 +74,7 @@ class LLMConfig(BaseSettings):
 class ServerConfig(BaseSettings):
     """HTTP server configuration."""
 
-    host: str = Field("0.0.0.0", alias="SERVER_HOST")
+    host: str = Field("0.0.0.0", alias="SERVER_HOST")  # noqa: S104
     port: int = Field(8080, alias="SERVER_PORT")
 
     model_config = {"env_file": ".env", "extra": "ignore"}

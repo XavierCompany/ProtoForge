@@ -157,34 +157,38 @@ def create_app(
     async def list_agents() -> JSONResponse:
         """List all registered agents."""
         agents = catalog.list_agents()
-        return JSONResponse(content=[
-            {
-                "agent_type": a.agent_type,
-                "name": a.name,
-                "description": a.description,
-                "status": a.status,
-                "skills": a.skills,
-                "usage_count": a.usage_count,
-                "avg_latency_ms": round(a.avg_latency_ms, 2),
-            }
-            for a in agents
-        ])
+        return JSONResponse(
+            content=[
+                {
+                    "agent_type": a.agent_type,
+                    "name": a.name,
+                    "description": a.description,
+                    "status": a.status,
+                    "skills": a.skills,
+                    "usage_count": a.usage_count,
+                    "avg_latency_ms": round(a.avg_latency_ms, 2),
+                }
+                for a in agents
+            ]
+        )
 
     @app.get("/skills")
     async def list_skills() -> JSONResponse:
         """List all available skills."""
         skills = catalog.search_catalog()
-        return JSONResponse(content=[
-            {
-                "name": s.skill_name,
-                "description": s.description,
-                "agent_type": s.agent_type,
-                "version": s.version,
-                "installed": s.installed,
-                "tags": s.tags,
-            }
-            for s in skills
-        ])
+        return JSONResponse(
+            content=[
+                {
+                    "name": s.skill_name,
+                    "description": s.description,
+                    "agent_type": s.agent_type,
+                    "version": s.version,
+                    "installed": s.installed,
+                    "tags": s.tags,
+                }
+                for s in skills
+            ]
+        )
 
     # ── Workflows ───────────────────────────────────────────────
 
@@ -222,10 +226,12 @@ def create_app(
         response = await orchestrator.process(request.question)
         pending = workiq_selector.pending_requests()
 
-        return JSONResponse(content={
-            "response": response,
-            "pending_selections": pending,
-        })
+        return JSONResponse(
+            content={
+                "response": response,
+                "pending_selections": pending,
+            }
+        )
 
     @app.get("/workiq/pending")
     async def workiq_pending() -> JSONResponse:
@@ -253,11 +259,13 @@ def create_app(
         selected = workiq_selector.selected_content(request.request_id)
         workiq_selector.cleanup(request.request_id)
 
-        return JSONResponse(content={
-            "request_id": request.request_id,
-            "selected_content": selected,
-            "status": "resolved",
-        })
+        return JSONResponse(
+            content={
+                "request_id": request.request_id,
+                "selected_content": selected,
+                "status": "resolved",
+            }
+        )
 
     @app.get("/workiq/routing-hints")
     async def workiq_routing_hints() -> JSONResponse:
@@ -269,9 +277,7 @@ def create_app(
         """
         if workiq_selector is None:
             return JSONResponse(content={"pending": []})
-        return JSONResponse(
-            content={"pending": workiq_selector.pending_routing_hint_requests()}
-        )
+        return JSONResponse(content={"pending": workiq_selector.pending_routing_hint_requests()})
 
     @app.post("/workiq/accept-hints")
     async def workiq_accept_hints(
@@ -290,7 +296,8 @@ def create_app(
             )
 
         ok = workiq_selector.resolve_routing_hints(
-            request.request_id, request.accepted_indices,
+            request.request_id,
+            request.accepted_indices,
         )
         if not ok:
             return JSONResponse(
@@ -303,14 +310,13 @@ def create_app(
         accepted = workiq_selector.accepted_routing_hints(request.request_id)
         workiq_selector.cleanup_routing_hints(request.request_id)
 
-        return JSONResponse(content={
-            "request_id": request.request_id,
-            "accepted_hints": [
-                {"agent_id": h.agent_id, "keyword": h.keyword}
-                for h in accepted
-            ],
-            "status": "resolved",
-        })
+        return JSONResponse(
+            content={
+                "request_id": request.request_id,
+                "accepted_hints": [{"agent_id": h.agent_id, "keyword": h.keyword} for h in accepted],
+                "status": "resolved",
+            }
+        )
 
     # ── Plan Agent HITL Endpoints ─────────────────────────────────
 
@@ -324,9 +330,7 @@ def create_app(
         """
         if plan_selector is None:
             return JSONResponse(content={"pending": []})
-        return JSONResponse(
-            content={"pending": plan_selector.pending_plan_reviews()}
-        )
+        return JSONResponse(content={"pending": plan_selector.pending_plan_reviews()})
 
     @app.post("/plan/accept")
     async def plan_accept(request: PlanAcceptRequest) -> JSONResponse:
@@ -343,7 +347,8 @@ def create_app(
             )
 
         ok = plan_selector.resolve_plan_review(
-            request.request_id, request.accepted_indices,
+            request.request_id,
+            request.accepted_indices,
         )
         if not ok:
             return JSONResponse(
@@ -352,11 +357,13 @@ def create_app(
             )
 
         accepted = plan_selector.accepted_plan_agents(request.request_id)
-        return JSONResponse(content={
-            "request_id": request.request_id,
-            "accepted_agents": accepted,
-            "status": "resolved",
-        })
+        return JSONResponse(
+            content={
+                "request_id": request.request_id,
+                "accepted_agents": accepted,
+                "status": "resolved",
+            }
+        )
 
     # ── Sub-Plan Agent HITL Endpoints ─────────────────────────────
 
@@ -372,9 +379,7 @@ def create_app(
         """
         if plan_selector is None:
             return JSONResponse(content={"pending": []})
-        return JSONResponse(
-            content={"pending": plan_selector.pending_resource_reviews()}
-        )
+        return JSONResponse(content={"pending": plan_selector.pending_resource_reviews()})
 
     @app.post("/sub-plan/accept")
     async def sub_plan_accept(request: SubPlanAcceptRequest) -> JSONResponse:
@@ -403,27 +408,30 @@ def create_app(
 
         accepted = plan_selector.accepted_resources(request.request_id)
         brief = plan_selector.resource_brief(request.request_id)
-        return JSONResponse(content={
-            "request_id": request.request_id,
-            "accepted_resources": [
-                {"name": r.name, "type": r.resource_type, "purpose": r.purpose}
-                for r in accepted
-            ],
-            "user_brief": brief,
-            "status": "resolved",
-        })
+        return JSONResponse(
+            content={
+                "request_id": request.request_id,
+                "accepted_resources": [
+                    {"name": r.name, "type": r.resource_type, "purpose": r.purpose} for r in accepted
+                ],
+                "user_brief": brief,
+                "status": "resolved",
+            }
+        )
 
     # ── Health & Status ─────────────────────────────────────────
 
     @app.get("/health")
     async def health() -> JSONResponse:
         """Health check endpoint."""
-        return JSONResponse(content={
-            "status": "healthy",
-            "orchestrator": orchestrator.get_status(),
-            "mcp": mcp_server.get_status(),
-            "catalog": catalog.get_status(),
-        })
+        return JSONResponse(
+            content={
+                "status": "healthy",
+                "orchestrator": orchestrator.get_status(),
+                "mcp": mcp_server.get_status(),
+                "catalog": catalog.get_status(),
+            }
+        )
 
     # ── Agent Inspector ─────────────────────────────────────────
 

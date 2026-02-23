@@ -126,15 +126,16 @@ class MCPSkillServer:
             "capabilities": CAPABILITIES,
         }
 
-    async def _handle_tools_list(self, params: dict[str, Any]) -> dict[str, Any]:
+    async def _handle_tools_list(self, _params: dict[str, Any]) -> dict[str, Any]:
         """Return all registered tools/skills."""
-        tools = []
-        for tool in self._tools.values():
-            tools.append({
+        tools = [
+            {
                 "name": tool.name,
                 "description": tool.description,
                 "inputSchema": tool.input_schema,
-            })
+            }
+            for tool in self._tools.values()
+        ]
         return {"tools": tools}
 
     async def _handle_tools_call(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -146,10 +147,12 @@ class MCPSkillServer:
 
         if not self._call_handler:
             return {
-                "content": [{
-                    "type": "text",
-                    "text": f"Tool '{tool_name}' registered but no handler configured.",
-                }],
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Tool '{tool_name}' registered but no handler configured.",
+                    }
+                ],
                 "isError": True,
             }
 
@@ -164,7 +167,7 @@ class MCPSkillServer:
             "isError": False,
         }
 
-    async def _handle_resources_list(self, params: dict[str, Any]) -> dict[str, Any]:
+    async def _handle_resources_list(self, _params: dict[str, Any]) -> dict[str, Any]:
         """Return all registered resources."""
         resources = [
             {
@@ -185,14 +188,16 @@ class MCPSkillServer:
             return {"contents": []}
         # TODO: Actually read the resource content
         return {
-            "contents": [{
-                "uri": uri,
-                "mimeType": resource.mime_type,
-                "text": f"Resource content for {uri}",
-            }]
+            "contents": [
+                {
+                    "uri": uri,
+                    "mimeType": resource.mime_type,
+                    "text": f"Resource content for {uri}",
+                }
+            ]
         }
 
-    async def _handle_prompts_list(self, params: dict[str, Any]) -> dict[str, Any]:
+    async def _handle_prompts_list(self, _params: dict[str, Any]) -> dict[str, Any]:
         """Return all registered prompt templates."""
         prompts = [
             {
@@ -212,9 +217,7 @@ class MCPSkillServer:
             return {"description": "", "messages": []}
         return {
             "description": prompt.description,
-            "messages": [
-                {"role": "user", "content": {"type": "text", "text": prompt.description}}
-            ],
+            "messages": [{"role": "user", "content": {"type": "text", "text": prompt.description}}],
         }
 
     def get_status(self) -> dict[str, Any]:

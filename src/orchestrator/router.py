@@ -72,47 +72,106 @@ class RoutingKeywordHint:
 
 _BUILTIN_KEYWORD_ROUTES: dict[str, list[str]] = {
     AgentType.PLAN: [
-        r"\bplan\b", r"\bbreak\s*down\b", r"\bdecompose\b", r"\bstrategy\b",
-        r"\bsteps?\b", r"\bapproach\b", r"\barchitect\b",
+        r"\bplan\b",
+        r"\bbreak\s*down\b",
+        r"\bdecompose\b",
+        r"\bstrategy\b",
+        r"\bsteps?\b",
+        r"\bapproach\b",
+        r"\barchitect\b",
     ],
     AgentType.SUB_PLAN: [
-        r"\bresource[s]?\b", r"\bdeploy\b", r"\bprovision\b", r"\binfrastructure\b",
-        r"\bconnector[s]?\b", r"\bprerequisite[s]?\b", r"\bsetup\b",
-        r"\bservice\s*principal\b", r"\bapp\s*registration\b", r"\bsku\b",
+        r"\bresource[s]?\b",
+        r"\bdeploy\b",
+        r"\bprovision\b",
+        r"\binfrastructure\b",
+        r"\bconnector[s]?\b",
+        r"\bprerequisite[s]?\b",
+        r"\bsetup\b",
+        r"\bservice\s*principal\b",
+        r"\bapp\s*registration\b",
+        r"\bsku\b",
     ],
     AgentType.LOG_ANALYSIS: [
-        r"\blog[s]?\b", r"\berror\s*log\b", r"\bstack\s*trace\b", r"\btraceback\b",
-        r"\bcrash\b", r"\bexception\b", r"\b500\b", r"\b4[0-9]{2}\b",
+        r"\blog[s]?\b",
+        r"\berror\s*log\b",
+        r"\bstack\s*trace\b",
+        r"\btraceback\b",
+        r"\bcrash\b",
+        r"\bexception\b",
+        r"\b500\b",
+        r"\b4[0-9]{2}\b",
     ],
     AgentType.CODE_RESEARCH: [
-        r"\bcode\b", r"\bfunction\b", r"\bclass\b", r"\bimplement", r"\bsearch\s*code\b",
-        r"\bfind.*function\b", r"\bwhere\s*is\b", r"\bsource\b",
+        r"\bcode\b",
+        r"\bfunction\b",
+        r"\bclass\b",
+        r"\bimplement",
+        r"\bsearch\s*code\b",
+        r"\bfind.*function\b",
+        r"\bwhere\s*is\b",
+        r"\bsource\b",
     ],
     AgentType.REMEDIATION: [
-        r"\bfix\b", r"\bremediat", r"\bpatch\b", r"\bresolve\b", r"\brepair\b",
-        r"\bhotfix\b", r"\bworkaround\b", r"\bmitigat",
+        r"\bfix\b",
+        r"\bremediat",
+        r"\bpatch\b",
+        r"\bresolve\b",
+        r"\brepair\b",
+        r"\bhotfix\b",
+        r"\bworkaround\b",
+        r"\bmitigat",
         r"\bfix\s.*\b(?:error|exception|bug|issue|problem)\b",
-        r"\bnull\s*pointer\b", r"\bdebug\b",
+        r"\bnull\s*pointer\b",
+        r"\bdebug\b",
     ],
     AgentType.KNOWLEDGE_BASE: [
-        r"\bdoc[s]?\b", r"\bdocument", r"\bknowledge\b", r"\bwiki\b",
-        r"\bhow\s*to\b", r"\bexplain\b", r"\bwhat\s*is\b",
+        r"\bdoc[s]?\b",
+        r"\bdocument",
+        r"\bknowledge\b",
+        r"\bwiki\b",
+        r"\bhow\s*to\b",
+        r"\bexplain\b",
+        r"\bwhat\s*is\b",
     ],
     AgentType.DATA_ANALYSIS: [
-        r"\bdata\b", r"\banalyze\b", r"\banalysis\b", r"\bmetric[s]?\b",
-        r"\bchart\b", r"\bgraph\b", r"\btrend\b", r"\bstatistic",
+        r"\bdata\b",
+        r"\banalyze\b",
+        r"\banalysis\b",
+        r"\bmetric[s]?\b",
+        r"\bchart\b",
+        r"\bgraph\b",
+        r"\btrend\b",
+        r"\bstatistic",
     ],
     AgentType.SECURITY_SENTINEL: [
-        r"\bsecurity\b", r"\bvulnerab", r"\bcve\b", r"\bscan\b",
-        r"\baudit\b", r"\bpermission\b", r"\baccess\s*control\b", r"\bthreat\b",
+        r"\bsecurity\b",
+        r"\bvulnerab",
+        r"\bcve\b",
+        r"\bscan\b",
+        r"\baudit\b",
+        r"\bpermission\b",
+        r"\baccess\s*control\b",
+        r"\bthreat\b",
     ],
     AgentType.WORKIQ: [
-        r"\bworkiq\b", r"\bwork\s*iq\b", r"\bm365\b", r"\bmicrosoft\s*365\b",
-        r"\bmanager\b", r"\borg\s*chart\b", r"\bdirect\s*report",
-        r"\bmeeting[s]?\b", r"\bcalendar\b", r"\bschedule\b",
-        r"\bemail[s]?\b", r"\binbox\b", r"\bteams\s*(?:chat|channel|message)",
-        r"\bsharepoint\b", r"\bonedrive\b",
-        r"\bwho\s+is\s+my\b", r"\bmy\s+(?:team|org|organization)\b",
+        r"\bworkiq\b",
+        r"\bwork\s*iq\b",
+        r"\bm365\b",
+        r"\bmicrosoft\s*365\b",
+        r"\bmanager\b",
+        r"\borg\s*chart\b",
+        r"\bdirect\s*report",
+        r"\bmeeting[s]?\b",
+        r"\bcalendar\b",
+        r"\bschedule\b",
+        r"\bemail[s]?\b",
+        r"\binbox\b",
+        r"\bteams\s*(?:chat|channel|message)",
+        r"\bsharepoint\b",
+        r"\bonedrive\b",
+        r"\bwho\s+is\s+my\b",
+        r"\bmy\s+(?:team|org|organization)\b",
     ],
 }
 
@@ -157,7 +216,7 @@ class IntentRouter:
 
     def route_by_keywords(self, message: str) -> RoutingDecision:
         """Fast keyword-based routing (no LLM call needed)."""
-        scores: dict[str, int] = {aid: 0 for aid in self._compiled_patterns}
+        scores: dict[str, int] = dict.fromkeys(self._compiled_patterns, 0)
 
         for agent_id, patterns in self._compiled_patterns.items():
             for pattern in patterns:
@@ -194,8 +253,7 @@ class IntentRouter:
         agent_descriptions: dict[str, str] = {
             AgentType.PLAN: "Task planning, decomposition, strategy, architecture decisions",
             AgentType.SUB_PLAN: (
-                "Prerequisite resource planning, infrastructure provisioning, "
-                "minimum-viable deployments"
+                "Prerequisite resource planning, infrastructure provisioning, minimum-viable deployments"
             ),
             AgentType.LOG_ANALYSIS: "Log parsing, error analysis, stack traces, crash investigation",
             AgentType.CODE_RESEARCH: "Code search, function lookup, implementation understanding",
@@ -206,9 +264,7 @@ class IntentRouter:
             AgentType.WORKIQ: "Microsoft 365 organisational context — people, calendar, email, documents",
         }
 
-        agents_str = "\n".join(
-            f"  - {agent_id}: {desc}" for agent_id, desc in agent_descriptions.items()
-        )
+        agents_str = "\n".join(f"  - {agent_id}: {desc}" for agent_id, desc in agent_descriptions.items())
 
         return f"""Classify the user's intent and select the best agent to handle it.
 
@@ -228,9 +284,7 @@ Respond in JSON format:
 
     # ── WorkIQ-enriched routing ─────────────────────────────────────────
 
-    def extract_routing_keywords(
-        self, text: str
-    ) -> list[RoutingKeywordHint]:
+    def extract_routing_keywords(self, text: str) -> list[RoutingKeywordHint]:
         """Scan *text* (typically WorkIQ content) for routing keywords.
 
         Returns a list of :class:`RoutingKeywordHint` items the user can
@@ -269,7 +323,7 @@ Respond in JSON format:
         extracted from WorkIQ output) they contribute extra score weight to
         the relevant agents, producing a more informed routing decision.
         """
-        scores: dict[str, int] = {aid: 0 for aid in self._compiled_patterns}
+        scores: dict[str, int] = dict.fromkeys(self._compiled_patterns, 0)
 
         # Phase 1 — standard keyword scoring on user message
         for agent_id, patterns in self._compiled_patterns.items():
@@ -312,21 +366,16 @@ Respond in JSON format:
             primary_agent=primary[0],
             secondary_agents=secondary,
             confidence=confidence,
-            reasoning=(
-                f"Keyword match: {primary[0]} scored "
-                f"{primary[1]}/{total_score}{boost_note}"
-            ),
+            reasoning=(f"Keyword match: {primary[0]} scored {primary[1]}/{total_score}{boost_note}"),
             extracted_params={},
             enrichment_applied=bool(enrichment_hints),
         )
 
-    def get_llm_routing_prompt_with_context(
-        self, message: str, enrichment_text: str
-    ) -> str:
+    def get_llm_routing_prompt_with_context(self, message: str, enrichment_text: str) -> str:
         """LLM routing prompt that includes WorkIQ organisational context."""
         base = self.get_llm_routing_prompt(message)
         return (
-            base.rstrip("}\"")
+            base.rstrip('}"')
             + f'\n\nOrganisational context from Work IQ:\n"""\n{enrichment_text}\n"""\n'
             + "Use the organisational context above as additional signal when "
             + "choosing the best agent.\n"

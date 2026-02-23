@@ -60,7 +60,7 @@ class SecuritySentinelAgent(BaseAgent):
         self,
         message: str,
         context: ConversationContext,
-        params: dict[str, Any] | None = None,
+        _params: dict[str, Any] | None = None,
     ) -> AgentResult:
         logger.info("security_sentinel_executing", message_length=len(message))
 
