@@ -2,9 +2,9 @@
 
 import pytest
 
-from src.agents.plan_agent import PlanAgent
-from src.agents.log_analysis_agent import LogAnalysisAgent
 from src.agents.knowledge_base_agent import KnowledgeBaseAgent
+from src.agents.log_analysis_agent import LogAnalysisAgent
+from src.agents.plan_agent import PlanAgent
 from src.orchestrator.context import ConversationContext, MessageRole
 from src.orchestrator.engine import OrchestratorEngine
 from src.orchestrator.router import AgentType

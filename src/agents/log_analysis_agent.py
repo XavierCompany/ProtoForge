@@ -52,22 +52,25 @@ class LogAnalysisAgent(BaseAgent):
         # Quick pattern detection for common log signatures
         patterns_found = self._detect_patterns(message)
 
-        self._build_messages(message, context)
-
-        response = (
-            f"**Log Analysis Report**\n\n"
-            f"**Patterns Detected:** {len(patterns_found)}\n"
-        )
-
-        if patterns_found:
-            response += "\n".join(f"- {p}" for p in patterns_found)
+        messages = self._build_messages(message, context)
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            response = llm_response
         else:
-            response += "- No immediate patterns detected in the provided text\n"
+            response = (
+                f"**Log Analysis Report**\n\n"
+                f"**Patterns Detected:** {len(patterns_found)}\n"
+            )
 
-        response += (
-            "\n\n**Severity:** Requires LLM analysis for full assessment\n"
-            "**Next Steps:** Connect LLM backend for deep log analysis\n"
-        )
+            if patterns_found:
+                response += "\n".join(f"- {p}" for p in patterns_found)
+            else:
+                response += "- No immediate patterns detected in the provided text\n"
+
+            response += (
+                "\n\n**Severity:** Requires LLM analysis for full assessment\n"
+                "**Next Steps:** Connect LLM backend for deep log analysis\n"
+            )
 
         return AgentResult(
             agent_id=self.agent_id,

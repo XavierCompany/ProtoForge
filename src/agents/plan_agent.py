@@ -67,25 +67,28 @@ class PlanAgent(BaseAgent):
     ) -> AgentResult:
         logger.info("plan_agent_executing", message_length=len(message), role="top_level")
 
-        self._build_messages(message, context)
+        messages = self._build_messages(message, context)
 
         # Determine which sub-agents are relevant based on routing params
         recommended_agents = self._identify_sub_agents(message, params)
-
-        # TODO: Wire to Microsoft Agent Framework / LLM call
-        # For now, return a structured placeholder showing the coordinator's output
         agent_list = ", ".join(recommended_agents) if recommended_agents else "knowledge_base"
-        plan_response = (
-            f"**Plan Agent — Coordination Plan**\n\n"
-            f"I've analyzed your request and here's the execution strategy:\n\n"
-            f"1. **Understand Requirements** — Parse the full scope of '{message[:80]}...'\n"
-            f"2. **Identify Components** — Map affected systems and dependencies\n"
-            f"3. **Design Solution** — Propose architecture with trade-offs\n"
-            f"4. **Delegate to Sub-Agents** — Invoke [{agent_list}] for specialized work\n"
-            f"5. **Validation** — Define success criteria and test plan\n\n"
-            f"**Recommended sub-agents:** {agent_list}\n\n"
-            f"_Proceeding to dispatch sub-agents for execution._"
-        )
+
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            plan_response = llm_response
+        else:
+            # Fallback stub when no LLM is configured
+            plan_response = (
+                f"**Plan Agent — Coordination Plan**\n\n"
+                f"I've analyzed your request and here's the execution strategy:\n\n"
+                f"1. **Understand Requirements** — Parse the full scope of '{message[:80]}...'\n"
+                f"2. **Identify Components** — Map affected systems and dependencies\n"
+                f"3. **Design Solution** — Propose architecture with trade-offs\n"
+                f"4. **Delegate to Sub-Agents** — Invoke [{agent_list}] for specialized work\n"
+                f"5. **Validation** — Define success criteria and test plan\n\n"
+                f"**Recommended sub-agents:** {agent_list}\n\n"
+                f"_Proceeding to dispatch sub-agents for execution._"
+            )
 
         return AgentResult(
             agent_id=self.agent_id,

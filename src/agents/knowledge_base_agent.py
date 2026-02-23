@@ -56,18 +56,21 @@ class KnowledgeBaseAgent(BaseAgent):
             sources=len(self._knowledge_sources),
         )
 
-        self._build_messages(message, context)
-
-        response = (
-            f"**Knowledge Base Response**\n\n"
-            f"Query: {message[:100]}{'...' if len(message) > 100 else ''}\n\n"
-            f"**Knowledge Sources:** {len(self._knowledge_sources)} registered\n\n"
-            f"**Search Strategy:**\n"
-            f"1. Semantic search across indexed documentation\n"
-            f"2. Keyword matching in registered knowledge bases\n"
-            f"3. RAG retrieval with context windowing\n\n"
-            f"_Connect LLM backend + vector store for full RAG capabilities._"
-        )
+        messages = self._build_messages(message, context)
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            response = llm_response
+        else:
+            response = (
+                f"**Knowledge Base Response**\n\n"
+                f"Query: {message[:100]}{'...' if len(message) > 100 else ''}\n\n"
+                f"**Knowledge Sources:** {len(self._knowledge_sources)} registered\n\n"
+                f"**Search Strategy:**\n"
+                f"1. Semantic search across indexed documentation\n"
+                f"2. Keyword matching in registered knowledge bases\n"
+                f"3. RAG retrieval with context windowing\n\n"
+                f"_Connect LLM backend + vector store for full RAG capabilities._"
+            )
 
         return AgentResult(
             agent_id=self.agent_id,

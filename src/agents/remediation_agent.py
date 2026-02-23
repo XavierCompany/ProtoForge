@@ -53,24 +53,27 @@ class RemediationAgent(BaseAgent):
             if r.agent_id in ("log_analysis_agent", "code_research_agent")
         ]
 
-        self._build_messages(message, context)
+        messages = self._build_messages(message, context)
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            response = llm_response
+        else:
+            response = (
+                f"**Remediation Plan**\n\n"
+                f"**Issue:** {message[:100]}{'...' if len(message) > 100 else ''}\n"
+            )
 
-        response = (
-            f"**Remediation Plan**\n\n"
-            f"**Issue:** {message[:100]}{'...' if len(message) > 100 else ''}\n"
-        )
+            if prior_results:
+                response += f"\n**Building on:** {len(prior_results)} prior analysis result(s)\n"
 
-        if prior_results:
-            response += f"\n**Building on:** {len(prior_results)} prior analysis result(s)\n"
-
-        response += (
-            "\n**Proposed Actions:**\n"
-            "1. Identify the exact failure point\n"
-            "2. Generate targeted code patch\n"
-            "3. Validate fix doesn't break existing tests\n"
-            "4. Provide rollback procedure\n\n"
-            "_Connect LLM backend for actual patch generation._"
-        )
+            response += (
+                "\n**Proposed Actions:**\n"
+                "1. Identify the exact failure point\n"
+                "2. Generate targeted code patch\n"
+                "3. Validate fix doesn't break existing tests\n"
+                "4. Provide rollback procedure\n\n"
+                "_Connect LLM backend for actual patch generation._"
+            )
 
         return AgentResult(
             agent_id=self.agent_id,

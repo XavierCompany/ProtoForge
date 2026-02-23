@@ -48,18 +48,21 @@ class CodeResearchAgent(BaseAgent):
     ) -> AgentResult:
         logger.info("code_research_agent_executing", message_length=len(message))
 
-        self._build_messages(message, context)
-
-        response = (
-            f"**Code Research Analysis**\n\n"
-            f"Query: {message[:100]}{'...' if len(message) > 100 else ''}\n\n"
-            f"**Search Strategy:**\n"
-            f"1. Semantic search across workspace\n"
-            f"2. AST-based function/class lookup\n"
-            f"3. Dependency graph traversal\n"
-            f"4. Pattern matching for similar implementations\n\n"
-            f"_Connect LLM backend + workspace indexer for full capabilities._"
-        )
+        messages = self._build_messages(message, context)
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            response = llm_response
+        else:
+            response = (
+                f"**Code Research Analysis**\n\n"
+                f"Query: {message[:100]}{'...' if len(message) > 100 else ''}\n\n"
+                f"**Search Strategy:**\n"
+                f"1. Semantic search across workspace\n"
+                f"2. AST-based function/class lookup\n"
+                f"3. Dependency graph traversal\n"
+                f"4. Pattern matching for similar implementations\n\n"
+                f"_Connect LLM backend + workspace indexer for full capabilities._"
+            )
 
         return AgentResult(
             agent_id=self.agent_id,

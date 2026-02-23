@@ -49,22 +49,25 @@ class SecuritySentinelAgent(BaseAgent):
     ) -> AgentResult:
         logger.info("security_sentinel_executing", message_length=len(message))
 
-        self._build_messages(message, context)
-
         # Quick security keyword classification
         categories = self._classify_security_concern(message)
 
-        response = (
-            f"**Security Sentinel Report**\n\n"
-            f"**Concern Categories:** {', '.join(categories) if categories else 'General security assessment'}\n\n"
-            f"**Assessment Pipeline:**\n"
-            f"1. Static analysis for common vulnerability patterns\n"
-            f"2. Dependency audit (CVE database lookup)\n"
-            f"3. Configuration security review\n"
-            f"4. Access control and authentication audit\n"
-            f"5. Threat model assessment\n\n"
-            f"_Connect LLM backend + security databases for full scanning._"
-        )
+        messages = self._build_messages(message, context)
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            response = llm_response
+        else:
+            response = (
+                f"**Security Sentinel Report**\n\n"
+                f"**Concern Categories:** {', '.join(categories) if categories else 'General security assessment'}\n\n"
+                f"**Assessment Pipeline:**\n"
+                f"1. Static analysis for common vulnerability patterns\n"
+                f"2. Dependency audit (CVE database lookup)\n"
+                f"3. Configuration security review\n"
+                f"4. Access control and authentication audit\n"
+                f"5. Threat model assessment\n\n"
+                f"_Connect LLM backend + security databases for full scanning._"
+            )
 
         return AgentResult(
             agent_id=self.agent_id,

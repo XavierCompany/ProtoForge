@@ -49,19 +49,22 @@ class DataAnalysisAgent(BaseAgent):
     ) -> AgentResult:
         logger.info("data_analysis_agent_executing", message_length=len(message))
 
-        self._build_messages(message, context)
-
-        response = (
-            f"**Data Analysis Report**\n\n"
-            f"Query: {message[:100]}{'...' if len(message) > 100 else ''}\n\n"
-            f"**Analysis Pipeline:**\n"
-            f"1. Data ingestion and profiling\n"
-            f"2. Statistical summary computation\n"
-            f"3. Trend detection and anomaly flagging\n"
-            f"4. Visualization generation\n"
-            f"5. Insight synthesis and recommendations\n\n"
-            f"_Connect LLM backend + data connectors for full analysis._"
-        )
+        messages = self._build_messages(message, context)
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            response = llm_response
+        else:
+            response = (
+                f"**Data Analysis Report**\n\n"
+                f"Query: {message[:100]}{'...' if len(message) > 100 else ''}\n\n"
+                f"**Analysis Pipeline:**\n"
+                f"1. Data ingestion and profiling\n"
+                f"2. Statistical summary computation\n"
+                f"3. Trend detection and anomaly flagging\n"
+                f"4. Visualization generation\n"
+                f"5. Insight synthesis and recommendations\n\n"
+                f"_Connect LLM backend + data connectors for full analysis._"
+            )
 
         return AgentResult(
             agent_id=self.agent_id,

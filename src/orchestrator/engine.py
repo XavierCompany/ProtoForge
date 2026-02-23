@@ -169,12 +169,72 @@ class OrchestratorEngine:
 
     async def _route_with_llm(self, message: str) -> RoutingDecision | None:
         """Use LLM for intent classification when keyword routing is uncertain."""
-        # This would call the LLM with the routing prompt
-        # For now, return None to use keyword routing as fallback
+        import json
+
+        from src.config import LLMProvider, get_settings
+
+        settings = get_settings()
+        provider = settings.llm.active_provider
+
         prompt = self._router.get_llm_routing_prompt(message)
         logger.debug("llm_routing_requested", prompt_length=len(prompt))
-        # TODO: Wire up to kernel.invoke() when LLM is configured
-        return None
+
+        llm_text: str | None = None
+        try:
+            if provider == LLMProvider.OPENAI and settings.llm.openai_api_key:
+                from openai import AsyncOpenAI
+
+                client = AsyncOpenAI(api_key=settings.llm.openai_api_key)
+                response = await client.chat.completions.create(
+                    model=settings.llm.openai_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                )
+                llm_text = response.choices[0].message.content
+
+            elif provider == LLMProvider.AZURE_AI_FOUNDRY and settings.llm.azure_endpoint:
+                from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+                from openai import AsyncAzureOpenAI
+
+                token_provider = get_bearer_token_provider(
+                    DefaultAzureCredential(),
+                    "https://cognitiveservices.azure.com/.default",
+                )
+                client = AsyncAzureOpenAI(
+                    azure_endpoint=settings.llm.azure_endpoint,
+                    azure_deployment=settings.llm.azure_model,
+                    api_version=settings.llm.azure_api_version,
+                    azure_ad_token_provider=token_provider,
+                )
+                response = await client.chat.completions.create(
+                    model=settings.llm.azure_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                )
+                llm_text = response.choices[0].message.content
+
+        except Exception as exc:
+            logger.warning("llm_routing_failed", error=str(exc))
+            return None
+
+        if not llm_text:
+            return None
+
+        try:
+            data = json.loads(llm_text)
+            primary_str = data.get("primary_agent", "knowledge_base")
+            primary = AgentType(primary_str)
+            secondary = [AgentType(a) for a in data.get("secondary_agents", []) if a != primary_str]
+            return RoutingDecision(
+                primary_agent=primary,
+                secondary_agents=secondary,
+                confidence=float(data.get("confidence", 0.5)),
+                reasoning=data.get("reasoning", "LLM routing"),
+                extracted_params=data.get("extracted_params", {}),
+            )
+        except (json.JSONDecodeError, ValueError, KeyError) as exc:
+            logger.warning("llm_routing_parse_failed", error=str(exc))
+            return None
 
     def _aggregate(
         self, plan_result: AgentResult, sub_results: list[AgentResult]

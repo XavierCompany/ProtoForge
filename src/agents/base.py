@@ -5,8 +5,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+import structlog
+
 if TYPE_CHECKING:
     from src.orchestrator.context import AgentResult, ConversationContext
+
+logger = structlog.get_logger(__name__)
 
 
 class BaseAgent(ABC):
@@ -67,3 +71,51 @@ class BaseAgent(ABC):
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} id={self._agent_id}>"
+
+    async def _call_llm(self, messages: list[dict[str, str]]) -> str | None:
+        """Call the configured LLM provider and return the response text.
+
+        Returns None when no credentials are configured so callers can fall
+        back to their built-in stub behaviour gracefully.
+        """
+        from src.config import LLMProvider, get_settings
+
+        settings = get_settings()
+        provider = settings.llm.active_provider
+
+        try:
+            if provider == LLMProvider.OPENAI and settings.llm.openai_api_key:
+                from openai import AsyncOpenAI
+
+                client = AsyncOpenAI(api_key=settings.llm.openai_api_key)
+                response = await client.chat.completions.create(
+                    model=settings.llm.openai_model,
+                    messages=messages,  # type: ignore[arg-type]
+                )
+                return response.choices[0].message.content
+
+            if provider == LLMProvider.AZURE_AI_FOUNDRY and settings.llm.azure_endpoint:
+                from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+                from openai import AsyncAzureOpenAI
+
+                token_provider = get_bearer_token_provider(
+                    DefaultAzureCredential(),
+                    "https://cognitiveservices.azure.com/.default",
+                )
+                client = AsyncAzureOpenAI(
+                    azure_endpoint=settings.llm.azure_endpoint,
+                    azure_deployment=settings.llm.azure_model,
+                    api_version=settings.llm.azure_api_version,
+                    azure_ad_token_provider=token_provider,
+                )
+                response = await client.chat.completions.create(
+                    model=settings.llm.azure_model,
+                    messages=messages,  # type: ignore[arg-type]
+                )
+                return response.choices[0].message.content
+
+        except Exception as exc:
+            logger.warning("llm_call_failed", agent_id=self._agent_id, error=str(exc))
+
+        # No credentials configured or call failed — caller falls back to stub
+        return None
