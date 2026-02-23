@@ -39,6 +39,7 @@ class AgentType(StrEnum):
     DATA_ANALYSIS = "data_analysis"
     SECURITY_SENTINEL = "security_sentinel"
     WORKIQ = "workiq"
+    GITHUB_TRACKER = "github_tracker"
 
 
 @dataclass
@@ -173,6 +174,21 @@ _BUILTIN_KEYWORD_ROUTES: dict[str, list[str]] = {
         r"\bwho\s+is\s+my\b",
         r"\bmy\s+(?:team|org|organization)\b",
     ],
+    AgentType.GITHUB_TRACKER: [
+        r"\bgithub\b",
+        r"\bcommit[s]?\b",
+        r"\bissue[s]?\b",
+        r"\bpull\s*request",
+        r"\bpr\b",
+        r"\bchangelog\b",
+        r"\brelease\s*note",
+        r"\bgit\s*log\b",
+        r"\bconventional\s*commit",
+        r"\bdocument.*commit",
+        r"\bcreate\s*issue\b",
+        r"\bclose\s*issue\b",
+        r"\bwhat\s*(?:did|does).*commit",
+    ],
 }
 
 # Default agent when nothing matches
@@ -262,6 +278,7 @@ class IntentRouter:
             AgentType.DATA_ANALYSIS: "Data analysis, metrics, charts, trends, statistical analysis",
             AgentType.SECURITY_SENTINEL: "Security scanning, vulnerability assessment, CVE lookup, audits",
             AgentType.WORKIQ: "Microsoft 365 organisational context — people, calendar, email, documents",
+            AgentType.GITHUB_TRACKER: "GitHub commit documentation, issue management, changelogs, release notes",
         }
 
         agents_str = "\n".join(f"  - {agent_id}: {desc}" for agent_id, desc in agent_descriptions.items())

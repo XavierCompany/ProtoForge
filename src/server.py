@@ -17,6 +17,9 @@ Endpoints:
 - POST /plan/accept            — Accept/reject Plan Agent suggestions
 - GET  /sub-plan/pending       — List pending Sub-Plan resource reviews (Sub-Plan HITL)
 - POST /sub-plan/accept        — Accept/reject Sub-Plan resources + optional brief
+- POST /github/document-commit — Classify and document a commit
+- POST /github/manage-issue    — Create/update/close/comment on a GitHub issue
+- POST /github/changelog       — Generate a grouped changelog from commit history
 - GET  /health                 — Health check
 - GET  /inspector              — Agent Inspector dashboard
 """
@@ -80,6 +83,30 @@ class SubPlanAcceptRequest(BaseModel):
     request_id: str
     accepted_indices: list[int]
     user_brief: str = ""
+
+
+class GitHubDocumentCommitRequest(BaseModel):
+    commit_sha: str = ""
+    commit_message: str = ""
+    diff: str = ""
+    repo: str = ""
+
+
+class GitHubManageIssueRequest(BaseModel):
+    action: str = "create"  # create, update, close, comment
+    repo: str = ""
+    issue_number: int | None = None
+    title: str = ""
+    body: str = ""
+    labels: list[str] = []
+    commit_sha: str = ""
+
+
+class GitHubChangelogRequest(BaseModel):
+    repo: str = ""
+    from_ref: str = ""
+    to_ref: str = "HEAD"
+    version: str = "Unreleased"
 
 
 def create_app(
@@ -418,6 +445,106 @@ def create_app(
                 "status": "resolved",
             }
         )
+
+    # ── GitHub Tracker Endpoints ────────────────────────────────
+
+    @app.post("/github/document-commit")
+    async def github_document_commit(request: GitHubDocumentCommitRequest) -> JSONResponse:
+        """Classify and document a git commit.
+
+        Analyzes the commit message, diff, and metadata to produce a
+        Conventional Commits message, change-type classification, scope
+        detection, impact assessment, and suggested GitHub labels.
+        """
+        from src.agents.github_tracker_agent import GitHubTrackerAgent
+        from src.orchestrator.context import ConversationContext
+
+        ctx = ConversationContext()
+        if request.repo:
+            ctx.set_memory("github_repo", request.repo)
+
+        agent = orchestrator.get_agent("github_tracker")
+        if agent is None or not isinstance(agent, GitHubTrackerAgent):
+            agent = GitHubTrackerAgent()
+
+        result = await agent.execute(
+            message=request.commit_message or "Document this commit",
+            context=ctx,
+            params={
+                "action": "document_commit",
+                "commit_sha": request.commit_sha,
+                "commit_message": request.commit_message,
+                "diff": request.diff,
+                "repo": request.repo,
+            },
+        )
+        return JSONResponse(content={"result": result.content, "artifacts": result.artifacts})
+
+    @app.post("/github/manage-issue")
+    async def github_manage_issue(request: GitHubManageIssueRequest) -> JSONResponse:
+        """Create, update, close, or comment on a GitHub issue.
+
+        Generates structured issue bodies with Conventional Commits
+        classification, auto-labels, and cross-references.
+        """
+        from src.agents.github_tracker_agent import GitHubTrackerAgent
+        from src.orchestrator.context import ConversationContext
+
+        ctx = ConversationContext()
+        if request.repo:
+            ctx.set_memory("github_repo", request.repo)
+
+        agent = orchestrator.get_agent("github_tracker")
+        if agent is None or not isinstance(agent, GitHubTrackerAgent):
+            agent = GitHubTrackerAgent()
+
+        result = await agent.execute(
+            message=request.body or request.title or "Manage issue",
+            context=ctx,
+            params={
+                "action": "manage_issue",
+                "issue_action": request.action,
+                "repo": request.repo,
+                "issue_number": request.issue_number,
+                "title": request.title,
+                "body": request.body,
+                "labels": request.labels,
+                "commit_sha": request.commit_sha,
+            },
+        )
+        return JSONResponse(content={"result": result.content, "artifacts": result.artifacts})
+
+    @app.post("/github/changelog")
+    async def github_changelog(request: GitHubChangelogRequest) -> JSONResponse:
+        """Generate a grouped changelog from commit history.
+
+        Commits are classified by type (feat, fix, refactor, etc.) and
+        grouped into Markdown sections suitable for CHANGELOG.md or
+        GitHub release notes.
+        """
+        from src.agents.github_tracker_agent import GitHubTrackerAgent
+        from src.orchestrator.context import ConversationContext
+
+        ctx = ConversationContext()
+        if request.repo:
+            ctx.set_memory("github_repo", request.repo)
+
+        agent = orchestrator.get_agent("github_tracker")
+        if agent is None or not isinstance(agent, GitHubTrackerAgent):
+            agent = GitHubTrackerAgent()
+
+        result = await agent.execute(
+            message="Generate changelog",
+            context=ctx,
+            params={
+                "action": "changelog",
+                "from_ref": request.from_ref,
+                "to_ref": request.to_ref,
+                "version": request.version,
+                "repo": request.repo,
+            },
+        )
+        return JSONResponse(content={"result": result.content, "artifacts": result.artifacts})
 
     # ── Health & Status ─────────────────────────────────────────
 

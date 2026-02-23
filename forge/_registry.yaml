@@ -39,6 +39,10 @@ agents:
     path: agents/workiq/
     type: specialist
     description: "Microsoft 365 organisational context via Work IQ (people, calendar, email, docs)"
+  github_tracker:
+    path: agents/github_tracker/
+    type: specialist
+    description: "GitHub commit documentation, issue management, changelogs, and release notes"
 
 shared:
   prompts:

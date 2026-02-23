@@ -1,0 +1,62 @@
+# document_commit skill
+name: document_commit
+description: >
+  Analyze a git commit (diff, message, files changed) and produce
+  structured documentation describing what the commit fixes, improves,
+  or introduces as a new feature.  Outputs a Conventional Commits
+  message, a human-readable summary, and suggested issue labels.
+agent_type: github_tracker
+version: "1.0.0"
+tags: [github, commit, documentation, changelog]
+
+parameters:
+  commit_sha:
+    type: string
+    description: The SHA of the commit to document (short or full)
+    required: false
+  commit_message:
+    type: string
+    description: The original commit message
+    required: false
+  diff:
+    type: string
+    description: The commit diff (or summary of changed files)
+    required: false
+  repo:
+    type: string
+    description: "Repository in owner/name format (e.g. XavierCompany/ProtoForge)"
+    required: false
+
+output:
+  type: object
+  properties:
+    conventional_message:
+      type: string
+      description: Formatted Conventional Commits message
+    change_type:
+      type: string
+      enum: [feat, fix, perf, refactor, docs, test, ci, chore, style]
+      description: The classified change type
+    scope:
+      type: string
+      description: Module or area affected
+    summary:
+      type: string
+      description: Human-readable 2-4 sentence summary
+    files_changed:
+      type: array
+      items: { type: string }
+      description: List of files modified
+    impact:
+      type: string
+      enum: [breaking, major, minor, patch, none]
+    suggested_labels:
+      type: array
+      items: { type: string }
+      description: GitHub labels to apply
+
+examples:
+  - input: "Document the latest commit that added ruff lint rules"
+    output: "chore(lint): expand ruff rules from 9 to 20 categories - Added ARG, C4, ERA, PT, RET, RUF, S, T20, PIE, PERF rule sets"
+  - input: "What did commit a3aaefc change?"
+    output: "Comprehensive code quality audit: 30 lint violations fixed, CI pipeline added, pre-commit hooks configured"

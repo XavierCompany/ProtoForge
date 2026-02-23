@@ -20,6 +20,7 @@ import typer
 import uvicorn
 
 from src.agents.generic import GenericAgent
+from src.agents.github_tracker_agent import GitHubTrackerAgent
 from src.agents.knowledge_base_agent import KnowledgeBaseAgent
 from src.agents.log_analysis_agent import LogAnalysisAgent
 from src.agents.plan_agent import PlanAgent
@@ -55,6 +56,7 @@ _SPECIALISED_CLASSES: dict[str, type] = {
     AgentType.KNOWLEDGE_BASE: KnowledgeBaseAgent,
     AgentType.SECURITY_SENTINEL: SecuritySentinelAgent,
     AgentType.WORKIQ: WorkIQAgent,
+    AgentType.GITHUB_TRACKER: GitHubTrackerAgent,
 }
 
 
@@ -130,6 +132,11 @@ def bootstrap() -> tuple:
             WorkIQAgent,
             "Work IQ Agent",
             "Microsoft 365 organisational context (people, calendar, docs)",
+        ),
+        AgentType.GITHUB_TRACKER: (
+            GitHubTrackerAgent,
+            "GitHub Tracker Agent",
+            "GitHub commit documentation, issue management, and changelogs",
         ),
     }
     for aid, (cls, name, desc) in _default_agents.items():

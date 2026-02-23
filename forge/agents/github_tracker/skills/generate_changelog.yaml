@@ -1,0 +1,68 @@
+# generate_changelog skill
+name: generate_changelog
+description: >
+  Generate a structured changelog from commit history.  Groups
+  commits by type (features, fixes, improvements, etc.) and
+  produces Markdown output suitable for CHANGELOG.md or GitHub
+  release notes.
+agent_type: github_tracker
+version: "1.0.0"
+tags: [github, changelog, release, documentation]
+
+parameters:
+  repo:
+    type: string
+    description: "Repository in owner/name format"
+    required: false
+  from_ref:
+    type: string
+    description: "Starting git ref (tag, SHA, or branch) — exclusive"
+    required: false
+  to_ref:
+    type: string
+    description: "Ending git ref — inclusive (defaults to HEAD)"
+    required: false
+    default: "HEAD"
+  version:
+    type: string
+    description: "Version label for this changelog section (e.g. v0.2.0)"
+    required: false
+  include_authors:
+    type: boolean
+    description: "Include commit authors in output"
+    required: false
+    default: true
+
+output:
+  type: object
+  properties:
+    changelog_md:
+      type: string
+      description: Full Markdown changelog
+    entries:
+      type: array
+      items:
+        type: object
+        properties:
+          type: { type: string }
+          scope: { type: string }
+          description: { type: string }
+          commit_sha: { type: string }
+          issue_refs: { type: array, items: { type: string } }
+    stats:
+      type: object
+      properties:
+        total_commits: { type: integer }
+        features: { type: integer }
+        fixes: { type: integer }
+        improvements: { type: integer }
+        other: { type: integer }
+
+examples:
+  - input: "Generate changelog from the last tag to HEAD"
+    output: |
+      ## [v0.2.0] - 2026-02-23
+      ### Features
+      - Add GitHub Tracker Agent (#5)
+      ### Fixes
+      - Fix 30 lint violations across 15 source files (#4)

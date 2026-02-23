@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────
+# GitHub Tracker Agent — Issue & Commit Documentation
+# Automatically documents commits, creates/updates GitHub issues,
+# and writes structured changelogs describing what each commit
+# fixes, improves, or introduces as new features.
+# ─────────────────────────────────────────────────────────────
+id: github_tracker
+name: GitHub Tracker Agent
+type: specialist
+description: >
+  Automates GitHub issue and commit documentation.  Analyzes commits
+  to generate structured descriptions of fixes, improvements, and new
+  features.  Creates and updates GitHub issues with detailed context,
+  labels, and cross-references.  Maintains a living changelog tied to
+  the repository's commit history.
+
+version: "1.0.0"
+
+# ── Context Window Budget ───────────────────────────────────
+context_budget:
+  max_input_tokens: 20000
+  max_output_tokens: 10000
+  strategy: priority
+  priority_order:
+    - system_prompt
+    - current_message
+    - commit_diff
+    - issue_context
+    - recent_history
+
+# ── Sub-Agents This Agent Can Recommend ─────────────────────
+subagents: []
+
+# ── Prompts (loaded from forge/agents/github_tracker/prompts/) ──
+prompts:
+  system: system.md
+
+# ── Skills ──────────────────────────────────────────────────
+skills:
+  - document_commit.yaml
+  - manage_issues.yaml
+  - generate_changelog.yaml
+
+# ── Instructions ────────────────────────────────────────────
+instructions:
+  - commit_conventions.md
+
+# ── Tags & Metadata ────────────────────────────────────────
+tags:
+  - github
+  - issue
+  - commit
+  - changelog
+  - documentation
+  - git
+  - pull-request
+  - release

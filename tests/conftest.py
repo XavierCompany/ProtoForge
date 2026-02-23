@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from src.agents.github_tracker_agent import GitHubTrackerAgent
 from src.agents.knowledge_base_agent import KnowledgeBaseAgent
 from src.agents.log_analysis_agent import LogAnalysisAgent
 from src.agents.plan_agent import PlanAgent
@@ -22,6 +23,11 @@ def plan_agent() -> PlanAgent:
 @pytest.fixture
 def sub_plan_agent() -> SubPlanAgent:
     return SubPlanAgent()
+
+
+@pytest.fixture
+def github_tracker_agent() -> GitHubTrackerAgent:
+    return GitHubTrackerAgent()
 
 
 @pytest.fixture

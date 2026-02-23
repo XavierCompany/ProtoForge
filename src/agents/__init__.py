@@ -8,6 +8,7 @@ forge manifest.
 
 from src.agents.base import BaseAgent
 from src.agents.generic import GenericAgent
+from src.agents.github_tracker_agent import GitHubTrackerAgent
 from src.agents.knowledge_base_agent import KnowledgeBaseAgent
 from src.agents.log_analysis_agent import LogAnalysisAgent
 from src.agents.plan_agent import PlanAgent
@@ -18,6 +19,7 @@ from src.agents.workiq_agent import WorkIQAgent
 __all__ = [
     "BaseAgent",
     "GenericAgent",
+    "GitHubTrackerAgent",
     "KnowledgeBaseAgent",
     "LogAnalysisAgent",
     "PlanAgent",
