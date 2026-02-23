@@ -13,16 +13,21 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - `CHANGELOG.md` — project changelog (this file)
 - `TODO.md` — prioritised backlog derived from GUIDE2 §13
 - `SOURCE_OF_TRUTH.md` — canonical ownership map for agent identities, budgets, routing, and prompts
-- `tiktoken>=0.7.0` dependency for accurate token counting (P0-1)
-- `GovernanceGuardian.count_tokens()` public method — eliminates encapsulation leak (P0-3)
-- `ConversationContext.max_history` parameter (default 200) — trims unbounded message list (P1-9)
+- `tiktoken>=0.7.0` dependency for accurate token counting (P0-1) — commit `4d5128c`
+- `GovernanceGuardian.count_tokens()` public method — eliminates encapsulation leak (P0-3) — commit `4d5128c`
+- `ConversationContext.max_history` parameter (default 200) — trims unbounded message list (P1-9) — commit `4d5128c`
 - 5 new tests: history limit trimming (user + agent messages), `GovernanceGuardian.count_tokens()` (with/without budget manager, empty string)
+- **GUIDE.md §19**: "How to Add a Pre-Router Enrichment Source" — step-by-step guide for wiring new data sources (call transcripts, Jira, Slack, etc.) into the pre-router enrichment pipeline
+- **GUIDE.md §4**: Updated context window docs to reflect single-count-per-dispatch optimisation
+- **GUIDE2.md**: Marked completed critique items (§2.2, §2.3, §2.4, §2.8, §2.15) as ✅ DONE
+- **README.md**: Added "Next Engineer Quick Start" section — where to refine, how to change agents, how to add enrichment inputs
 
 ### Changed
-- `process()` now delegates to `_process_after_routing()` — eliminates ~30 lines of duplicate pipeline code (P0-2)
-- `_dispatch()` counts input tokens once and reuses the count for budget check, governance check, and post-dispatch recording (P0-4)
-- `_dispatch()`: `ContextWindowExceededError` import moved to module top-level (P1-10)
-- `_dispatch()`: governance token counting uses `self._governance.count_tokens()` instead of reaching through `self._governance._budget_manager` (P0-3)
+- `process()` now delegates to `_process_after_routing()` — eliminates ~30 lines of duplicate pipeline code (P0-2) — commit `4d5128c`
+- `_dispatch()` counts input tokens once and reuses the count for budget check, governance check, and post-dispatch recording (P0-4) — commit `4d5128c`
+- `_dispatch()`: `ContextWindowExceededError` import moved to module top-level (P1-10) — commit `4d5128c`
+- `_dispatch()`: governance token counting uses `self._governance.count_tokens()` instead of reaching through `self._governance._budget_manager` (P0-3) — commit `4d5128c`
+- All documentation refreshed to reflect 333 tests passing (was 328)
 
 ---
 
@@ -51,13 +56,12 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - **Configuration** (`src/config.py`) — pydantic-settings with environment variable support
 - **CLI** (`protoforge serve`) — Typer-based entry point
 - **Documentation** — `GUIDE.md` (architecture reference), `GUIDE2.md` (maintenance & tuning guide)
-- **328 tests passing** across 10 test files (routing, orchestration, governance, budget, forge loading, sub-plan, workiq, github tracker)
+- **333 tests passing** across 10 test files (routing, orchestration, governance, budget, forge loading, sub-plan, workiq, github tracker)
 
 ### Known Limitations (0.1.0)
 - Every `execute()` returns placeholder strings — no LLM calls wired
 - `_route_with_llm()` returns `None` (stub)
 - `_truncate_summarize()` falls back to `priority` strategy
-- Token counting uses `len(text) // 4` fallback (tiktoken not in dependencies)
 - `protoforge serve` exits with code 1 (missing env vars / credentials)
 - System Python 3.14 cannot build pydantic-core (requires Rust); use venv with Python 3.12
 
@@ -67,6 +71,7 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 | Commit | Description |
 |--------|-------------|
+| `4d5128c` | Context window 128K optimisations (P0-1..4, P1-9, P1-10) — 333 tests |
 | `3c1c827` | Context window optimization — full budget enforcement pipeline |
 | `32e0e35` | Documentation update |
 | `8fcd3dd` | Governance Guardian system — 316 tests |

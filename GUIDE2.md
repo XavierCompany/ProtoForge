@@ -30,7 +30,7 @@
 Before tuning anything, understand what the code *actually does* today vs.
 what the docs describe.
 
-### What works end-to-end (verified by 328 tests)
+### What works end-to-end (verified by 333 tests)
 
 | Layer | Status | Notes |
 |-------|--------|-------|
@@ -50,7 +50,7 @@ what the docs describe.
 | **LLM inference** | **Stub** | Every `execute()` returns a placeholder string |
 | **LLM-based routing** | **Stub** | `_route_with_llm()` returns `None` always |
 | **Summarize truncation strategy** | **Stub** | Falls back to `priority` truncation |
-| **Token counting (tiktoken)** | **Fallback** | Uses `len(text) // 4` unless tiktoken is installed |
+| **Token counting (tiktoken)** | **Available** | `tiktoken>=0.7.0` in `pyproject.toml`; falls back to `len(text) // 4` only if uninstalled |
 | **`protoforge serve`** | **Broken** | Exit code 1 — likely missing env vars |
 
 **Key takeaway**: The orchestration *data-flow* is complete and tested. The
@@ -65,7 +65,7 @@ critical.
 ### 2.1 — CRITICAL: No actual intelligence
 
 Every agent's `execute()` method returns a hardcoded string template.
-The 328 tests validate routing, data-flow, and budget mechanics —
+The 333 tests validate routing, data-flow, and budget mechanics —
 they do **not** validate that ProtoForge produces useful answers.
 
 **Impact**: The codebase is a well-structured shell. Until LLM calls are
@@ -76,18 +76,10 @@ cannot answer real questions.
 agent benefits automatically because they all inherit the message-building
 pattern from `BaseAgent._build_messages()`.
 
-### 2.2 — CRITICAL: Code duplication in the pipeline
+### 2.2 — CRITICAL: Code duplication in the pipeline — ✅ DONE (commit `4d5128c`)
 
-`engine.py` has two near-identical pipelines:
-
-- `process()` (lines 120–197): routes → LLM fallback → Plan → Sub-Plan → fan-out → aggregate
-- `_process_after_routing()` (lines 275–320): LLM fallback → Plan → Sub-Plan → fan-out → aggregate
-
-The only difference is that `process()` calls `self._router.route_by_keywords()`
-first. This means any bug fix or behaviour change must be applied in two places.
-
-**Fix**: `process()` should compute routing, then delegate to
-`_process_after_routing()`:
+`engine.py` had two near-identical pipelines. Fixed: `process()` now computes
+routing then delegates to `_process_after_routing()`, eliminating duplication.
 
 ```python
 async def process(self, user_message: str) -> str:
@@ -98,12 +90,11 @@ async def process(self, user_message: str) -> str:
     return await self._process_after_routing(user_message, routing)
 ```
 
-### 2.3 — HIGH: Leaky abstraction boundaries
+### 2.3 — HIGH: Leaky abstraction boundaries — ✅ DONE (commit `4d5128c`)
 
-`engine.py` line ~440 accesses `self._governance._budget_manager` — reaching
-through a private attribute of the GovernanceGuardian. This breaks encapsulation.
-
-**Fix**: Add a public method to GovernanceGuardian:
+`GovernanceGuardian.count_tokens()` is now a public method. `engine.py` calls
+`self._governance.count_tokens(payload)` instead of reaching through
+`self._governance._budget_manager`.
 
 ```python
 def count_tokens(self, text: str) -> int:
@@ -112,19 +103,10 @@ def count_tokens(self, text: str) -> int:
     return max(1, len(text) // 4)
 ```
 
-Then engine.py calls `self._governance.count_tokens(payload)` instead.
+### 2.4 — HIGH: Token counting happens 3 times per dispatch — ✅ DONE (commit `4d5128c`)
 
-### 2.4 — HIGH: Token counting happens 3 times per dispatch
-
-In `_dispatch()`, the same text gets counted by:
-1. `self._budget_manager.fits_budget()` / `truncate()`
-2. `self._governance._budget_manager.count_tokens()` (pre-dispatch)
-3. `self._governance._budget_manager.count_tokens()` (post-dispatch)
-
-With the `len(text) // 4` fallback, these can give different results than
-tiktoken, leading to silent budget accounting drift.
-
-**Fix**: Count once, pass the count through:
+Fixed: `_dispatch()` now counts tokens once, then passes `input_tokens`
+through for budget check, governance check, and recording.
 
 ```python
 input_tokens = self._budget_manager.count_tokens(effective_message)
@@ -171,13 +153,10 @@ obscures intent. Is the enum the canonical set, or is it just convenience?
 - **B)** Keep the enum but make it auto-generated from `_registry.yaml` at
   import time so it can't drift.
 
-### 2.8 — MEDIUM: ConversationContext grows without bound
+### 2.8 — MEDIUM: ConversationContext grows without bound — ✅ DONE (commit `4d5128c`)
 
-`ConversationContext.messages` is an unbounded list. In a long session, memory
-grows linearly. `get_history_for_agent(last_n=20)` only limits what goes to the
-LLM, not what stays in memory.
-
-**Fix**: Add a `max_history` parameter and trim on `add_user_message()`:
+Fixed: `ConversationContext` now accepts `max_history=200` and trims on
+`add_user_message()`. Memory is bounded to 200 messages by default.
 
 ```python
 def add_user_message(self, content: str, max_history: int = 200) -> None:
@@ -250,14 +229,9 @@ def sanitize_input(text: str, max_length: int = 10_000) -> str:
     return text[:max_length].replace("\x00", "")
 ```
 
-### 2.15 — LOW: Late import inside `_dispatch()` body
+### 2.15 — LOW: Late import inside `_dispatch()` body — ✅ DONE (commit `4d5128c`)
 
-```python
-from src.governance.guardian import ContextWindowExceededError
-```
-
-This is inside the method body (not under `TYPE_CHECKING`). It works but
-is unusual — move it to the top of the file.
+`ContextWindowExceededError` import moved to the top of `engine.py`.
 
 ---
 
@@ -866,10 +840,10 @@ Prioritised by impact and effort:
 | # | Item | Effort | Files |
 |---|------|--------|-------|
 | 1 | Wire LLM calls in `GenericAgent.execute()` | 2-3 days | `generic.py`, `config.py` |
-| 2 | Fix `process()` / `_process_after_routing()` duplication | 1 hour | `engine.py` |
-| 3 | Fix `_governance._budget_manager` encapsulation leak | 30 min | `guardian.py`, `engine.py` |
-| 4 | Count tokens once per dispatch (not 3x) | 1 hour | `engine.py` |
-| 5 | Install tiktoken in dependencies | 5 min | `pyproject.toml` |
+| 2 | ~~Fix `process()` / `_process_after_routing()` duplication~~ | ✅ Done | `engine.py` — commit `4d5128c` |
+| 3 | ~~Fix `_governance._budget_manager` encapsulation leak~~ | ✅ Done | `guardian.py`, `engine.py` — commit `4d5128c` |
+| 4 | ~~Count tokens once per dispatch (not 3x)~~ | ✅ Done | `engine.py` — commit `4d5128c` |
+| 5 | ~~Install tiktoken in dependencies~~ | ✅ Done | `pyproject.toml` — commit `4d5128c` |
 
 ### P1 — Should do for maintainability
 
@@ -878,8 +852,8 @@ Prioritised by impact and effort:
 | 6 | Extract `bootstrap()` into builder pattern | 2 hours | `main.py` |
 | 7 | Split `server.py` into route modules | 2 hours | `server.py` → `server/` |
 | 8 | Eliminate double ForgeLoader in bootstrap | 30 min | `main.py` |
-| 9 | Add ConversationContext history limit | 30 min | `context.py` |
-| 10 | Move `ContextWindowExceededError` import to top | 5 min | `engine.py` |
+| 9 | ~~Add ConversationContext history limit~~ | ✅ Done | `context.py` — commit `4d5128c` |
+| 10 | ~~Move `ContextWindowExceededError` import to top~~ | ✅ Done | `engine.py` — commit `4d5128c` |
 
 ### P2 — Should do for robustness
 
@@ -903,4 +877,4 @@ Prioritised by impact and effort:
 
 ---
 
-*Last updated: 2026-02-23 — ProtoForge commit `3c1c827`*
+*Last updated: 2026-02-23 — ProtoForge commit `4d5128c`*

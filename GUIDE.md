@@ -24,6 +24,7 @@ A comprehensive guide covering architecture rationale, extending agent capabilit
 16. [Extending the Codebase with GitHub Copilot CLI](#extending-the-codebase-with-github-copilot-cli)
 17. [Multi-Model Code Review Workflow](#multi-model-code-review-workflow-copilot-cli--claude-opus-46--codex-53)
 18. [Architecture Decision Records](#architecture-decision-records)
+19. [How to Add a Pre-Router Enrichment Source](#how-to-add-a-pre-router-enrichment-source)
 
 ---
 
@@ -88,32 +89,47 @@ The engine provides **two entry points** — standard routing and WorkIQ-enriche
 
 #### Standard Flow — `process()`
 
+After the P0-2 refactor, `process()` computes routing then **delegates** to `_process_after_routing()` — eliminating ~30 lines of duplicate pipeline code:
+
 ```python
 async def process(self, user_message: str) -> str:
-    # 1. Route intent — keyword patterns identify target agent types
+    # 1. Record user message & reset governance counters
+    self._context.add_user_message(user_message)
+    if self._governance:
+        self._governance.reset_run()
+
+    # 2. Route intent — keyword patterns identify target agent types
     routing = self._router.route_by_keywords(user_message)
 
-    # 2. Low confidence? Try LLM routing
+    # 3. Delegate to shared pipeline (same path as enriched flow)
+    return await self._process_after_routing(user_message, routing)
+```
+
+The shared `_process_after_routing()` handles the rest:
+
+```python
+async def _process_after_routing(self, user_message: str, routing) -> str:
+    # 1. Low confidence? Try LLM routing
     if routing.confidence < 0.5:
         llm_routing = await self._route_with_llm(user_message)
 
-    # 3. ALWAYS run Plan Agent first
+    # 2. ALWAYS run Plan Agent first
     plan_result = await self._dispatch(AgentType.PLAN, user_message, routing)
 
-    # 4. Store plan in working memory for sub-agents
+    # 3. Store plan in working memory for sub-agents
     self._context.set_memory("plan_output", plan_result.content)
     self._context.set_memory("plan_artifacts", plan_result.artifacts)
 
-    # 5. Sub-Plan pipeline — dual HITL gates
+    # 4. Sub-Plan pipeline — dual HITL gates
     sub_plan_result = await self._run_sub_plan_pipeline(user_message, plan_result)
 
-    # 6. Resolve which sub-agents to invoke (excludes PLAN + SUB_PLAN)
+    # 5. Resolve which sub-agents to invoke (excludes PLAN + SUB_PLAN)
     sub_agents = self._resolve_sub_agents(routing)
 
-    # 7. Fan out task agents in parallel
+    # 6. Fan out task agents in parallel
     sub_results = await self._fan_out(sub_agents, user_message, routing)
 
-    # 8. Aggregate Plan + Sub-Plan + task agent results
+    # 7. Aggregate Plan + Sub-Plan + task agent results
     return self._aggregate(plan_result, sub_results, sub_plan_result)
 ```
 
@@ -2504,6 +2520,222 @@ gh copilot explain "What does this regex match: \bfix\s.*\b(?:error|exception|bu
 **Context:** Multi-agent orchestration can silently consume unbounded context tokens, agents can accumulate too many skills (violating single-responsibility), and the architectural boundary between agents/skills/sub-agents needs enforcement  
 **Decision:** Implement a `GovernanceGuardian` with three enforcement pillars: (1) Context window governance with a 128K hard cap and 120K warning threshold triggering HITL decomposition, (2) Skill cap enforcement limiting agents to 4 skills with HITL-reviewed split suggestions, (3) Architectural principle enforcement auditing manifests for design violations. A `GovernanceSelector` provides HITL gates (ContextWindowReview + SkillCapReview) using the same prepare → expose → wait → resolve pattern as PlanSelector and WorkIQSelector. All HITL gates fail-open after 120s  
 **Consequences:** Token costs are bounded and predictable. Agents stay focused (≤ 4 skills). Sub-agent creation is guided by governance. Adds governance check overhead to every dispatch (~1ms). 7 new REST endpoints for governance monitoring and HITL resolution. Governance rules are injected into every agent's system prompt via `forge/shared/instructions/governance_rules.md`  
+
+---
+
+## How to Add a Pre-Router Enrichment Source
+
+ProtoForge's pre-router enrichment layer currently supports **WorkIQ** (M365 context). You can add additional data sources — call transcripts, Jira tickets, Slack threads, ServiceNow incidents, etc. — by following this pattern.
+
+### Architecture: Where Enrichment Plugs In
+
+```
+User message
+  → [YOUR ENRICHMENT SOURCE] ← Phase 0: query external system
+    → Phase 1 (HITL): user selects relevant content
+      → Phase 2: extract routing keywords
+        → Phase 2b (HITL): user accepts keyword boosts
+          → Intent Router (enriched)
+            → Plan Agent → Sub-Agents → Aggregate
+```
+
+The enrichment layer sits **between** the HTTP endpoint and the Intent Router. It follows the same 2-phase HITL pattern as WorkIQ.
+
+### Step-by-Step: Adding Call Transcript Enrichment
+
+#### Step 1: Create the Client
+
+Create a client that queries your data source and returns structured results:
+
+```python
+# src/transcripts/client.py
+import asyncio
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class TranscriptResult:
+    ok: bool
+    content: str
+    sections: list[dict]  # [{"title": "...", "preview": "...", "text": "..."}]
+    error: Optional[str] = None
+
+class TranscriptClient:
+    """Queries a call transcript store (e.g., Teams Recordings, Gong, Zoom)."""
+
+    def __init__(self, api_endpoint: str, api_key: str):
+        self._endpoint = api_endpoint
+        self._key = api_key
+
+    async def search(self, query: str) -> TranscriptResult:
+        """Search transcripts matching the query."""
+        # Replace with your actual API call:
+        # response = await httpx.AsyncClient().get(self._endpoint, params={"q": query})
+        # sections = self._parse_response(response.json())
+        sections = []  # placeholder
+        return TranscriptResult(
+            ok=True,
+            content="\n".join(s["text"] for s in sections),
+            sections=sections,
+        )
+```
+
+#### Step 2: Create the HITL Selector
+
+Reuse the same prepare → wait → resolve pattern as `WorkIQSelector`:
+
+```python
+# src/transcripts/selector.py
+import asyncio
+from dataclasses import dataclass, field
+
+@dataclass
+class TranscriptSelectionRequest:
+    request_id: str
+    sections: list[dict]
+    selected_indices: list[int] = field(default_factory=list)
+    resolved: bool = False
+
+class TranscriptSelector:
+    """HITL gate for transcript content selection + keyword acceptance."""
+
+    def __init__(self, timeout: float = 120.0):
+        self._timeout = timeout
+        self._pending: dict[str, TranscriptSelectionRequest] = {}
+        self._events: dict[str, asyncio.Event] = {}
+
+    def prepare(self, result: "TranscriptResult", request_id: str) -> TranscriptSelectionRequest:
+        req = TranscriptSelectionRequest(request_id=request_id, sections=result.sections)
+        self._pending[request_id] = req
+        self._events[request_id] = asyncio.Event()
+        return req
+
+    def resolve(self, request_id: str, selected_indices: list[int]) -> None:
+        req = self._pending[request_id]
+        req.selected_indices = selected_indices
+        req.resolved = True
+        self._events[request_id].set()
+
+    async def wait_for_selection(self, request_id: str) -> str:
+        try:
+            await asyncio.wait_for(self._events[request_id].wait(), self._timeout)
+        except asyncio.TimeoutError:
+            # Fail-open: accept all sections
+            req = self._pending[request_id]
+            req.selected_indices = list(range(len(req.sections)))
+            req.resolved = True
+        req = self._pending[request_id]
+        return "\n".join(req.sections[i]["text"] for i in req.selected_indices)
+```
+
+#### Step 3: Wire into the Engine
+
+Add an enrichment method in `OrchestratorEngine` following the WorkIQ pattern:
+
+```python
+# In src/orchestrator/engine.py — add new method
+
+async def process_with_transcript_enrichment(self, user_message: str) -> str:
+    """Enriched pipeline: call transcript → HITL → enriched routing."""
+    if not self._transcript_client:
+        return await self.process(user_message)
+
+    self._context.add_user_message(user_message)
+    if self._governance:
+        self._governance.reset_run()
+
+    # Phase 0: Query transcript store
+    result = await self._transcript_client.search(user_message)
+    if not result.ok or not result.sections:
+        routing = self._router.route_by_keywords(user_message)
+        return await self._process_after_routing(user_message, routing)
+
+    # Phase 1 (HITL): User selects relevant transcript sections
+    request_id = f"transcript-{id(result)}"
+    self._transcript_selector.prepare(result, request_id)
+    selected_text = await self._transcript_selector.wait_for_selection(request_id)
+
+    # Phase 2: Extract routing keywords from selected content
+    hints = self._router.extract_routing_keywords(selected_text)
+
+    # Phase 2b (HITL): User accepts/rejects keyword hints
+    # (reuse WorkIQSelector's hint mechanism or build your own)
+    # ...
+
+    # Phase 3: Enriched routing
+    routing = self._router.route_with_context(user_message, accepted_hints)
+    return await self._process_after_routing(user_message, routing)
+```
+
+#### Step 4: Add REST Endpoints
+
+Add endpoints in `src/server.py` (or a new `src/server/transcripts.py` after P1-7):
+
+```python
+@app.post("/transcripts/query")
+async def query_transcripts(body: dict):
+    result = await transcript_client.search(body["query"])
+    return {"request_id": "...", "sections": result.sections}
+
+@app.get("/transcripts/pending")
+async def pending_transcript_selections():
+    return {"pending": list(transcript_selector._pending.values())}
+
+@app.post("/transcripts/select")
+async def select_transcript_sections(body: dict):
+    transcript_selector.resolve(body["request_id"], body["selected_indices"])
+    return {"status": "resolved"}
+```
+
+#### Step 5: Register in Bootstrap
+
+Wire the client and selector into `bootstrap()` in `src/main.py`:
+
+```python
+# In bootstrap(), after WorkIQ setup:
+transcript_client = TranscriptClient(
+    api_endpoint=settings.transcript_api_endpoint,
+    api_key=settings.transcript_api_key,
+)
+transcript_selector = TranscriptSelector(timeout=120.0)
+orchestrator.set_transcript_enrichment(transcript_client, transcript_selector)
+```
+
+#### Step 6: Add Config
+
+Add settings to `src/config.py`:
+
+```python
+class Settings(BaseSettings):
+    # ... existing settings ...
+    transcript_api_endpoint: str = ""
+    transcript_api_key: str = ""
+```
+
+### Key Design Rules for Enrichment Sources
+
+| Rule | Why |
+|------|-----|
+| **Always 2-phase HITL** | User controls both content (Phase 1) and routing influence (Phase 2) |
+| **Fail-open on timeout** | Enrichment should never block the pipeline — fall back to standard routing |
+| **No persistent storage** | Selected content lives only in the current orchestration context |
+| **Reuse `extract_routing_keywords()`** | The router already knows agent keyword patterns — reuse for all enrichment sources |
+| **Reuse `route_with_context()`** | Pass accepted hints to the same boost mechanism — consistent scoring |
+| **Add working memory keys** | Store enrichment state (e.g., `transcript_selected_content`, `transcript_accepted_hints`) in `ConversationContext` |
+| **Graceful degradation** | If the data source is unavailable, silently fall back to `process()` |
+
+### Enrichment Sources You Could Add
+
+| Source | Client | What It Brings |
+|--------|--------|---------|
+| **Call transcripts** (Teams/Zoom/Gong) | `TranscriptClient` | Meeting context, decisions, action items |
+| **Jira / Azure DevOps** | `JiraClient` | Issue context, sprint data, acceptance criteria |
+| **Slack / Teams messages** | `SlackClient` | Team discussions, decisions, context |
+| **ServiceNow** | `ServiceNowClient` | Incident details, change requests, CMDB data |
+| **Confluence / SharePoint** | `WikiClient` | Documentation, runbooks, architecture docs |
+| **PagerDuty / OpsGenie** | `AlertClient` | Alert history, escalation context |
+
+All follow the same pattern: Client → Selector (HITL) → Keywords → Router → Plan.
 
 ---
 

@@ -218,12 +218,12 @@ Track completed items here with date and commit hash.
 
 | Date | Item | Commit | Notes |
 |------|------|--------|-------|
-| 2026-02-23 | P0-1 | (staged) | Added tiktoken>=0.7.0 to pyproject.toml |
-| 2026-02-23 | P0-2 | (staged) | process() delegates to _process_after_routing() |
-| 2026-02-23 | P0-3 | (staged) | GovernanceGuardian.count_tokens() public method |
-| 2026-02-23 | P0-4 | (staged) | Single token count in _dispatch() |
-| 2026-02-23 | P1-9 | (staged) | max_history=200 on ConversationContext |
-| 2026-02-23 | P1-10 | (staged) | ContextWindowExceededError import at module top |
+| 2026-02-23 | P0-1 | `4d5128c` | Added tiktoken>=0.7.0 to pyproject.toml |
+| 2026-02-23 | P0-2 | `4d5128c` | process() delegates to _process_after_routing() |
+| 2026-02-23 | P0-3 | `4d5128c` | GovernanceGuardian.count_tokens() public method |
+| 2026-02-23 | P0-4 | `4d5128c` | Single token count in _dispatch() |
+| 2026-02-23 | P1-9 | `4d5128c` | max_history=200 on ConversationContext |
+| 2026-02-23 | P1-10 | `4d5128c` | ContextWindowExceededError import at module top |
 
 ---
 

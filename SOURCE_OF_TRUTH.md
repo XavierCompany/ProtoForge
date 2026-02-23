@@ -37,7 +37,9 @@ routing via tags will still work).
 | Attribute | Canonical Source | Derived / Duplicated In |
 |-----------|-----------------|------------------------|
 | Per-agent input/output limits | `forge/agents/<id>/agent.yaml` → `context_budget:` | None (authoritative) |
+| `ConversationContext.max_history` | `src/orchestrator/context.py` — `add_user_message(max_history=200)` | Limits in-memory message list to 200 entries (P1-9) |
 | Default budget (if agent YAML omits it) | `forge/_context_window.yaml` → `defaults:` | Hardcoded fallback in `src/forge/context_budget.py` line ~80 (`16000`/`8000`) |
+| Token counting library | `tiktoken>=0.7.0` in `pyproject.toml` | Falls back to `len(text) // 4` if tiktoken is not installed (P0-1 resolved) |
 | Global hard cap | `forge/_context_window.yaml` → `governance.context_window.hard_cap` | Checked at runtime by `GovernanceGuardian` |
 | Warning threshold | `forge/_context_window.yaml` → `governance.context_window.warning_threshold` | Checked at runtime by `GovernanceGuardian` |
 | Fan-out cap | `forge/_context_window.yaml` → `scaling.max_parallel_agents` | Used by `OrchestratorEngine._fan_out()` |
@@ -118,8 +120,9 @@ to real, available model names.
 | Attribute | Canonical Source | Derived / Duplicated In |
 |-----------|-----------------|------------------------|
 | Governance rules | `src/governance/guardian.py` — `GovernanceGuardian` class | Thresholds loaded from `_context_window.yaml` at runtime |
+| `count_tokens()` public API | `src/governance/guardian.py` — `GovernanceGuardian.count_tokens()` | Called by `engine.py` (replaces direct `_budget_manager` access — P0-3) |
 | HITL selector pattern | No formal interface | Implementations: `PlanSelector`, `GovernanceSelector`, `WorkIQSelector` (see TODO P2-13) |
-| Alert counter / IDs | `GovernanceGuardian._alert_counter` | Used for both alert IDs and suggestion IDs (potential off-by-one — see GUIDE2 §2.3) |
+| Alert counter / IDs | `GovernanceGuardian._alert_counter` | Used for both alert IDs and suggestion IDs |
 
 ---
 
@@ -173,4 +176,4 @@ When you make a change to ProtoForge:
 
 ---
 
-*Last updated: 2026-02-23 — ProtoForge v0.1.0*
+*Last updated: 2026-02-23 — ProtoForge v0.1.0, commit `4d5128c`*

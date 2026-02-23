@@ -110,7 +110,6 @@ The **Plan Agent** is the top-level coordinator. Every request goes through Plan
 | **Data Analysis** | Sub-Agent | Metrics, trends, charts, statistical analysis |
 | **Security Sentinel** | Sub-Agent | Vulnerability scanning, CVE lookup, compliance audits |
 | **WorkIQ** | Sub-Agent + Pre-Router Enrichment | M365 organisational context via [Work IQ](https://www.npmjs.com/package/@microsoft/workiq) with 2-phase HITL — content selection + routing-keyword acceptance |
-| **GitHub Tracker** | Sub-Agent | Issue tracking, PR monitoring, commit search, milestone tracking via GitHub API |
 
 ## Agent Registry / Catalog
 
@@ -641,7 +640,7 @@ workiq --version
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (316 tests)
+# Run tests (333 tests)
 pytest
 
 # Run with coverage
@@ -751,5 +750,41 @@ See **[GUIDE.md](GUIDE.md)** for:
 - Adding new skills, workflows, and shared resources
 - **WorkIQ integration** — 2-phase HITL enrichment pipeline, routing keyword acceptance, REST API usage
 - **Agent Registry / Catalog** — managing sub-agents, skill catalog, health metrics, persistence
+- **How to Add a Pre-Router Enrichment Source** — step-by-step guide for adding call transcripts, Jira, Slack, etc. (§19)
 - **Multi-model code review with GitHub Copilot CLI** — run Claude Opus 4.6 and Codex 5.3 in parallel terminals for critical feedback
 - Architecture Decision Records (ADRs)
+
+## Next Engineer Quick Start
+
+If you’re picking up this codebase for the first time, here’s where to start.
+
+### Where to refine the orchestrator
+
+| What you want to change | Where to look |
+|------------------------|---------------|
+| Routing logic (which agent handles a query) | `src/orchestrator/router.py` — `_BUILTIN_KEYWORD_ROUTES` dict + `route_by_keywords()` |
+| Pipeline flow (Plan → Sub-Plan → fan-out) | `src/orchestrator/engine.py` — `_process_after_routing()` |
+| Token budgets per agent | `forge/agents/<id>/agent.yaml` → `context_budget:` |
+| Global budget cap / warning | `forge/_context_window.yaml` → `governance.context_window` |
+| HITL gate behaviour | `src/orchestrator/plan_selector.py`, `src/workiq/selector.py` |
+| Governance rules | `src/governance/guardian.py` — `GovernanceGuardian` |
+| LLM wiring (stub today) | `src/agents/generic.py` — `GenericAgent.execute()` |
+
+### How to change / add sub-agents
+
+1. **Add agent**: Create `forge/agents/<id>/` with `agent.yaml`, `prompts/system.md`, `skills/`, `instructions/`
+2. **Register routing**: Add keyword pattern to `_BUILTIN_KEYWORD_ROUTES` in `router.py`, add `AgentType` enum member
+3. **Register in bootstrap**: Add entry to `_SPECIALISED_CLASSES` in `main.py` (or use `GenericAgent` for YAML-only agents)
+4. **Add tests**: Create `tests/test_<id>.py`
+5. **Full walkthrough**: See [GUIDE.md §11](GUIDE.md) and [GUIDE2.md §4](GUIDE2.md)
+
+### How to add a pre-router enrichment source
+
+The WorkIQ pipeline (`src/workiq/`) is the reference implementation. To add a
+new enrichment source (e.g., call transcripts, Jira, Slack):
+
+1. Create a client (`src/<source>/client.py`) that fetches external data
+2. Create a selector (`src/<source>/selector.py`) with HITL prepare/resolve pattern
+3. Wire into `engine.py` → `process_with_enrichment()` or `_enrich_routing()`
+4. Add REST endpoints in `server.py`
+5. Full step-by-step: See [GUIDE.md §19](GUIDE.md)
