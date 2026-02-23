@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────────
+# Log Analysis Agent — Specialist
+# ─────────────────────────────────────────────────────────────
+id: log_analysis_agent
+name: Log Analysis Agent
+type: specialist
+description: >
+  Expert in parsing, analyzing, and diagnosing application logs.
+  Identifies errors, patterns, anomalies, and root causes from
+  structured and unstructured log data.
+
+version: "1.0.0"
+
+context_budget:
+  max_input_tokens: 6000
+  max_output_tokens: 3000
+  strategy: sliding_window
+  priority_order:
+    - system_prompt
+    - current_message
+    - log_content
+    - recent_history
+
+subagents: []   # Specialists don't dispatch to sub-agents
+
+prompts:
+  system: system.md
+
+skills:
+  - analyze_logs.yaml
+
+instructions:
+  - log_formats.md
+
+tags: [logs, errors, debugging, monitoring, diagnostics]

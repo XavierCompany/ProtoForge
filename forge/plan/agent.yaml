@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────
+# Plan Agent — Top-Level Coordinator
+# Always invoked FIRST for every user request.
+# Analyzes, strategizes, decomposes, and identifies sub-agents.
+# ─────────────────────────────────────────────────────────────
+id: plan_agent
+name: Plan Agent
+type: coordinator          # coordinator | specialist
+description: >
+  Top-level coordinator that analyzes every incoming request,
+  produces a strategic execution plan, decomposes complex tasks
+  into ordered steps, and identifies which specialist sub-agents
+  should be invoked downstream.
+
+version: "1.0.0"
+
+# ── Context Window Budget ───────────────────────────────────
+context_budget:
+  max_input_tokens: 8000   # Budget for incoming context
+  max_output_tokens: 4000  # Budget for plan output
+  strategy: priority       # priority | sliding_window | summarize
+  priority_order:           # What to keep when budget is tight
+    - system_prompt
+    - current_message
+    - plan_artifacts
+    - recent_history
+    - working_memory
+
+# ── Sub-Agents This Coordinator Can Dispatch ────────────────
+subagents:
+  - log_analysis
+  - code_research
+  - remediation
+  - knowledge_base
+  - data_analysis
+  - security_sentinel
+
+# ── Prompts (loaded from forge/plan/prompts/) ───────────────
+prompts:
+  system: system.md
+  strategy: strategy.md
+  decomposition: decomposition.md
+  routing: routing.md
+
+# ── Skills (loaded from forge/plan/skills/) ─────────────────
+skills:
+  - plan_task.yaml
+  - identify_agents.yaml
+  - build_strategy.yaml
+
+# ── Instructions (loaded from forge/plan/instructions/) ─────
+instructions:
+  - routing_rules.md
+  - coordination.md
+
+# ── Tags & Metadata ─────────────────────────────────────────
+tags: [planning, coordination, strategy, decomposition, routing]

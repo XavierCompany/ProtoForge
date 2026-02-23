@@ -1,0 +1,23 @@
+id: security_sentinel
+name: Security Sentinel Agent
+type: specialist
+version: "1.0.0"
+description: >
+  Scans code, configurations, and dependencies for security vulnerabilities,
+  CVEs, and compliance violations. Maps findings to OWASP, CWE, and CVSS frameworks.
+
+context_budget:
+  max_input_tokens: 6000
+  max_output_tokens: 4000
+  strategy: priority            # security findings ranked by severity
+
+skills:
+  - skills/security_scan.yaml
+
+prompts:
+  - prompts/system.md
+
+instructions:
+  - instructions/frameworks.md
+
+tags: [security, vulnerability, cve, audit, compliance, owasp]

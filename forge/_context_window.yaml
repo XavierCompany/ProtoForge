@@ -1,0 +1,54 @@
+# ProtoForge Context Window Configuration
+# Controls how token budgets are allocated and managed across agents.
+
+version: "1.0.0"
+
+# Global budget for a single orchestration run
+global:
+  max_total_tokens: 32000       # total across all agents in one run
+  reserve_for_plan: 12000       # guaranteed allocation for Plan Agent
+  reserve_for_aggregation: 4000 # held back for final aggregation step
+
+# Default per-agent budgets (overridden by agent.yaml if present)
+defaults:
+  specialist:
+    max_input_tokens: 6000
+    max_output_tokens: 3000
+    strategy: priority           # priority | sliding_window | summarize
+
+  coordinator:
+    max_input_tokens: 8000
+    max_output_tokens: 4000
+    strategy: priority
+
+# Context window strategies
+strategies:
+  priority:
+    description: "Keep highest-priority content; drop lowest when budget exceeded"
+    priority_order:
+      - error_messages
+      - stack_traces
+      - user_query
+      - code_snippets
+      - metadata
+
+  sliding_window:
+    description: "Keep most recent N tokens; oldest content drops off"
+    overlap_tokens: 200          # overlap between windows for continuity
+
+  summarize:
+    description: "LLM-summarize content that exceeds budget before passing to agent"
+    summary_target_tokens: 1000  # target size for summaries
+
+# Token counting
+token_counting:
+  method: tiktoken               # tiktoken | character_estimate | word_estimate
+  model: cl100k_base             # tokenizer model (used by tiktoken)
+  fallback: character_estimate   # if tiktoken unavailable, 1 token ≈ 4 chars
+
+# Dynamic scaling
+scaling:
+  enabled: true
+  min_agents: 1
+  max_parallel_agents: 4
+  rebalance_on_overflow: true    # redistribute budget when an agent under-uses

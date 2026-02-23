@@ -84,7 +84,15 @@ class MCPConfig(BaseSettings):
     """MCP server configuration."""
 
     port: int = Field(8081, alias="MCP_SERVER_PORT")
-    skills_dir: Path = Field(Path("./skills"), alias="MCP_SKILLS_DIR")
+    skills_dir: Path = Field(Path("./forge"), alias="MCP_SKILLS_DIR")
+
+    model_config = {"env_file": ".env", "extra": "ignore"}
+
+
+class ForgeConfig(BaseSettings):
+    """Forge ecosystem configuration."""
+
+    forge_dir: Path = Field(Path("./forge"), alias="FORGE_DIR")
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
@@ -104,6 +112,7 @@ class Settings(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
+    forge: ForgeConfig = Field(default_factory=ForgeConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     registry_path: Path = Field(Path("./registry_data"), alias="REGISTRY_PATH")
 

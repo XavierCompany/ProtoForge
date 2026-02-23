@@ -1,0 +1,23 @@
+id: data_analysis
+name: Data Analysis Agent
+type: specialist
+version: "1.0.0"
+description: >
+  Analyzes datasets, computes metrics, detects trends and anomalies, and
+  generates visualization specifications. Works with structured and semi-structured data.
+
+context_budget:
+  max_input_tokens: 8000
+  max_output_tokens: 4000
+  strategy: sliding_window      # large datasets need windowed processing
+
+skills:
+  - skills/analyze_data.yaml
+
+prompts:
+  - prompts/system.md
+
+instructions:
+  - instructions/analysis_methods.md
+
+tags: [data, metrics, analysis, visualization, trends, anomaly]

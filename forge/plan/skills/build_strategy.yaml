@@ -1,0 +1,21 @@
+name: build_strategy
+description: "Build a phased execution strategy with discovery, analysis, execution, and validation phases"
+agent_type: plan
+version: "1.0.0"
+tags: [strategy, planning, execution, phases]
+parameters:
+  - name: objective
+    type: string
+    description: "The high-level objective to strategize"
+    required: true
+  - name: constraints
+    type: string
+    description: "Budget, time, or technical constraints"
+    required: false
+  - name: context
+    type: string
+    description: "Prior findings or artifacts from other agents"
+    required: false
+examples:
+  - input: "Build a strategy to migrate from PostgreSQL 12 to 16"
+    output: "4-phase migration strategy with backup, test, migrate, validate steps"

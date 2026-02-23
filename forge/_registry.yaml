@@ -1,0 +1,52 @@
+# ProtoForge Agent Registry
+# Single source of truth for all agents, skills, workflows in the forge/ ecosystem.
+# Auto-discovered by src/forge/loader.py — manual edits are overwritten on reload.
+
+version: "1.0.0"
+
+coordinator:
+  plan:
+    path: plan/
+    type: coordinator
+    description: "Top-level coordinator — plans, routes, aggregates"
+
+agents:
+  log_analysis:
+    path: agents/log_analysis/
+    type: specialist
+    description: "Analyze logs for errors, anomalies, and root causes"
+  code_research:
+    path: agents/code_research/
+    type: specialist
+    description: "Search and analyze source code"
+  remediation:
+    path: agents/remediation/
+    type: specialist
+    description: "Generate and validate code fixes"
+  knowledge_base:
+    path: agents/knowledge_base/
+    type: specialist
+    description: "Search docs, wikis, and knowledge bases"
+  data_analysis:
+    path: agents/data_analysis/
+    type: specialist
+    description: "Analyze data, compute metrics, detect trends"
+  security_sentinel:
+    path: agents/security_sentinel/
+    type: specialist
+    description: "Security scanning, CVE detection, compliance auditing"
+
+shared:
+  prompts:
+    - shared/prompts/error_handling.md
+    - shared/prompts/output_format.md
+  instructions:
+    - shared/instructions/quality_standards.md
+    - shared/instructions/security_baseline.md
+  workflows:
+    - shared/workflows/code_review.yaml
+    - shared/workflows/incident_response.yaml
+
+contrib:
+  path: contrib/
+  discovery: auto    # loader scans contrib/ for custom agents/skills/prompts

@@ -1,0 +1,20 @@
+name: identify_agents
+description: "Analyze a user request and identify which specialist sub-agents should handle it"
+agent_type: plan
+version: "1.0.0"
+tags: [routing, classification, coordination]
+parameters:
+  - name: message
+    type: string
+    description: "The user's message to classify"
+    required: true
+  - name: available_agents
+    type: string
+    description: "Comma-separated list of available agent types"
+    required: false
+    default: "log_analysis,code_research,remediation,knowledge_base,data_analysis,security_sentinel"
+examples:
+  - input: "Why is the API returning 500 errors?"
+    output: '{"primary": "log_analysis", "secondary": ["code_research", "remediation"]}'
+  - input: "Explain how the auth middleware works"
+    output: '{"primary": "knowledge_base", "secondary": ["code_research"]}'

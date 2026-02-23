@@ -1,0 +1,28 @@
+id: remediation_agent
+name: Remediation Agent
+type: specialist
+description: >
+  Expert in generating code fixes, patches, workarounds, and
+  resolution strategies. Produces actionable fixes with rollback plans.
+
+version: "1.0.0"
+
+context_budget:
+  max_input_tokens: 6000
+  max_output_tokens: 4000
+  strategy: priority
+  priority_order:
+    - system_prompt
+    - current_message
+    - error_context
+    - code_snippets
+    - plan_output
+
+subagents: []
+prompts:
+  system: system.md
+skills:
+  - fix_issue.yaml
+instructions:
+  - fix_patterns.md
+tags: [fix, patch, remediation, bugfix, hotfix]

@@ -1,0 +1,32 @@
+id: code_research_agent
+name: Code Research Agent
+type: specialist
+description: >
+  Expert in codebase navigation, code search, function lookup,
+  and implementation analysis. Traces execution flows and
+  identifies dependencies across files and modules.
+
+version: "1.0.0"
+
+context_budget:
+  max_input_tokens: 6000
+  max_output_tokens: 3000
+  strategy: priority
+  priority_order:
+    - system_prompt
+    - current_message
+    - code_snippets
+    - recent_history
+
+subagents: []
+
+prompts:
+  system: system.md
+
+skills:
+  - search_code.yaml
+
+instructions:
+  - search_patterns.md
+
+tags: [code, search, functions, architecture, navigation]

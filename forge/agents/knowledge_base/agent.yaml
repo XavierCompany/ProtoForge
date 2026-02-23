@@ -1,0 +1,23 @@
+id: knowledge_base
+name: Knowledge Base Agent
+type: specialist
+version: "1.0.0"
+description: >
+  Searches documentation, wikis, FAQs, and internal knowledge bases to find
+  answers, how-to guides, and reference material. Returns sourced, cited responses.
+
+context_budget:
+  max_input_tokens: 6000
+  max_output_tokens: 3000
+  strategy: summarize          # summarize long docs to fit budget
+
+skills:
+  - skills/query_knowledge.yaml
+
+prompts:
+  - prompts/system.md
+
+instructions:
+  - instructions/sources.md
+
+tags: [docs, documentation, knowledge, howto, faq, wiki]

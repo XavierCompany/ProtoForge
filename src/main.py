@@ -6,6 +6,7 @@ Wires together:
 - MCP server for skills distribution
 - Agent catalog for registry/discovery
 - Workflow engine for bundled workflows
+- Forge ecosystem (agents, prompts, skills, workflows, context budgets)
 - FastAPI HTTP server with Agent Inspector
 """
 
@@ -28,6 +29,7 @@ from src.agents import (
     SecuritySentinelAgent,
 )
 from src.config import get_settings
+from src.forge.loader import ForgeLoader
 from src.mcp.server import MCPSkillServer
 from src.mcp.skills import SkillLoader
 from src.orchestrator.engine import OrchestratorEngine
@@ -47,6 +49,10 @@ def bootstrap() -> tuple:
     Returns (app, orchestrator, mcp_server, catalog, workflow_engine)
     """
     settings = get_settings()
+
+    # 0. Load the forge/ ecosystem (agents, prompts, skills, context budgets)
+    forge_loader = ForgeLoader(settings.forge.forge_dir)
+    forge_registry = forge_loader.load()
 
     # 1. Create orchestrator
     orchestrator = OrchestratorEngine()
@@ -86,9 +92,19 @@ def bootstrap() -> tuple:
     for agent_type, (agent, _name, _desc) in agent_map.items():
         orchestrator.register_agent(agent_type, agent)
 
-    # 3. Load skills and create MCP server
+    # 3. Load skills from forge/ ecosystem + legacy skills/ dir
     skills_dir = Path(settings.mcp.skills_dir)
-    skills = SkillLoader.load_from_directory(skills_dir)
+    skills = SkillLoader.load_from_directory(skills_dir) if skills_dir.exists() and skills_dir.is_dir() else []
+    # Also pick up any skills the forge loader found
+    for forge_skill in forge_registry.skills:
+        source = forge_skill.get("_source_path")
+        if source:
+            try:
+                skill = SkillLoader.load_from_file(Path(source))
+                if skill.name not in {s.name for s in skills}:
+                    skills.append(skill)
+            except Exception:
+                pass
     mcp_server = MCPSkillServer()
     mcp_server.load_skills(skills_dir)
 
@@ -112,12 +128,22 @@ def bootstrap() -> tuple:
         ))
     catalog.populate_from_skills(skills)
 
-    # 5. Load workflows
+    # 5. Load workflows from forge/ ecosystem + legacy workflows/ dir
     workflow_engine = WorkflowEngine(orchestrator)
     workflows_dir = Path("workflows")
     if workflows_dir.exists():
         for workflow in WorkflowLoader.load_from_directory(workflows_dir):
             workflow_engine.register_workflow(workflow)
+    # Also register forge-discovered workflows
+    for forge_wf in forge_registry.workflows:
+        source = forge_wf.get("_source_path")
+        if source:
+            try:
+                for wf in WorkflowLoader.load_from_directory(Path(source).parent):
+                    if wf.name not in {w["name"] for w in workflow_engine.list_workflows()}:
+                        workflow_engine.register_workflow(wf)
+            except Exception:
+                pass
 
     # 6. Create FastAPI app
     app = create_app(orchestrator, mcp_server, catalog, workflow_engine)
@@ -127,6 +153,8 @@ def bootstrap() -> tuple:
         agents=len(agent_map),
         skills=len(skills),
         workflows=len(workflow_engine.list_workflows()),
+        forge_agents=len(forge_registry.agents) + (1 if forge_registry.coordinator else 0),
+        forge_skills=len(forge_registry.skills),
         provider=settings.llm.active_provider.value,
     )
 

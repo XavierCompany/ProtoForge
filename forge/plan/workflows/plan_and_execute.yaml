@@ -1,0 +1,23 @@
+name: plan_and_execute
+description: "Standard Plan-first workflow — plan, fan-out, aggregate"
+version: "1.0.0"
+tags: [core, planning, coordination]
+
+steps:
+  - name: plan
+    agent_type: plan
+    prompt_template: "Analyze and create an execution plan for: {user_message}"
+    timeout_seconds: 30
+
+  - name: execute_parallel
+    agent_type: _dynamic       # Agents chosen dynamically by Plan Agent
+    prompt_template: "Execute your specialty for: {user_message}. Plan context: {plan_output}"
+    depends_on: [plan]
+    timeout_seconds: 45
+    parallel: true
+
+  - name: aggregate
+    agent_type: plan
+    prompt_template: "Synthesize the results from all sub-agents into a unified response"
+    depends_on: [execute_parallel]
+    timeout_seconds: 30
