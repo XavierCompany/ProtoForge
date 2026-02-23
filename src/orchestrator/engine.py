@@ -4,6 +4,18 @@ All agent registration and dispatch now uses plain ``str`` agent IDs
 rather than the :class:`AgentType` enum, so forge-contributed agents
 work without touching the enum.
 
+**Sub-Plan Agent layer** (always active):
+
+After the Plan Agent produces a strategy the pipeline inserts two
+HITL gates before task agents run:
+
+1. **Plan HITL** — human reviews Plan Agent suggestions and keywords.
+2. **Sub-Plan Agent** — creates a minimum-viable resource deployment
+   plan for the prerequisite infrastructure.
+3. **Sub-Plan HITL** — human reviews the resource plan (with default
+   brief: *"aim to create the minimum resources needed to demonstrate
+   the functionality"*).
+
 **WorkIQ-enriched routing** (optional):
 
 When a :class:`WorkIQClient` and :class:`WorkIQSelector` are wired in,
@@ -31,6 +43,7 @@ from src.orchestrator.router import AgentType, IntentRouter, RoutingDecision
 
 if TYPE_CHECKING:
     from src.agents.base import BaseAgent
+    from src.orchestrator.plan_selector import PlanSelector
     from src.workiq.client import WorkIQClient
     from src.workiq.selector import WorkIQSelector
 
@@ -40,18 +53,23 @@ logger = structlog.get_logger(__name__)
 class OrchestratorEngine:
     """Top-level multi-agent orchestrator with Plan-first architecture.
 
-    Every request flows through the Plan Agent first:
+    Every request flows through the Plan Agent first, then through the
+    Sub-Plan Agent (with HITL gates), before task agents execute:
+
     1. Classifies user intent (keyword + optional LLM-based)
     2. Always dispatches to Plan Agent as the top-level coordinator
-    3. Plan Agent produces a strategy and identifies required sub-agents
-    4. Orchestrator fans out to the identified sub-agents in parallel
-    5. Aggregates Plan + sub-agent results into a unified response
+    3. **Plan HITL** — human reviews plan suggestions and keywords
+    4. Sub-Plan Agent plans prerequisite resources (minimum viable)
+    5. **Sub-Plan HITL** — human reviews resource plan + optional brief
+    6. Orchestrator fans out to the identified sub-agents in parallel
+    7. Aggregates Plan + Sub-Plan + sub-agent results
     """
 
     def __init__(
         self,
         workiq_client: WorkIQClient | None = None,
         workiq_selector: WorkIQSelector | None = None,
+        plan_selector: PlanSelector | None = None,
     ) -> None:
         self._router = IntentRouter()
         self._agents: dict[str, BaseAgent] = {}
@@ -60,6 +78,8 @@ class OrchestratorEngine:
         # Optional WorkIQ enrichment layer
         self._workiq_client = workiq_client
         self._workiq_selector = workiq_selector
+        # Plan + Sub-Plan HITL layer
+        self._plan_selector = plan_selector
 
     # ── agent registration ──────────────────────────────────────────────
 
@@ -92,8 +112,11 @@ class OrchestratorEngine:
         1. Add message to conversation context
         2. Route intent (keyword + optional LLM) to identify target sub-agents
         3. ALWAYS execute Plan Agent first as top-level coordinator
-        4. Fan out to identified sub-agents in parallel
-        5. Aggregate Plan + sub-agent results into unified response
+        4. **Plan HITL** — human reviews plan suggestions
+        5. Sub-Plan Agent plans prerequisite resources
+        6. **Sub-Plan HITL** — human reviews resource plan
+        7. Fan out to identified sub-agents in parallel
+        8. Aggregate Plan + Sub-Plan + sub-agent results
         """
         self._context.add_user_message(user_message)
 
@@ -124,21 +147,27 @@ class OrchestratorEngine:
         self._context.set_memory("plan_output", plan_result.content)
         self._context.set_memory("plan_artifacts", plan_result.artifacts)
 
-        # Step 4: Determine sub-agents to invoke (from routing, excluding PLAN)
+        # Step 4: Plan HITL + Sub-Plan Agent + Sub-Plan HITL
+        sub_plan_result = await self._run_sub_plan_pipeline(
+            user_message, plan_result, routing,
+        )
+
+        # Step 5: Determine sub-agents to invoke (from routing, excluding PLAN/SUB_PLAN)
         sub_agents = self._resolve_sub_agents(routing)
         logger.info(
             "plan_first_dispatch",
             plan_agent="plan",
+            sub_plan_ran=sub_plan_result is not None,
             sub_agents=sub_agents,
         )
 
-        # Step 5: Fan out to sub-agents in parallel
+        # Step 6: Fan out to sub-agents in parallel
         sub_results: list[AgentResult] = []
         if sub_agents:
             sub_results = await self._fan_out(sub_agents, user_message, routing)
 
-        # Step 6: Aggregate Plan + sub-agent results
-        return self._aggregate(plan_result, sub_results)
+        # Step 7: Aggregate Plan + Sub-Plan + sub-agent results
+        return self._aggregate(plan_result, sub_results, sub_plan_result)
 
     # ── WorkIQ-enriched routing ─────────────────────────────────────────
 
@@ -251,11 +280,17 @@ class OrchestratorEngine:
         self._context.set_memory("plan_output", plan_result.content)
         self._context.set_memory("plan_artifacts", plan_result.artifacts)
 
-        # Determine sub-agents to invoke (from routing, excluding PLAN)
+        # Plan HITL + Sub-Plan Agent + Sub-Plan HITL
+        sub_plan_result = await self._run_sub_plan_pipeline(
+            user_message, plan_result, routing,
+        )
+
+        # Determine sub-agents to invoke (from routing, excluding PLAN/SUB_PLAN)
         sub_agents = self._resolve_sub_agents(routing)
         logger.info(
             "plan_first_dispatch",
             plan_agent="plan",
+            sub_plan_ran=sub_plan_result is not None,
             sub_agents=sub_agents,
         )
 
@@ -264,25 +299,105 @@ class OrchestratorEngine:
         if sub_agents:
             sub_results = await self._fan_out(sub_agents, user_message, routing)
 
-        # Aggregate Plan + sub-agent results
-        return self._aggregate(plan_result, sub_results)
+        # Aggregate Plan + Sub-Plan + sub-agent results
+        return self._aggregate(plan_result, sub_results, sub_plan_result)
 
     def _resolve_sub_agents(self, routing: RoutingDecision) -> list[str]:
         """Build the list of sub-agents to invoke after the Plan Agent.
 
         Collects the primary + secondary agents from routing, removes PLAN
-        (since it already ran), and deduplicates.
+        and SUB_PLAN (since they already ran), and deduplicates.
         """
+        excluded = {AgentType.PLAN, AgentType.SUB_PLAN}
         candidates: list[str] = []
 
-        if routing.primary_agent != AgentType.PLAN:
+        if routing.primary_agent not in excluded:
             candidates.append(routing.primary_agent)
 
         for agent_id in routing.secondary_agents:
-            if agent_id != AgentType.PLAN and agent_id not in candidates:
+            if agent_id not in excluded and agent_id not in candidates:
                 candidates.append(agent_id)
 
         return candidates
+
+    # ── Sub-Plan pipeline ───────────────────────────────────────────────
+
+    async def _run_sub_plan_pipeline(
+        self,
+        user_message: str,
+        plan_result: AgentResult,
+        routing: RoutingDecision,
+    ) -> AgentResult | None:
+        """Run Plan HITL → Sub-Plan Agent → Sub-Plan HITL.
+
+        Returns the Sub-Plan Agent's result, or ``None`` if the sub-plan
+        agent isn't registered or the PlanSelector isn't configured.
+        """
+        sub_plan_agent = self._agents.get(str(AgentType.SUB_PLAN))
+        if not sub_plan_agent:
+            logger.debug("sub_plan_skipped", reason="agent not registered")
+            return None
+
+        plan_artifacts = plan_result.artifacts or {}
+        recommended = plan_artifacts.get("recommended_sub_agents", [])
+
+        # ── Phase A: Plan HITL ──────────────────────────────────────────
+        accepted_agents = recommended  # default: accept all
+        if self._plan_selector and len(recommended) > 1:
+            plan_req_id = str(uuid.uuid4())
+            plan_req = self._plan_selector.prepare_plan_review(
+                plan_req_id,
+                plan_result.content,
+                recommended,
+                plan_artifacts=plan_artifacts,
+            )
+            if not plan_req.resolved:
+                self._context.set_memory("plan_review_pending", plan_req_id)
+                plan_req = await self._plan_selector.wait_for_plan_review(plan_req_id)
+
+            accepted_agents = self._plan_selector.accepted_plan_agents(plan_req_id)
+            self._context.set_memory("plan_accepted_agents", accepted_agents)
+            self._plan_selector.cleanup_plan_review(plan_req_id)
+            logger.info("plan_hitl_resolved", accepted_agents=accepted_agents)
+
+        # ── Sub-Plan Agent execution ────────────────────────────────────
+        sub_plan_result = await self._dispatch(
+            AgentType.SUB_PLAN, user_message, routing,
+        )
+        self._context.set_memory("sub_plan_output", sub_plan_result.content)
+        self._context.set_memory("sub_plan_artifacts", sub_plan_result.artifacts)
+
+        # ── Phase B: Sub-Plan HITL ──────────────────────────────────────
+        sub_plan_artifacts = sub_plan_result.artifacts or {}
+        resources = sub_plan_artifacts.get("resources", [])
+
+        if self._plan_selector and resources:
+            res_req_id = str(uuid.uuid4())
+            res_req = self._plan_selector.prepare_resource_review(
+                res_req_id,
+                sub_plan_result.content,
+                resources,
+                user_brief=sub_plan_artifacts.get("user_brief", ""),
+            )
+            if not res_req.resolved:
+                self._context.set_memory("resource_review_pending", res_req_id)
+                res_req = await self._plan_selector.wait_for_resource_review(res_req_id)
+
+            accepted_resources = self._plan_selector.accepted_resources(res_req_id)
+            brief = self._plan_selector.resource_brief(res_req_id)
+            self._context.set_memory(
+                "accepted_resources",
+                [{"name": r.name, "type": r.resource_type} for r in accepted_resources],
+            )
+            self._context.set_memory("resource_brief", brief)
+            self._plan_selector.cleanup_resource_review(res_req_id)
+            logger.info(
+                "sub_plan_hitl_resolved",
+                accepted_count=len(accepted_resources),
+                brief_length=len(brief),
+            )
+
+        return sub_plan_result
 
     async def _dispatch(
         self, agent_id: str, message: str, routing: RoutingDecision,
@@ -337,10 +452,18 @@ class OrchestratorEngine:
         return None
 
     def _aggregate(
-        self, plan_result: AgentResult, sub_results: list[AgentResult],
+        self,
+        plan_result: AgentResult,
+        sub_results: list[AgentResult],
+        sub_plan_result: AgentResult | None = None,
     ) -> str:
-        """Aggregate Plan Agent output with sub-agent results into a unified response."""
+        """Aggregate Plan + Sub-Plan + sub-agent results into a unified response."""
         parts = [f"**Plan:**\n{plan_result.content}"]
+
+        if sub_plan_result and sub_plan_result.content:
+            parts.append(
+                f"\n---\n**Sub-Plan (Resource Deployment):**\n{sub_plan_result.content}"
+            )
 
         for result in sub_results:
             if result.confidence > 0.3 and result.content:

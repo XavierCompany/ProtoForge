@@ -1,20 +1,24 @@
 """HTTP Server — FastAPI app exposing the orchestrator and MCP server.
 
 Endpoints:
-- POST /chat                 — Send message to orchestrator
-- POST /chat/enriched        — Send message with WorkIQ enrichment pipeline
-- POST /mcp                  — MCP JSON-RPC endpoint
-- GET  /agents               — List registered agents
-- GET  /skills               — List available skills
-- GET  /workflows            — List available workflows
-- POST /workflows/run        — Execute a workflow
-- POST /workiq/query         — Send question to Work IQ, returns selection options
-- GET  /workiq/pending       — List pending WorkIQ selections (HITL Phase 1)
-- POST /workiq/select        — Resolve a WorkIQ selection with chosen indices
-- GET  /workiq/routing-hints — List pending routing-keyword hints (HITL Phase 2)
-- POST /workiq/accept-hints  — Accept routing-keyword hints for enriched routing
-- GET  /health               — Health check
-- GET  /inspector            — Agent Inspector dashboard
+- POST /chat                   — Send message to orchestrator
+- POST /chat/enriched          — Send message with WorkIQ enrichment pipeline
+- POST /mcp                    — MCP JSON-RPC endpoint
+- GET  /agents                 — List registered agents
+- GET  /skills                 — List available skills
+- GET  /workflows              — List available workflows
+- POST /workflows/run          — Execute a workflow
+- POST /workiq/query           — Send question to Work IQ, returns selection options
+- GET  /workiq/pending         — List pending WorkIQ selections (HITL Phase 1)
+- POST /workiq/select          — Resolve a WorkIQ selection with chosen indices
+- GET  /workiq/routing-hints   — List pending routing-keyword hints (HITL Phase 2)
+- POST /workiq/accept-hints    — Accept routing-keyword hints for enriched routing
+- GET  /plan/pending           — List pending Plan Agent suggestion reviews (Plan HITL)
+- POST /plan/accept            — Accept/reject Plan Agent suggestions
+- GET  /sub-plan/pending       — List pending Sub-Plan resource reviews (Sub-Plan HITL)
+- POST /sub-plan/accept        — Accept/reject Sub-Plan resources + optional brief
+- GET  /health                 — Health check
+- GET  /inspector              — Agent Inspector dashboard
 """
 
 from __future__ import annotations
@@ -67,12 +71,24 @@ class WorkIQAcceptHintsRequest(BaseModel):
     accepted_indices: list[int]
 
 
+class PlanAcceptRequest(BaseModel):
+    request_id: str
+    accepted_indices: list[int]
+
+
+class SubPlanAcceptRequest(BaseModel):
+    request_id: str
+    accepted_indices: list[int]
+    user_brief: str = ""
+
+
 def create_app(
     orchestrator: Any,
     mcp_server: Any,
     catalog: Any,
     workflow_engine: Any,
     workiq_selector: Any | None = None,
+    plan_selector: Any | None = None,
 ) -> FastAPI:
     """Create the FastAPI application with all routes wired up."""
 
@@ -293,6 +309,107 @@ def create_app(
                 {"agent_id": h.agent_id, "keyword": h.keyword}
                 for h in accepted
             ],
+            "status": "resolved",
+        })
+
+    # ── Plan Agent HITL Endpoints ─────────────────────────────────
+
+    @app.get("/plan/pending")
+    async def plan_pending() -> JSONResponse:
+        """List pending Plan Agent suggestion reviews (Plan HITL).
+
+        After the Plan Agent runs, its recommended sub-agents are presented
+        here for the human to accept or reject before the Sub-Plan Agent
+        and task agents proceed.
+        """
+        if plan_selector is None:
+            return JSONResponse(content={"pending": []})
+        return JSONResponse(
+            content={"pending": plan_selector.pending_plan_reviews()}
+        )
+
+    @app.post("/plan/accept")
+    async def plan_accept(request: PlanAcceptRequest) -> JSONResponse:
+        """Accept or reject Plan Agent suggestions.
+
+        ``accepted_indices`` references suggestion indices from
+        ``/plan/pending``.  Accepted suggestions determine which sub-agents
+        will be invoked after the Sub-Plan Agent runs.
+        """
+        if plan_selector is None:
+            return JSONResponse(
+                status_code=501,
+                content={"error": "Plan HITL not configured"},
+            )
+
+        ok = plan_selector.resolve_plan_review(
+            request.request_id, request.accepted_indices,
+        )
+        if not ok:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No pending plan review with id {request.request_id}"},
+            )
+
+        accepted = plan_selector.accepted_plan_agents(request.request_id)
+        return JSONResponse(content={
+            "request_id": request.request_id,
+            "accepted_agents": accepted,
+            "status": "resolved",
+        })
+
+    # ── Sub-Plan Agent HITL Endpoints ─────────────────────────────
+
+    @app.get("/sub-plan/pending")
+    async def sub_plan_pending() -> JSONResponse:
+        """List pending Sub-Plan resource deployment reviews (Sub-Plan HITL).
+
+        After the Sub-Plan Agent produces a resource deployment plan, its
+        proposed resources are presented here for the human to review.
+        The human can also supply a brief to override the default
+        *"aim to create the minimum resources needed to demonstrate
+        the functionality"*.
+        """
+        if plan_selector is None:
+            return JSONResponse(content={"pending": []})
+        return JSONResponse(
+            content={"pending": plan_selector.pending_resource_reviews()}
+        )
+
+    @app.post("/sub-plan/accept")
+    async def sub_plan_accept(request: SubPlanAcceptRequest) -> JSONResponse:
+        """Accept or reject Sub-Plan resources and optionally set a brief.
+
+        ``accepted_indices`` references resource indices from
+        ``/sub-plan/pending``.  If ``user_brief`` is provided, it overrides
+        the default minimum-resource brief for this request.
+        """
+        if plan_selector is None:
+            return JSONResponse(
+                status_code=501,
+                content={"error": "Sub-Plan HITL not configured"},
+            )
+
+        ok = plan_selector.resolve_resource_review(
+            request.request_id,
+            request.accepted_indices,
+            user_brief=request.user_brief,
+        )
+        if not ok:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No pending resource review with id {request.request_id}"},
+            )
+
+        accepted = plan_selector.accepted_resources(request.request_id)
+        brief = plan_selector.resource_brief(request.request_id)
+        return JSONResponse(content={
+            "request_id": request.request_id,
+            "accepted_resources": [
+                {"name": r.name, "type": r.resource_type, "purpose": r.purpose}
+                for r in accepted
+            ],
+            "user_brief": brief,
             "status": "resolved",
         })
 

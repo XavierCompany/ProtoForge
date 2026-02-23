@@ -15,10 +15,11 @@ A comprehensive guide covering architecture rationale, extending agent capabilit
 7. [Adding a Brand-New Agent](#adding-a-brand-new-agent)
 8. [Adding New Skills & Workflows](#adding-new-skills--workflows)
 9. [Dynamic Contributions (CRUD)](#dynamic-contributions-crud)
-10. [WorkIQ Integration (2-Phase Human-in-the-Loop)](#workiq-integration-2-phase-human-in-the-loop)
-11. [Extending the Codebase with GitHub Copilot CLI](#extending-the-codebase-with-github-copilot-cli)
-12. [Multi-Model Code Review Workflow](#multi-model-code-review-workflow-copilot-cli--claude-opus-46--codex-53)
-13. [Architecture Decision Records](#architecture-decision-records)
+10. [Sub-Plan Agent (Dual HITL Resource Planning)](#sub-plan-agent-dual-hitl-resource-planning)
+11. [WorkIQ Integration (2-Phase Human-in-the-Loop)](#workiq-integration-2-phase-human-in-the-loop)
+12. [Extending the Codebase with GitHub Copilot CLI](#extending-the-codebase-with-github-copilot-cli)
+13. [Multi-Model Code Review Workflow](#multi-model-code-review-workflow-copilot-cli--claude-opus-46--codex-53)
+14. [Architecture Decision Records](#architecture-decision-records)
 
 ---
 
@@ -99,14 +100,17 @@ async def process(self, user_message: str) -> str:
     self._context.set_memory("plan_output", plan_result.content)
     self._context.set_memory("plan_artifacts", plan_result.artifacts)
 
-    # 5. Resolve which sub-agents to invoke (excludes PLAN)
+    # 5. Sub-Plan pipeline — dual HITL gates
+    sub_plan_result = await self._run_sub_plan_pipeline(user_message, plan_result)
+
+    # 6. Resolve which sub-agents to invoke (excludes PLAN + SUB_PLAN)
     sub_agents = self._resolve_sub_agents(routing)
 
-    # 6. Fan out sub-agents in parallel
+    # 7. Fan out task agents in parallel
     sub_results = await self._fan_out(sub_agents, user_message, routing)
 
-    # 7. Aggregate Plan + sub-agent results
-    return self._aggregate(plan_result, sub_results)
+    # 8. Aggregate Plan + Sub-Plan + task agent results
+    return self._aggregate(plan_result, sub_results, sub_plan_result)
 ```
 
 #### Enriched Flow — `process_with_enrichment()`
@@ -182,7 +186,8 @@ forge/
 │   ├── skills/                 #   plan_task.yaml, identify_agents.yaml, build_strategy.yaml
 │   ├── instructions/           #   routing_rules.md, coordination.md
 │   └── workflows/              #   plan_and_execute.yaml
-├── agents/                     # 7 specialist agents (each has same structure)
+├── agents/                     # 8 specialist agents (each has same structure)
+│   ├── sub_plan/               #   Sub-Plan Agent (resource planner + dual HITL)
 │   ├── log_analysis/           #   agent.yaml + prompts/ + skills/ + instructions/
 │   ├── code_research/
 │   ├── remediation/
@@ -1090,6 +1095,136 @@ Invalid contributions raise `ValidationError` with a descriptive message.
 
 ---
 
+## Sub-Plan Agent (Dual HITL Resource Planning)
+
+The **Sub-Plan Agent** sits between the Plan Agent and the task agents. It plans the minimum-viable prerequisite resources (infrastructure, connectors, APIs, authentication) that must be in place before task agents can execute.
+
+### Why a Sub-Plan Layer?
+
+Many requests require **prerequisite resources** that don't map to any single task agent. For example, *"create workspace connectors"* needs storage accounts, service principals, or API registrations deployed first. Without a Sub-Plan step, the Plan Agent would need to handle both strategic planning *and* infrastructure provisioning — violating single-responsibility.
+
+### Architecture — Dual HITL Pipeline
+
+```
+Plan Agent output (recommended agents, strategy)
+   ↓
+┌──────────────────────────────────┐
+│  Plan HITL (Phase A)             │
+│  User accepts/rejects plan       │
+│  suggestions and keywords        │
+│  Timeout: 120s (fail-open)       │
+└──────────────┬───────────────────┘
+               ↓
+Sub-Plan Agent (resource planner)
+   ↓
+┌──────────────────────────────────┐
+│  Sub-Plan HITL (Phase B)         │
+│  User accepts/rejects resources  │
+│  Can override brief:             │
+│  "minimum resources needed to    │
+│   demonstrate the functionality" │
+│  Timeout: 120s (fail-open)       │
+└──────────────┬───────────────────┘
+               ↓
+Task Agents (parallel fan-out)
+```
+
+Both HITL gates use the `PlanSelector` class (`src/orchestrator/plan_selector.py`), which follows the same prepare → expose → wait → resolve pattern as the WorkIQ `WorkIQSelector`.
+
+### PlanSelector API
+
+```python
+from src.orchestrator.plan_selector import PlanSelector
+
+selector = PlanSelector(timeout_seconds=120)
+
+# ── Phase A: Plan Review ──────────────────────────
+# Prepare plan suggestions for HITL review
+req = selector.prepare_plan_review(request_id, plan_suggestions)
+
+# Check pending reviews
+pending = selector.pending_plan_reviews()
+
+# Resolve (user accepts some suggestions, rejects others)
+selector.resolve_plan_review(request_id, accepted_indices=[0, 2])
+
+# Wait for resolution (blocks up to timeout_seconds)
+await selector.wait_for_plan_review(request_id)
+
+# Get accepted suggestions
+accepted = selector.accepted_plan_agents(request_id)
+
+# ── Phase B: Resource Review ─────────────────────
+# Prepare resource items for HITL review
+req = selector.prepare_resource_review(request_id, resource_items)
+
+# Resolve with optional user brief override
+selector.resolve_resource_review(
+    request_id,
+    accepted_indices=[0, 1],
+    user_brief="Deploy only the connector and storage account",
+)
+
+# Wait and retrieve results
+await selector.wait_for_resource_review(request_id)
+resources = selector.accepted_resources(request_id)
+brief = selector.resource_brief(request_id)
+```
+
+### REST Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/plan/pending` | List pending Plan Agent suggestion reviews |
+| POST | `/plan/accept` | Accept/reject plan suggestions (`{request_id, accepted_indices}`) |
+| GET | `/sub-plan/pending` | List pending Sub-Plan resource reviews |
+| POST | `/sub-plan/accept` | Accept/reject resources + optional `user_brief` override |
+
+### Default Brief
+
+If the user does not provide a custom brief, the Sub-Plan Agent uses:
+
+> *"You should aim to create the minimum resources needed to demonstrate the functionality as an example."*
+
+This ensures resource plans stay focused and avoid over-provisioning.
+
+### Engine Integration
+
+The `_run_sub_plan_pipeline()` method in `engine.py` orchestrates the full dual-HITL sequence:
+
+1. **Plan HITL** — exposes plan suggestions, waits for user acceptance
+2. **Sub-Plan execution** — runs the Sub-Plan Agent with accepted plan and user brief
+3. **Sub-Plan HITL** — exposes resource items, waits for user acceptance
+4. Stores results in working memory: `sub_plan_output`, `sub_plan_artifacts`, `resource_brief`
+
+If no `PlanSelector` is configured, the Sub-Plan Agent still runs but without HITL gates (auto-accept all).
+
+### Forge Manifest
+
+```yaml
+# forge/agents/sub_plan/agent.yaml
+id: sub_plan
+name: Sub-Plan Agent
+type: specialist
+description: >
+  Plans prerequisite resources (infra, connectors, APIs, auth) required
+  to demonstrate the planned functionality — minimum viable resources only.
+version: "1.0.0"
+context_budget:
+  max_input_tokens: 20000
+  max_output_tokens: 10000
+  strategy: priority
+prompts:
+  system: system.md
+skills:
+  - plan_resources.yaml
+instructions:
+  - resource_guidelines.md
+tags: [resources, infrastructure, connectors, deployment, prerequisites]
+```
+
+---
+
 ## WorkIQ Integration (2-Phase Human-in-the-Loop)
 
 [Work IQ](https://www.npmjs.com/package/@microsoft/workiq) (`@microsoft/workiq`) brings **M365 organisational context** — emails, Teams messages, calendar events, SharePoint documents, and more — into the ProtoForge pipeline as a **pre-routing enrichment layer**. WorkIQ output feeds directly into the Intent Router through a 2-phase human-in-the-loop (HITL) pipeline.
@@ -1753,6 +1888,13 @@ gh copilot explain "What does this regex match: \bfix\s.*\b(?:error|exception|bu
 **Context:** ADR-010 only controlled which M365 content sections entered the pipeline — it didn't influence routing. Users wanted the ability to control which keywords extracted from WorkIQ content actually affect agent selection  
 **Decision:** Extend the HITL pipeline to 2 phases: Phase 1 (content selection, as before) and Phase 2 (routing-keyword acceptance). `extract_routing_keywords()` scans selected content for agent keyword patterns, producing `RoutingKeywordHint` objects. These are staged for user review; accepted hints boost agent scores in `route_with_context()`. The full pipeline is exposed via `POST /chat/enriched`  
 **Consequences:** Users now control both data and routing influence. Adds one additional HITL step. Auto-resolves when ≤1 hint (no user interaction needed). Both phases fail-open on timeout (2 min) to avoid pipeline stalls. Working memory tracks enrichment state (`workiq_selected_content`, `workiq_accepted_hints`)  
+
+### ADR-012: Sub-Plan Agent with Dual HITL Gates
+
+**Status:** Accepted  
+**Context:** Complex requests (e.g., "create workspace connectors") require prerequisite resources (storage accounts, service principals, API registrations) that don't map to any task agent. The Plan Agent shouldn't handle both strategic planning AND infrastructure provisioning  
+**Decision:** Insert a Sub-Plan Agent between Plan Agent and task agents. Both Plan output and Sub-Plan output go through HITL gates (`PlanSelector`). The Sub-Plan Agent defaults to a "minimum viable resources" brief, which users can override. Phase A: user accepts plan suggestions/keywords. Phase B: user accepts resource items and optionally provides a custom brief  
+**Consequences:** Cleaner separation of concerns — Plan Agent strategizes, Sub-Plan Agent provisions. Two additional HITL steps (both fail-open at 120s). Users control both the plan AND the resource plan. Default brief prevents over-provisioning. Sub-Plan is excluded from task agent fan-out  
 
 ---
 

@@ -31,6 +31,7 @@ class AgentType(StrEnum):
     """
 
     PLAN = "plan"
+    SUB_PLAN = "sub_plan"
     LOG_ANALYSIS = "log_analysis"
     CODE_RESEARCH = "code_research"
     REMEDIATION = "remediation"
@@ -73,6 +74,11 @@ _BUILTIN_KEYWORD_ROUTES: dict[str, list[str]] = {
     AgentType.PLAN: [
         r"\bplan\b", r"\bbreak\s*down\b", r"\bdecompose\b", r"\bstrategy\b",
         r"\bsteps?\b", r"\bapproach\b", r"\barchitect\b",
+    ],
+    AgentType.SUB_PLAN: [
+        r"\bresource[s]?\b", r"\bdeploy\b", r"\bprovision\b", r"\binfrastructure\b",
+        r"\bconnector[s]?\b", r"\bprerequisite[s]?\b", r"\bsetup\b",
+        r"\bservice\s*principal\b", r"\bapp\s*registration\b", r"\bsku\b",
     ],
     AgentType.LOG_ANALYSIS: [
         r"\blog[s]?\b", r"\berror\s*log\b", r"\bstack\s*trace\b", r"\btraceback\b",
@@ -187,6 +193,10 @@ class IntentRouter:
         """Generate a prompt for LLM-based intent classification."""
         agent_descriptions: dict[str, str] = {
             AgentType.PLAN: "Task planning, decomposition, strategy, architecture decisions",
+            AgentType.SUB_PLAN: (
+                "Prerequisite resource planning, infrastructure provisioning, "
+                "minimum-viable deployments"
+            ),
             AgentType.LOG_ANALYSIS: "Log parsing, error analysis, stack traces, crash investigation",
             AgentType.CODE_RESEARCH: "Code search, function lookup, implementation understanding",
             AgentType.REMEDIATION: "Bug fixes, patches, hotfixes, workarounds, resolution steps",

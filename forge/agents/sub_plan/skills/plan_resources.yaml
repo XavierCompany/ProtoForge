@@ -1,0 +1,43 @@
+# plan_resources skill
+name: plan_resources
+description: >
+  Analyze a Plan Agent execution strategy and produce a minimalist
+  resource-deployment plan listing the infrastructure, connectors,
+  APIs, and services required to demonstrate the planned functionality.
+agent_type: sub_plan
+version: "1.0.0"
+tags: [planning, infrastructure, resources, deployment]
+
+parameters:
+  plan_output:
+    type: string
+    description: The Plan Agent's output describing the execution strategy
+    required: true
+  user_brief:
+    type: string
+    description: Optional human brief to constrain resource scope
+    required: false
+    default: "You should aim to create the minimum resources needed to demonstrate the functionality as example"
+
+output:
+  type: object
+  properties:
+    summary:
+      type: string
+      description: One-paragraph summary of what needs provisioning
+    resources:
+      type: array
+      items:
+        type: object
+        properties:
+          name: { type: string }
+          type: { type: string }
+          purpose: { type: string }
+          effort: { type: string, enum: [quick, moderate, complex] }
+          dependencies: { type: array, items: { type: string } }
+    deployment_order:
+      type: array
+      items: { type: string }
+    risks:
+      type: array
+      items: { type: string }

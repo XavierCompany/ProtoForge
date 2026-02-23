@@ -30,14 +30,21 @@ A production-ready multi-agent orchestrator built on the [Microsoft Agent Framew
                  │   Plan Agent    │ ← Top-level coordinator
                  │  (Coordinator)  │    Analyzes, strategizes,
                  │                 │    identifies sub-agents
-                 └──┬──┬──┬──┬──┬─┘
-        ┌───────────┘  │  │  │  └───────────┐
-        ▼              ▼  │  ▼              ▼
-   ┌──────────┐ ┌─────────┐│┌─────────────────┐
-   │   Log    │ │  Code   │││   Remediation   │
-   │ Analysis │ │Research ││└─────────────────┘
-   └──────────┘ └─────────┘│
-        ▼              ▼   │        ▼
+                 └────────┬────────┘
+                          │  HITL: user accepts plan suggestions
+                 ┌────────▼────────┐
+                 │  Sub-Plan Agent │ ← Resource planner
+                 │  (Specialist)   │    Plans prerequisite infra
+                 │                 │    "minimum viable resources"
+                 └────────┬────────┘
+                          │  HITL: user accepts resource plan
+        ┌─────────┬───────┼───────┬───────────┐
+        ▼         ▼       ▼       ▼           ▼
+   ┌──────────┐ ┌─────────┐ ┌─────────────────┐
+   │   Log    │ │  Code   │ │   Remediation   │
+   │ Analysis │ │Research │ └─────────────────┘
+   └──────────┘ └─────────┘
+        ▼              ▼              ▼
    ┌──────────┐ ┌──────────┐ ┌────────────────┐
    │Knowledge │ │  Data    │ │   Security     │
    │  Base    │ │ Analysis │ │   Sentinel     │
@@ -52,8 +59,11 @@ A production-ready multi-agent orchestrator built on the [Microsoft Agent Framew
    User Message
      → Intent Router (keyword + LLM)
        → Plan Agent (ALWAYS first — produces strategy)
-         → Sub-Agents (parallel fan-out based on plan)
-           → Aggregated Response
+         → HITL: user accepts plan suggestions & keywords
+           → Sub-Plan Agent (resource deployment plan)
+             → HITL: user accepts resources & brief
+               → Task Agents (parallel fan-out)
+                 → Aggregated Response
    ────────────────────────────────────────────────────
 
    ─── Enriched Flow (/chat/enriched) ─────────────────
@@ -63,7 +73,8 @@ A production-ready multi-agent orchestrator built on the [Microsoft Agent Framew
          → Keyword extraction from selected content
            → HITL Phase 2: user accepts/rejects keywords
              → Intent Router (keyword + hints + LLM)
-               → Plan Agent → Sub-Agents → Aggregated Response
+               → Plan Agent → HITL → Sub-Plan → HITL
+                 → Task Agents → Aggregated Response
    ────────────────────────────────────────────────────
 
 ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐
@@ -80,15 +91,17 @@ A production-ready multi-agent orchestrator built on the [Microsoft Agent Framew
 
 The **Plan Agent** is the top-level coordinator. Every request goes through Plan Agent first, which:
 1. Analyzes the request scope and produces a strategic plan
-2. Identifies which sub-agents to invoke
-3. Provides structured context for downstream execution
-4. Sub-agents execute in parallel, then results are aggregated
+2. **HITL gate**: user accepts/rejects plan suggestions and keywords
+3. **Sub-Plan Agent** plans prerequisite resources (minimum viable)
+4. **HITL gate**: user accepts/rejects resource plan, can override brief
+5. Task agents execute in parallel, then results are aggregated
 
-## 8 Specialized Agents (1 Coordinator + 7 Sub-Agents)
+## 9 Specialized Agents (1 Coordinator + 8 Sub-Agents)
 
 | Agent | Role | Purpose |
 |-------|------|---------|
 | **Plan** | Coordinator | Top-level: analyzes requests, produces plans, identifies sub-agents |
+| **Sub-Plan** | Resource Planner | Plans minimum-viable prerequisite resources (infra, connectors, APIs) before task agents execute — dual HITL gates for plan and resource acceptance |
 | **Log Analysis** | Sub-Agent | Log parsing, error analysis, stack traces, crash investigation |
 | **Code Research** | Sub-Agent | Code search, function lookup, implementation understanding |
 | **Remediation** | Sub-Agent | Bug fixes, patches, hotfixes, workarounds |
@@ -188,7 +201,8 @@ forge/
 │   ├── skills/                 #   plan_task, identify_agents, build_strategy
 │   ├── instructions/           #   routing_rules, coordination
 │   └── workflows/              #   plan_and_execute.yaml
-├── agents/                     # 7 specialist agents
+├── agents/                     # 8 specialist agents
+│   ├── sub_plan/               #   Sub-Plan Agent (resource planner + dual HITL)
 │   ├── log_analysis/           #   agent.yaml + prompts/ + skills/ + instructions/
 │   ├── code_research/
 │   ├── remediation/
@@ -384,6 +398,10 @@ Steps with no dependencies run in parallel. The workflow engine handles dependen
 | POST | `/workiq/select` | Submit user content selection for a pending query |
 | GET | `/workiq/routing-hints` | List pending Phase 2 HITL keyword hints |
 | POST | `/workiq/accept-hints` | Accept/reject routing keyword hints |
+| GET | `/plan/pending` | List pending Plan Agent suggestion reviews (HITL) |
+| POST | `/plan/accept` | Accept/reject Plan Agent suggestions |
+| GET | `/sub-plan/pending` | List pending Sub-Plan resource reviews (HITL) |
+| POST | `/sub-plan/accept` | Accept/reject resources + optional user brief override |
 
 ## WorkIQ Integration (2-Phase Human-in-the-Loop)
 
@@ -521,7 +539,7 @@ workiq --version
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (136 tests)
+# Run tests (166 tests)
 pytest
 
 # Run with coverage
@@ -568,11 +586,12 @@ ProtoForge/
 ├── src/
 │   ├── main.py                 # Entry point & bootstrap
 │   ├── config.py               # Settings (pydantic-settings + ForgeConfig)
-│   ├── server.py               # FastAPI HTTP server (14 endpoints)
-│   ├── agents/                 # 8 agent implementations (Python)
+│   ├── server.py               # FastAPI HTTP server (18 endpoints)
+│   ├── agents/                 # 9 agent implementations (Python)
 │   │   ├── base.py             #   BaseAgent + BaseAgent.from_manifest()
 │   │   ├── generic.py          #   GenericAgent (forge-contributed agents)
 │   │   ├── plan_agent.py
+│   │   ├── sub_plan_agent.py   #   Sub-Plan Agent (resource planner + dual HITL)
 │   │   ├── log_analysis_agent.py
 │   │   ├── code_research_agent.py
 │   │   ├── remediation_agent.py
@@ -585,9 +604,10 @@ ProtoForge/
 │   │   ├── context_budget.py   #   ContextBudgetManager — token budgets
 │   │   └── contributions.py    #   ContributionManager — CRUD + audit
 │   ├── orchestrator/           # Core orchestration engine
-│   │   ├── engine.py           #   Plan-first dispatch + WorkIQ enrichment
+│   │   ├── engine.py           #   Plan-first dispatch + Sub-Plan pipeline
 │   │   ├── router.py           #   Intent Router (keyword + LLM + enrichment)
-│   │   └── context.py          #   Shared conversation context
+│   │   ├── context.py          #   Shared conversation context
+│   │   └── plan_selector.py    #   Dual HITL selector (Plan + Sub-Plan review)
 │   ├── mcp/                    # MCP protocol server
 │   │   ├── server.py           #   MCP request handler
 │   │   ├── protocol.py         #   MCP message types
@@ -604,6 +624,7 @@ ProtoForge/
     ├── test_orchestrator.py    # 19 tests — engine, fan-out, aggregation
     ├── test_mcp.py             # 14 tests — protocol, server, skills
     ├── test_registry.py        # 10 tests — catalog, workflows
+    ├── test_sub_plan.py        # 29 tests — sub-plan agent, plan selector, pipeline
     └── test_workiq.py          # 37 tests — client, selector, agent, enrichment
 ```
 
@@ -612,6 +633,7 @@ ProtoForge/
 See **[GUIDE.md](GUIDE.md)** for:
 - Why this architecture was chosen (Plan-first vs flat dispatch)
 - The Forge ecosystem in depth (manifests, context budgets, contributions)
+- **Sub-Plan Agent** — dual HITL gates for Plan and resource review, minimum-viable resource planning
 - How to expand Plan Agent and sub-agent capabilities
 - How to add brand-new agents via code or the `forge/contrib/` system
 - Adding new skills, workflows, and shared resources

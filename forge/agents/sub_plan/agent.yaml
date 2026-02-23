@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────
+# Sub-Plan Agent — Infrastructure / Resource Planning
+# Invoked AFTER the Plan Agent, BEFORE task agents.
+# Plans the prerequisites (infra, connectors, resources)
+# needed to demonstrate the functionality described by the
+# Plan Agent.
+# ─────────────────────────────────────────────────────────────
+id: sub_plan
+name: Sub-Plan Agent
+type: specialist             # sits between coordinator and task agents
+description: >
+  Plans the deployment and provisioning of prerequisite resources
+  (infrastructure, connectors, APIs, services) required to demonstrate
+  the functionality described by the Plan Agent.  Follows a minimum-
+  viable-resource philosophy — only the resources strictly needed for
+  a working example are proposed.
+
+version: "1.0.0"
+
+# ── Context Window Budget ───────────────────────────────────
+context_budget:
+  max_input_tokens: 20000
+  max_output_tokens: 10000
+  strategy: priority
+  priority_order:
+    - system_prompt
+    - plan_output           # The Plan Agent's output — our primary input
+    - current_message
+    - recent_history
+    - working_memory
+
+# ── Sub-Agents This Agent Can Recommend ─────────────────────
+subagents: []               # Sub-Plan does not dispatch; engine does
+
+# ── Prompts (loaded from forge/agents/sub_plan/prompts/) ────
+prompts:
+  system: system.md
+
+# ── Skills ──────────────────────────────────────────────────
+skills:
+  - plan_resources.yaml
+
+# ── Instructions ────────────────────────────────────────────
+instructions:
+  - resource_guidelines.md
+
+# ── Tags & Metadata ────────────────────────────────────────
+tags: [planning, infrastructure, resources, deployment, prerequisites]

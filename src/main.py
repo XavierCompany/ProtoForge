@@ -25,12 +25,14 @@ from src.agents.log_analysis_agent import LogAnalysisAgent
 from src.agents.plan_agent import PlanAgent
 from src.agents.remediation_agent import RemediationAgent
 from src.agents.security_sentinel_agent import SecuritySentinelAgent
+from src.agents.sub_plan_agent import SubPlanAgent
 from src.agents.workiq_agent import WorkIQAgent
 from src.config import get_settings
 from src.forge.loader import AgentManifest, ForgeLoader
 from src.mcp.server import MCPSkillServer
 from src.mcp.skills import SkillLoader
 from src.orchestrator.engine import OrchestratorEngine
+from src.orchestrator.plan_selector import PlanSelector
 from src.orchestrator.router import AgentType
 from src.registry.catalog import AgentCatalog, AgentRegistration
 from src.registry.workflows import WorkflowEngine, WorkflowLoader
@@ -47,6 +49,7 @@ cli_app = typer.Typer(name="protoforge", help="ProtoForge Multi-Agent Orchestrat
 # GenericAgent whose behaviour is driven entirely by the forge manifest.
 _SPECIALISED_CLASSES: dict[str, type] = {
     AgentType.PLAN: PlanAgent,
+    AgentType.SUB_PLAN: SubPlanAgent,
     AgentType.LOG_ANALYSIS: LogAnalysisAgent,
     AgentType.REMEDIATION: RemediationAgent,
     AgentType.KNOWLEDGE_BASE: KnowledgeBaseAgent,
@@ -71,7 +74,7 @@ def _create_agent_from_manifest(manifest: AgentManifest):
 def bootstrap() -> tuple:
     """Bootstrap all components and wire them together.
 
-    Returns (app, orchestrator, mcp_server, catalog, workflow_engine, workiq_selector)
+    Returns (app, orchestrator, mcp_server, catalog, workflow_engine, workiq_selector, plan_selector)
     """
     settings = get_settings()
 
@@ -79,12 +82,14 @@ def bootstrap() -> tuple:
     forge_loader = ForgeLoader(settings.forge.forge_dir)
     forge_registry = forge_loader.load()
 
-    # 1. Create orchestrator (with WorkIQ enrichment support)
+    # 1. Create orchestrator (with WorkIQ enrichment + Plan HITL support)
     workiq_client = WorkIQClient()
     workiq_selector = WorkIQSelector()
+    plan_selector = PlanSelector()
     orchestrator = OrchestratorEngine(
         workiq_client=workiq_client,
         workiq_selector=workiq_selector,
+        plan_selector=plan_selector,
     )
 
     # 2. Register agents — prefer manifests, fall back to defaults
@@ -110,6 +115,10 @@ def bootstrap() -> tuple:
 
     # 2c. Ensure well-known agents exist even if forge/ doesn't list them
     _default_agents: dict[str, tuple[type, str, str]] = {
+        AgentType.SUB_PLAN: (
+            SubPlanAgent, "Sub-Plan Agent",
+            "Plans prerequisite resource deployment — minimum viable resources only",
+        ),
         AgentType.LOG_ANALYSIS: (LogAnalysisAgent, "Log Analysis Agent", "Log parsing and error analysis"),
         AgentType.CODE_RESEARCH: (GenericAgent, "Code Research Agent", "Code search and analysis"),
         AgentType.REMEDIATION: (RemediationAgent, "Remediation Agent", "Bug fixes and patches"),
@@ -187,7 +196,7 @@ def bootstrap() -> tuple:
                 pass
 
     # 6. Create FastAPI app
-    app = create_app(orchestrator, mcp_server, catalog, workflow_engine, workiq_selector)
+    app = create_app(orchestrator, mcp_server, catalog, workflow_engine, workiq_selector, plan_selector)
 
     logger.info(
         "protoforge_bootstrapped",
@@ -200,7 +209,7 @@ def bootstrap() -> tuple:
         workiq_available=workiq_client.available,
     )
 
-    return app, orchestrator, mcp_server, catalog, workflow_engine, workiq_selector
+    return app, orchestrator, mcp_server, catalog, workflow_engine, workiq_selector, plan_selector
 
 
 @cli_app.command()
@@ -253,7 +262,7 @@ def chat() -> None:
 @cli_app.command()
 def status() -> None:
     """Show current ProtoForge status."""
-    _, orchestrator, mcp_server, catalog, workflow_engine, _ = bootstrap()
+    _, orchestrator, mcp_server, catalog, workflow_engine, _, _ = bootstrap()
 
     from rich.console import Console
     from rich.table import Table
