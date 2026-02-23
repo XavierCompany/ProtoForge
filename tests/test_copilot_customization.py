@@ -122,16 +122,10 @@ class TestBudgetMath:
             manifest = agent_dir / "agent.yaml"
             if manifest.exists():
                 data = _read_yaml(manifest)
-                assert "context_budget" in data, (
-                    f"{manifest.relative_to(ROOT)} missing context_budget"
-                )
+                assert "context_budget" in data, f"{manifest.relative_to(ROOT)} missing context_budget"
                 cb = data["context_budget"]
-                assert "max_input_tokens" in cb, (
-                    f"{manifest.relative_to(ROOT)} missing max_input_tokens"
-                )
-                assert "max_output_tokens" in cb, (
-                    f"{manifest.relative_to(ROOT)} missing max_output_tokens"
-                )
+                assert "max_input_tokens" in cb, f"{manifest.relative_to(ROOT)} missing max_input_tokens"
+                assert "max_output_tokens" in cb, f"{manifest.relative_to(ROOT)} missing max_output_tokens"
 
 
 # ── Agent Identity Consistency ────────────────────────────────────────────
@@ -180,8 +174,7 @@ class TestAgentIdentity:
 
         for agent_id in registry_ids:
             assert agent_id in enum_values, (
-                f"Agent '{agent_id}' in _registry.yaml but missing "
-                f"from AgentType enum in router.py"
+                f"Agent '{agent_id}' in _registry.yaml but missing from AgentType enum in router.py"
             )
 
     def test_agent_python_files_exist(self) -> None:
@@ -199,8 +192,7 @@ class TestAgentIdentity:
                     continue
                 py_file = ROOT / "src" / "agents" / f"{aid}_agent.py"
                 assert py_file.exists(), (
-                    f"Agent '{aid}' has YAML manifest but no Python file "
-                    f"at {py_file.relative_to(ROOT)}"
+                    f"Agent '{aid}' has YAML manifest but no Python file at {py_file.relative_to(ROOT)}"
                 )
 
 
@@ -214,9 +206,7 @@ class TestCustomizationFiles:
         """Every customization file must have YAML frontmatter."""
         for path in _collect_customization_files():
             fm = _parse_frontmatter(path)
-            assert fm, (
-                f"{path.relative_to(ROOT)} missing YAML frontmatter"
-            )
+            assert fm, f"{path.relative_to(ROOT)} missing YAML frontmatter"
 
     def test_agents_have_model_field(self) -> None:
         """Custom agents must specify an allowed model (default: Claude Opus 4.6).
@@ -232,8 +222,7 @@ class TestCustomizationFiles:
             fm = _parse_frontmatter(path)
             model = fm.get("model", "").split("#")[0].strip().strip("'\"")
             assert model in ALLOWED_MODELS, (
-                f"{path.relative_to(ROOT)} model {model!r} not in "
-                f"allowed set {ALLOWED_MODELS}"
+                f"{path.relative_to(ROOT)} model {model!r} not in allowed set {ALLOWED_MODELS}"
             )
 
     def test_prompts_have_model_field(self) -> None:
@@ -245,8 +234,7 @@ class TestCustomizationFiles:
             fm = _parse_frontmatter(path)
             model = fm.get("model", "").split("#")[0].strip().strip("'\"")
             assert model in ALLOWED_MODELS, (
-                f"{path.relative_to(ROOT)} model {model!r} not in "
-                f"allowed set {ALLOWED_MODELS}"
+                f"{path.relative_to(ROOT)} model {model!r} not in allowed set {ALLOWED_MODELS}"
             )
 
     def test_skills_have_required_frontmatter(self) -> None:
@@ -256,12 +244,8 @@ class TestCustomizationFiles:
             pytest.skip("No .github/skills/ directory")
         for path in skills_dir.rglob("SKILL.md"):
             fm = _parse_frontmatter(path)
-            assert "name" in fm, (
-                f"{path.relative_to(ROOT)} missing 'name' in frontmatter"
-            )
-            assert "description" in fm, (
-                f"{path.relative_to(ROOT)} missing 'description' in frontmatter"
-            )
+            assert "name" in fm, f"{path.relative_to(ROOT)} missing 'name' in frontmatter"
+            assert "description" in fm, f"{path.relative_to(ROOT)} missing 'description' in frontmatter"
 
     def test_no_hardcoded_budget_values_in_skills(self) -> None:
         """Skills should not contain hardcoded budget numbers (drift risk).
@@ -272,9 +256,7 @@ class TestCustomizationFiles:
         if not skills_dir.exists():
             pytest.skip("No .github/skills/ directory")
         # These specific numbers would indicate hardcoded budget values
-        hardcoded_pattern = re.compile(
-            r"\b(128[,.]?000|124[,.]?000)\b"
-        )
+        hardcoded_pattern = re.compile(r"\b(128[,.]?000|124[,.]?000)\b")
         for path in skills_dir.rglob("SKILL.md"):
             text = path.read_text(encoding="utf-8")
             matches = hardcoded_pattern.findall(text)
@@ -299,9 +281,7 @@ class TestCustomizationFiles:
         ]
         for ref in key_refs:
             path = ROOT / ref
-            assert path.exists(), (
-                f"Customization files reference '{ref}' but it does not exist"
-            )
+            assert path.exists(), f"Customization files reference '{ref}' but it does not exist"
 
 
 # ── Model Policy ──────────────────────────────────────────────────────────
