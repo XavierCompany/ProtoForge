@@ -1,17 +1,20 @@
 """HTTP Server — FastAPI app exposing the orchestrator and MCP server.
 
 Endpoints:
-- POST /chat              — Send message to orchestrator
-- POST /mcp               — MCP JSON-RPC endpoint
-- GET  /agents            — List registered agents
-- GET  /skills            — List available skills
-- GET  /workflows         — List available workflows
-- POST /workflows/run     — Execute a workflow
-- POST /workiq/query      — Send question to Work IQ, returns selection options
-- GET  /workiq/pending    — List pending WorkIQ selections (HITL)
-- POST /workiq/select     — Resolve a WorkIQ selection with chosen indices
-- GET  /health            — Health check
-- GET  /inspector         — Agent Inspector dashboard
+- POST /chat                 — Send message to orchestrator
+- POST /chat/enriched        — Send message with WorkIQ enrichment pipeline
+- POST /mcp                  — MCP JSON-RPC endpoint
+- GET  /agents               — List registered agents
+- GET  /skills               — List available skills
+- GET  /workflows            — List available workflows
+- POST /workflows/run        — Execute a workflow
+- POST /workiq/query         — Send question to Work IQ, returns selection options
+- GET  /workiq/pending       — List pending WorkIQ selections (HITL Phase 1)
+- POST /workiq/select        — Resolve a WorkIQ selection with chosen indices
+- GET  /workiq/routing-hints — List pending routing-keyword hints (HITL Phase 2)
+- POST /workiq/accept-hints  — Accept routing-keyword hints for enriched routing
+- GET  /health               — Health check
+- GET  /inspector            — Agent Inspector dashboard
 """
 
 from __future__ import annotations
@@ -59,6 +62,11 @@ class WorkIQSelectRequest(BaseModel):
     selected_indices: list[int]
 
 
+class WorkIQAcceptHintsRequest(BaseModel):
+    request_id: str
+    accepted_indices: list[int]
+
+
 def create_app(
     orchestrator: Any,
     mcp_server: Any,
@@ -88,6 +96,25 @@ def create_app(
     async def chat(request: ChatRequest) -> ChatResponse:
         """Send a message to the orchestrator."""
         response = await orchestrator.process(request.message)
+        return ChatResponse(
+            response=response,
+            session_id=orchestrator.context.session_id,
+        )
+
+    @app.post("/chat/enriched", response_model=ChatResponse)
+    async def chat_enriched(request: ChatRequest) -> ChatResponse:
+        """Send a message through the WorkIQ-enriched pipeline.
+
+        This triggers the full enrichment flow:
+        1. Query Work IQ for organisational context
+        2. HITL Phase 1 — user selects relevant content sections
+        3. Extract routing keywords from selected content
+        4. HITL Phase 2 — user accepts/rejects keyword hints
+        5. Intent Router uses accepted hints for enriched routing
+
+        If WorkIQ is not configured, falls back to standard routing.
+        """
+        response = await orchestrator.process_with_enrichment(request.message)
         return ChatResponse(
             response=response,
             session_id=orchestrator.context.session_id,
@@ -213,6 +240,59 @@ def create_app(
         return JSONResponse(content={
             "request_id": request.request_id,
             "selected_content": selected,
+            "status": "resolved",
+        })
+
+    @app.get("/workiq/routing-hints")
+    async def workiq_routing_hints() -> JSONResponse:
+        """List pending routing-keyword hint requests (HITL Phase 2).
+
+        After the user selects WorkIQ content sections (Phase 1), the
+        system extracts routing keywords and exposes them here for the
+        user to accept or reject before they influence the Intent Router.
+        """
+        if workiq_selector is None:
+            return JSONResponse(content={"pending": []})
+        return JSONResponse(
+            content={"pending": workiq_selector.pending_routing_hint_requests()}
+        )
+
+    @app.post("/workiq/accept-hints")
+    async def workiq_accept_hints(
+        request: WorkIQAcceptHintsRequest,
+    ) -> JSONResponse:
+        """Accept specific routing-keyword hints from WorkIQ content.
+
+        The ``accepted_indices`` list references hint indices from the
+        ``/workiq/routing-hints`` response.  Accepted hints will boost
+        the corresponding agents in the Intent Router's scoring.
+        """
+        if workiq_selector is None:
+            return JSONResponse(
+                status_code=501,
+                content={"error": "WorkIQ integration not configured"},
+            )
+
+        ok = workiq_selector.resolve_routing_hints(
+            request.request_id, request.accepted_indices,
+        )
+        if not ok:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "error": f"No pending routing hints with id {request.request_id}",
+                },
+            )
+
+        accepted = workiq_selector.accepted_routing_hints(request.request_id)
+        workiq_selector.cleanup_routing_hints(request.request_id)
+
+        return JSONResponse(content={
+            "request_id": request.request_id,
+            "accepted_hints": [
+                {"agent_id": h.agent_id, "keyword": h.keyword}
+                for h in accepted
+            ],
             "status": "resolved",
         })
 

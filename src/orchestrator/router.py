@@ -7,6 +7,12 @@ compat — its members are valid ``str`` values thanks to :class:`~enum.StrEnum`
 New agents can register routing patterns at runtime via
 :meth:`IntentRouter.register_patterns`, so adding a forge-contributed agent
 no longer requires editing this file.
+
+**Enriched routing:** When WorkIQ organisational context is available, the
+router can combine the user message with selected WorkIQ content to produce
+a richer routing decision.  :meth:`extract_routing_keywords` surfaces which
+agent keywords appear in the WorkIQ text, and
+:meth:`route_with_context` merges both signals.
 """
 
 from __future__ import annotations
@@ -43,6 +49,20 @@ class RoutingDecision:
     confidence: float = 0.5
     reasoning: str = ""
     extracted_params: dict[str, Any] = field(default_factory=dict)
+    enrichment_applied: bool = False
+
+
+@dataclass
+class RoutingKeywordHint:
+    """A keyword match extracted from WorkIQ content for HITL review.
+
+    The user can accept or reject each hint before it influences routing.
+    """
+
+    agent_id: str
+    keyword: str
+    matched_text: str
+    source: str = "workiq"
 
 
 # ── built-in keyword routes ────────────────────────────────────────────────
@@ -195,3 +215,109 @@ Respond in JSON format:
   "reasoning": "<brief explanation>",
   "extracted_params": {{}}
 }}"""
+
+    # ── WorkIQ-enriched routing ─────────────────────────────────────────
+
+    def extract_routing_keywords(
+        self, text: str
+    ) -> list[RoutingKeywordHint]:
+        """Scan *text* (typically WorkIQ content) for routing keywords.
+
+        Returns a list of :class:`RoutingKeywordHint` items the user can
+        review via HITL before they influence the routing decision.
+        """
+        hints: list[RoutingKeywordHint] = []
+        seen: set[tuple[str, str]] = set()
+
+        for agent_id, patterns in self._compiled_patterns.items():
+            for pattern in patterns:
+                for match in pattern.finditer(text):
+                    key = (agent_id, match.group().lower())
+                    if key not in seen:
+                        seen.add(key)
+                        # Grab surrounding context (up to 60 chars each side)
+                        start = max(match.start() - 60, 0)
+                        end = min(match.end() + 60, len(text))
+                        context_snippet = text[start:end].replace("\n", " ").strip()
+                        hints.append(
+                            RoutingKeywordHint(
+                                agent_id=agent_id,
+                                keyword=match.group(),
+                                matched_text=context_snippet,
+                            )
+                        )
+        return hints
+
+    def route_with_context(
+        self,
+        message: str,
+        enrichment_hints: list[RoutingKeywordHint] | None = None,
+    ) -> RoutingDecision:
+        """Route combining user *message* keywords with accepted HITL hints.
+
+        When *enrichment_hints* is provided (user-approved keyword hints
+        extracted from WorkIQ output) they contribute extra score weight to
+        the relevant agents, producing a more informed routing decision.
+        """
+        scores: dict[str, int] = {aid: 0 for aid in self._compiled_patterns}
+
+        # Phase 1 — standard keyword scoring on user message
+        for agent_id, patterns in self._compiled_patterns.items():
+            for pattern in patterns:
+                if pattern.search(message):
+                    scores[agent_id] += 1
+
+        # Phase 2 — boost from accepted HITL routing hints
+        hint_boost: dict[str, int] = {}
+        if enrichment_hints:
+            for hint in enrichment_hints:
+                aid = hint.agent_id
+                if aid in scores:
+                    scores[aid] += 1
+                    hint_boost[aid] = hint_boost.get(aid, 0) + 1
+
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+        if ranked[0][1] == 0:
+            return RoutingDecision(
+                primary_agent=_DEFAULT_AGENT,
+                secondary_agents=[],
+                confidence=0.3,
+                reasoning="No keyword matches; defaulting to knowledge base",
+                extracted_params={},
+                enrichment_applied=bool(enrichment_hints),
+            )
+
+        primary = ranked[0]
+        total_score = sum(s for _, s in ranked if s > 0)
+        confidence = min(primary[1] / max(total_score, 1), 1.0)
+        secondary = [agent_id for agent_id, score in ranked[1:3] if score > 0]
+
+        boost_note = ""
+        if hint_boost:
+            boost_parts = [f"{a}+{n}" for a, n in hint_boost.items()]
+            boost_note = f" | WorkIQ boost: {', '.join(boost_parts)}"
+
+        return RoutingDecision(
+            primary_agent=primary[0],
+            secondary_agents=secondary,
+            confidence=confidence,
+            reasoning=(
+                f"Keyword match: {primary[0]} scored "
+                f"{primary[1]}/{total_score}{boost_note}"
+            ),
+            extracted_params={},
+            enrichment_applied=bool(enrichment_hints),
+        )
+
+    def get_llm_routing_prompt_with_context(
+        self, message: str, enrichment_text: str
+    ) -> str:
+        """LLM routing prompt that includes WorkIQ organisational context."""
+        base = self.get_llm_routing_prompt(message)
+        return (
+            base.rstrip("}\"")
+            + f'\n\nOrganisational context from Work IQ:\n"""\n{enrichment_text}\n"""\n'
+            + "Use the organisational context above as additional signal when "
+            + "choosing the best agent.\n"
+        )

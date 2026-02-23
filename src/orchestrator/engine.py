@@ -3,12 +3,24 @@
 All agent registration and dispatch now uses plain ``str`` agent IDs
 rather than the :class:`AgentType` enum, so forge-contributed agents
 work without touching the enum.
+
+**WorkIQ-enriched routing** (optional):
+
+When a :class:`WorkIQClient` and :class:`WorkIQSelector` are wired in,
+:meth:`process_with_enrichment` will:
+
+1. Query Work IQ for organisational context,
+2. HITL Phase 1 — let the user pick relevant content sections,
+3. Extract routing keywords from the selected content,
+4. HITL Phase 2 — let the user accept / reject the keyword hints,
+5. Feed the accepted hints into :meth:`IntentRouter.route_with_context`.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -19,6 +31,8 @@ from src.orchestrator.router import AgentType, IntentRouter, RoutingDecision
 
 if TYPE_CHECKING:
     from src.agents.base import BaseAgent
+    from src.workiq.client import WorkIQClient
+    from src.workiq.selector import WorkIQSelector
 
 logger = structlog.get_logger(__name__)
 
@@ -34,11 +48,18 @@ class OrchestratorEngine:
     5. Aggregates Plan + sub-agent results into a unified response
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        workiq_client: WorkIQClient | None = None,
+        workiq_selector: WorkIQSelector | None = None,
+    ) -> None:
         self._router = IntentRouter()
         self._agents: dict[str, BaseAgent] = {}
         self._context = ConversationContext()
         self._settings = get_settings()
+        # Optional WorkIQ enrichment layer
+        self._workiq_client = workiq_client
+        self._workiq_selector = workiq_selector
 
     # ── agent registration ──────────────────────────────────────────────
 
@@ -117,6 +138,133 @@ class OrchestratorEngine:
             sub_results = await self._fan_out(sub_agents, user_message, routing)
 
         # Step 6: Aggregate Plan + sub-agent results
+        return self._aggregate(plan_result, sub_results)
+
+    # ── WorkIQ-enriched routing ─────────────────────────────────────────
+
+    async def process_with_enrichment(self, user_message: str) -> str:
+        """Full pipeline: WorkIQ → HITL content → HITL keywords → enriched routing.
+
+        This is the preferred entry-point when WorkIQ enrichment is desired.
+        If the WorkIQ client is not configured or the query fails, the method
+        falls back to the standard :meth:`process` pipeline transparently.
+
+        Returns the same aggregated response string as :meth:`process`.
+        """
+        if not self._workiq_client or not self._workiq_selector:
+            logger.debug("workiq_enrichment_skipped", reason="not configured")
+            return await self.process(user_message)
+
+        self._context.add_user_message(user_message)
+
+        # Phase 0 — query Work IQ for organisational context
+        workiq_result = await self._workiq_client.ask(user_message)
+        if not workiq_result.ok:
+            logger.warning("workiq_enrichment_failed", error=workiq_result.error)
+            return await self._process_after_routing(
+                user_message, self._router.route_by_keywords(user_message),
+            )
+
+        # Phase 1 — HITL: user selects relevant content sections
+        content_req_id = str(uuid.uuid4())
+        content_req = self._workiq_selector.prepare(workiq_result, content_req_id)
+
+        if not content_req.resolved:
+            self._context.set_memory("workiq_content_pending", content_req_id)
+            content_req = await self._workiq_selector.wait_for_selection(
+                content_req_id
+            )
+
+        selected_text = self._workiq_selector.selected_content(content_req_id)
+        self._context.set_memory("workiq_selected_content", selected_text)
+
+        if not selected_text:
+            logger.info("workiq_enrichment_empty_selection")
+            self._workiq_selector.cleanup(content_req_id)
+            return await self._process_after_routing(
+                user_message, self._router.route_by_keywords(user_message),
+            )
+
+        # Phase 2 — extract routing keywords from selected content
+        hints = self._router.extract_routing_keywords(selected_text)
+
+        if not hints:
+            logger.info("workiq_no_routing_keywords")
+            self._workiq_selector.cleanup(content_req_id)
+            return await self._process_after_routing(
+                user_message, self._router.route_by_keywords(user_message),
+            )
+
+        # Phase 2b — HITL: user selects which keyword hints to accept
+        hint_req_id = str(uuid.uuid4())
+        hint_req = self._workiq_selector.prepare_routing_hints(hints, hint_req_id)
+
+        if not hint_req.resolved:
+            self._context.set_memory("workiq_hints_pending", hint_req_id)
+            hint_req = await self._workiq_selector.wait_for_routing_hints(
+                hint_req_id
+            )
+
+        accepted = self._workiq_selector.accepted_routing_hints(hint_req_id)
+        self._context.set_memory(
+            "workiq_accepted_hints",
+            [{"agent": h.agent_id, "keyword": h.keyword} for h in accepted],
+        )
+
+        # Phase 3 — enriched routing
+        routing = self._router.route_with_context(user_message, accepted)
+        logger.info(
+            "enriched_intent_routed",
+            primary=routing.primary_agent,
+            confidence=routing.confidence,
+            reasoning=routing.reasoning,
+            hint_count=len(accepted),
+        )
+
+        # Cleanup
+        self._workiq_selector.cleanup(content_req_id)
+        self._workiq_selector.cleanup_routing_hints(hint_req_id)
+
+        return await self._process_after_routing(user_message, routing)
+
+    async def _process_after_routing(
+        self, user_message: str, routing: RoutingDecision,
+    ) -> str:
+        """Continue the pipeline from an already-resolved routing decision.
+
+        Shared by :meth:`process` (after its internal routing) and
+        :meth:`process_with_enrichment` (after enriched routing).
+        """
+        # If confidence is low, try LLM-based routing
+        if routing.confidence < 0.5:
+            llm_routing = await self._route_with_llm(user_message)
+            if llm_routing and llm_routing.confidence > routing.confidence:
+                routing = llm_routing
+                logger.info(
+                    "llm_routing_override",
+                    primary=routing.primary_agent,
+                    confidence=routing.confidence,
+                )
+
+        # ALWAYS run Plan Agent first as top-level coordinator
+        plan_result = await self._dispatch(AgentType.PLAN, user_message, routing)
+        self._context.set_memory("plan_output", plan_result.content)
+        self._context.set_memory("plan_artifacts", plan_result.artifacts)
+
+        # Determine sub-agents to invoke (from routing, excluding PLAN)
+        sub_agents = self._resolve_sub_agents(routing)
+        logger.info(
+            "plan_first_dispatch",
+            plan_agent="plan",
+            sub_agents=sub_agents,
+        )
+
+        # Fan out to sub-agents in parallel
+        sub_results: list[AgentResult] = []
+        if sub_agents:
+            sub_results = await self._fan_out(sub_agents, user_message, routing)
+
+        # Aggregate Plan + sub-agent results
         return self._aggregate(plan_result, sub_results)
 
     def _resolve_sub_agents(self, routing: RoutingDecision) -> list[str]:
@@ -210,4 +358,8 @@ class OrchestratorEngine:
             "message_count": len(self._context.messages),
             "active_workflow": self._context.active_workflow,
             "provider": self._settings.llm.active_provider.value,
+            "workiq_enrichment_available": (
+                self._workiq_client is not None
+                and self._workiq_selector is not None
+            ),
         }

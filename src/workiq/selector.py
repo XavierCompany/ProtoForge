@@ -5,6 +5,14 @@ inject all of it into the agent pipeline.  Instead, the selector
 presents numbered options to the user (via REST API or CLI) and waits
 for them to pick which sections are relevant.
 
+**Phase 1 — Content selection:**
+The user picks which WorkIQ sections to include.
+
+**Phase 2 — Routing-keyword selection:**
+The system extracts routing keywords from the selected content and
+presents them for HITL review.  Accepted keywords feed into the
+Intent Router as enrichment hints, steering which agents are chosen.
+
 This keeps the human in control of *what* organisational context leaks
 into the multi-agent pipeline, which is important for privacy and
 relevance filtering.
@@ -19,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
+    from src.orchestrator.router import RoutingKeywordHint
     from src.workiq.client import WorkIQResult
 
 logger = structlog.get_logger(__name__)
@@ -45,6 +54,21 @@ class SelectionRequest:
     resolved: bool = False
 
 
+@dataclass
+class RoutingHintRequest:
+    """Pending HITL request for routing-keyword selection.
+
+    After the user picks which WorkIQ sections to keep (Phase 1), the
+    system extracts routing keywords and presents them here for Phase 2
+    review.
+    """
+
+    request_id: str
+    hints: list[RoutingKeywordHint]
+    accepted_indices: list[int] = field(default_factory=list)
+    resolved: bool = False
+
+
 class WorkIQSelector:
     """Present WorkIQ results to the user and wait for selection.
 
@@ -65,8 +89,12 @@ class WorkIQSelector:
 
     def __init__(self, timeout: float = 120.0) -> None:
         self._timeout = timeout
+        # Phase 1: content section selection
         self._pending: dict[str, SelectionRequest] = {}
         self._events: dict[str, asyncio.Event] = {}
+        # Phase 2: routing-keyword hint selection
+        self._pending_hints: dict[str, RoutingHintRequest] = {}
+        self._hint_events: dict[str, asyncio.Event] = {}
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -192,3 +220,120 @@ class WorkIQSelector:
         """Remove a completed selection request."""
         self._pending.pop(request_id, None)
         self._events.pop(request_id, None)
+
+    # ── Phase 2: Routing-keyword HITL ───────────────────────────────────
+
+    def prepare_routing_hints(
+        self,
+        hints: list[RoutingKeywordHint],
+        request_id: str,
+    ) -> RoutingHintRequest:
+        """Create a HITL request for the user to accept/reject keyword hints.
+
+        *hints* come from :meth:`IntentRouter.extract_routing_keywords`
+        applied to the WorkIQ selected content.  The user reviews which
+        keywords should genuinely influence routing.
+        """
+        req = RoutingHintRequest(
+            request_id=request_id,
+            hints=hints,
+        )
+
+        if len(hints) <= 1:
+            # Auto-accept when 0 or 1 hint — no point asking
+            req.accepted_indices = list(range(len(hints)))
+            req.resolved = True
+        else:
+            self._pending_hints[request_id] = req
+            self._hint_events[request_id] = asyncio.Event()
+
+        logger.info(
+            "routing_hints_prepared",
+            request_id=request_id,
+            hint_count=len(hints),
+            auto_resolved=req.resolved,
+        )
+        return req
+
+    def resolve_routing_hints(
+        self, request_id: str, accepted_indices: list[int]
+    ) -> bool:
+        """User has chosen which routing hints to accept."""
+        req = self._pending_hints.get(request_id)
+        if not req:
+            logger.warning("routing_hints_not_found", request_id=request_id)
+            return False
+
+        valid = [i for i in accepted_indices if 0 <= i < len(req.hints)]
+        req.accepted_indices = valid if valid else list(range(len(req.hints)))
+        req.resolved = True
+
+        event = self._hint_events.get(request_id)
+        if event:
+            event.set()
+
+        logger.info(
+            "routing_hints_resolved",
+            request_id=request_id,
+            accepted=req.accepted_indices,
+        )
+        return True
+
+    async def wait_for_routing_hints(
+        self, request_id: str
+    ) -> RoutingHintRequest:
+        """Wait until the user resolves the hint selection (or timeout)."""
+        req = self._pending_hints.get(request_id)
+        if not req:
+            raise KeyError(f"No pending routing hints for {request_id}")
+
+        if req.resolved:
+            return req
+
+        event = self._hint_events[request_id]
+        try:
+            await asyncio.wait_for(event.wait(), timeout=self._timeout)
+        except TimeoutError:
+            logger.warning("routing_hints_timeout", request_id=request_id)
+            req.accepted_indices = list(range(len(req.hints)))
+            req.resolved = True
+
+        return req
+
+    def accepted_routing_hints(
+        self, request_id: str
+    ) -> list[RoutingKeywordHint]:
+        """Return the accepted hints ready for the router."""
+        req = self._pending_hints.get(request_id)
+        if not req or not req.resolved:
+            return []
+        return [
+            req.hints[i]
+            for i in req.accepted_indices
+            if 0 <= i < len(req.hints)
+        ]
+
+    def pending_routing_hint_requests(self) -> list[dict[str, Any]]:
+        """Return all unresolved routing-hint requests (for the REST API)."""
+        return [
+            {
+                "request_id": req.request_id,
+                "hints": [
+                    {
+                        "index": idx,
+                        "agent_id": h.agent_id,
+                        "keyword": h.keyword,
+                        "matched_text": h.matched_text,
+                    }
+                    for idx, h in enumerate(req.hints)
+                ],
+                "resolved": req.resolved,
+            }
+            for req in self._pending_hints.values()
+            if not req.resolved
+        ]
+
+    def cleanup_routing_hints(self, request_id: str) -> None:
+        """Remove a completed routing-hint request."""
+        self._pending_hints.pop(request_id, None)
+        self._hint_events.pop(request_id, None)

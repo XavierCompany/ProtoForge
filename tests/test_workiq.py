@@ -10,7 +10,7 @@ import pytest
 
 from src.agents.workiq_agent import WorkIQAgent
 from src.orchestrator.context import ConversationContext
-from src.orchestrator.router import AgentType, IntentRouter
+from src.orchestrator.router import AgentType, IntentRouter, RoutingKeywordHint
 from src.workiq.client import WorkIQResult, _extract_sources, _parse_sections
 from src.workiq.selector import WorkIQSelector
 
@@ -348,3 +348,189 @@ class TestWorkIQRouting:
     def test_onedrive_keyword(self, router: IntentRouter) -> None:
         result = router.route_by_keywords("show files in onedrive")
         assert result.primary_agent == AgentType.WORKIQ
+
+
+# ── Routing-Hint HITL (Phase 2) ────────────────────────────────────────
+
+
+class TestRoutingHintSelector:
+    def _make_hints(self, count: int = 3) -> list[RoutingKeywordHint]:
+        agents = [AgentType.LOG_ANALYSIS, AgentType.SECURITY_SENTINEL, AgentType.REMEDIATION]
+        keywords = ["error log", "security", "fix"]
+        return [
+            RoutingKeywordHint(
+                agent_id=agents[i % len(agents)],
+                keyword=keywords[i % len(keywords)],
+                matched_text=f"context for {keywords[i % len(keywords)]}",
+            )
+            for i in range(count)
+        ]
+
+    def test_auto_resolve_single_hint(self) -> None:
+        selector = WorkIQSelector()
+        hints = self._make_hints(1)
+        req = selector.prepare_routing_hints(hints, "rh-1")
+        assert req.resolved is True
+        assert req.accepted_indices == [0]
+
+    def test_auto_resolve_no_hints(self) -> None:
+        selector = WorkIQSelector()
+        req = selector.prepare_routing_hints([], "rh-2")
+        assert req.resolved is True
+        assert req.accepted_indices == []
+
+    def test_multi_hint_not_auto_resolved(self) -> None:
+        selector = WorkIQSelector()
+        hints = self._make_hints(3)
+        req = selector.prepare_routing_hints(hints, "rh-3")
+        assert req.resolved is False
+
+    def test_resolve_routing_hints(self) -> None:
+        selector = WorkIQSelector()
+        hints = self._make_hints(3)
+        selector.prepare_routing_hints(hints, "rh-4")
+        ok = selector.resolve_routing_hints("rh-4", [0, 2])
+        assert ok is True
+        accepted = selector.accepted_routing_hints("rh-4")
+        assert len(accepted) == 2
+        assert accepted[0].keyword == "error log"
+        assert accepted[1].keyword == "fix"
+
+    def test_resolve_unknown_hint_request(self) -> None:
+        selector = WorkIQSelector()
+        assert selector.resolve_routing_hints("nonexistent", [0]) is False
+
+    def test_resolve_invalid_indices_uses_all(self) -> None:
+        selector = WorkIQSelector()
+        hints = self._make_hints(3)
+        selector.prepare_routing_hints(hints, "rh-5")
+        selector.resolve_routing_hints("rh-5", [99, -1])
+        accepted = selector.accepted_routing_hints("rh-5")
+        assert len(accepted) == 3  # fail-open
+
+    def test_pending_routing_hint_requests(self) -> None:
+        selector = WorkIQSelector()
+        hints = self._make_hints(3)
+        selector.prepare_routing_hints(hints, "rh-6")
+        pending = selector.pending_routing_hint_requests()
+        assert len(pending) == 1
+        assert pending[0]["request_id"] == "rh-6"
+        assert len(pending[0]["hints"]) == 3
+        assert pending[0]["hints"][0]["agent_id"] == AgentType.LOG_ANALYSIS
+
+    def test_cleanup_routing_hints(self) -> None:
+        selector = WorkIQSelector()
+        hints = self._make_hints(3)
+        selector.prepare_routing_hints(hints, "rh-7")
+        selector.resolve_routing_hints("rh-7", [1])
+        selector.cleanup_routing_hints("rh-7")
+        assert selector.pending_routing_hint_requests() == []
+        assert selector.accepted_routing_hints("rh-7") == []
+
+    @pytest.mark.asyncio
+    async def test_wait_for_routing_hints_already_resolved(self) -> None:
+        selector = WorkIQSelector()
+        hints = self._make_hints(3)
+        selector.prepare_routing_hints(hints, "rh-8")
+        selector.resolve_routing_hints("rh-8", [0])
+        req = await selector.wait_for_routing_hints("rh-8")
+        assert req.resolved is True
+
+    @pytest.mark.asyncio
+    async def test_wait_for_routing_hints_timeout(self) -> None:
+        selector = WorkIQSelector(timeout=0.1)
+        hints = self._make_hints(3)
+        selector.prepare_routing_hints(hints, "rh-9")
+        req = await selector.wait_for_routing_hints("rh-9")
+        assert req.resolved is True
+        assert req.accepted_indices == [0, 1, 2]  # fail-open
+
+    @pytest.mark.asyncio
+    async def test_wait_for_routing_hints_concurrent_resolve(self) -> None:
+        selector = WorkIQSelector(timeout=5.0)
+        hints = self._make_hints(3)
+        selector.prepare_routing_hints(hints, "rh-10")
+
+        async def resolve_after_delay():
+            await asyncio.sleep(0.05)
+            selector.resolve_routing_hints("rh-10", [1])
+
+        req, _ = await asyncio.gather(
+            selector.wait_for_routing_hints("rh-10"),
+            resolve_after_delay(),
+        )
+        assert req.resolved is True
+        assert req.accepted_indices == [1]
+
+    def test_accepted_hints_before_resolve_empty(self) -> None:
+        selector = WorkIQSelector()
+        hints = self._make_hints(3)
+        selector.prepare_routing_hints(hints, "rh-11")
+        assert selector.accepted_routing_hints("rh-11") == []
+
+
+# ── Enriched Engine routing (integration-level) ────────────────────────
+
+
+class TestEnrichedEngineRouting:
+    """Test that the engine's process_with_enrichment flow works end-to-end."""
+
+    @pytest.mark.asyncio
+    async def test_enrichment_fallback_when_no_client(self) -> None:
+        """Without WorkIQ client, falls back to standard process."""
+        from src.agents.plan_agent import PlanAgent
+        from src.orchestrator.engine import OrchestratorEngine
+
+        engine = OrchestratorEngine()
+        engine.register_agent("plan", PlanAgent())
+        from src.agents.knowledge_base_agent import KnowledgeBaseAgent
+        engine.register_agent("knowledge_base", KnowledgeBaseAgent())
+
+        result = await engine.process_with_enrichment("how to configure CORS?")
+        assert "Plan" in result
+
+    @pytest.mark.asyncio
+    async def test_enrichment_fallback_on_workiq_error(self) -> None:
+        """WorkIQ error → falls back to standard routing."""
+        from src.agents.knowledge_base_agent import KnowledgeBaseAgent
+        from src.agents.plan_agent import PlanAgent
+        from src.orchestrator.engine import OrchestratorEngine
+
+        client = MagicMock()
+        client.ask = AsyncMock(return_value=WorkIQResult(
+            query="test", error="CLI not found",
+        ))
+        selector = WorkIQSelector()
+
+        engine = OrchestratorEngine(workiq_client=client, workiq_selector=selector)
+        engine.register_agent("plan", PlanAgent())
+        engine.register_agent("knowledge_base", KnowledgeBaseAgent())
+
+        result = await engine.process_with_enrichment("explain the architecture")
+        assert "Plan" in result
+
+    @pytest.mark.asyncio
+    async def test_enrichment_with_auto_resolved_content(self) -> None:
+        """Single-section WorkIQ result auto-resolves content selection."""
+        from src.agents.knowledge_base_agent import KnowledgeBaseAgent
+        from src.agents.plan_agent import PlanAgent
+        from src.orchestrator.engine import OrchestratorEngine
+
+        wiq_result = WorkIQResult(
+            query="who is on my team?",
+            content="Team lead is Alice, members: Bob, Charlie",
+            sections=["Team lead is Alice, members: Bob, Charlie"],
+            sources=["https://graph.microsoft.com"],
+        )
+        client = MagicMock()
+        client.ask = AsyncMock(return_value=wiq_result)
+        selector = WorkIQSelector(timeout=0.1)
+
+        engine = OrchestratorEngine(workiq_client=client, workiq_selector=selector)
+        engine.register_agent("plan", PlanAgent())
+        engine.register_agent("knowledge_base", KnowledgeBaseAgent())
+
+        result = await engine.process_with_enrichment("who is on my team?")
+        assert "Plan" in result
+        # WorkIQ content should be stored in context
+        assert engine.context.get_memory("workiq_selected_content") is not None

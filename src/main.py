@@ -79,8 +79,13 @@ def bootstrap() -> tuple:
     forge_loader = ForgeLoader(settings.forge.forge_dir)
     forge_registry = forge_loader.load()
 
-    # 1. Create orchestrator
-    orchestrator = OrchestratorEngine()
+    # 1. Create orchestrator (with WorkIQ enrichment support)
+    workiq_client = WorkIQClient()
+    workiq_selector = WorkIQSelector()
+    orchestrator = OrchestratorEngine(
+        workiq_client=workiq_client,
+        workiq_selector=workiq_selector,
+    )
 
     # 2. Register agents — prefer manifests, fall back to defaults
     agent_descriptions: dict[str, tuple[str, str]] = {}  # id → (name, description)
@@ -104,8 +109,6 @@ def bootstrap() -> tuple:
         agent_descriptions[agent_id] = (manifest.name, manifest.description)
 
     # 2c. Ensure well-known agents exist even if forge/ doesn't list them
-    workiq_client = WorkIQClient()
-    workiq_selector = WorkIQSelector()
     _default_agents: dict[str, tuple[type, str, str]] = {
         AgentType.LOG_ANALYSIS: (LogAnalysisAgent, "Log Analysis Agent", "Log parsing and error analysis"),
         AgentType.CODE_RESEARCH: (GenericAgent, "Code Research Agent", "Code search and analysis"),
