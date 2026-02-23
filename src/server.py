@@ -173,7 +173,7 @@ class GitHubChangelogRequest(BaseModel):
     repo: str = ""
     from_ref: str = ""
     to_ref: str = "HEAD"
-    version: str = "Unreleased"
+    version: str = "0.1.1"
 
 
 class GovernanceContextResolveRequest(BaseModel):

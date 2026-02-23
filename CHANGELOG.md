@@ -13,7 +13,7 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ---
 
-## [Unreleased]
+## [0.1.1] — 2026-02-23
 
 ### Added
 - **LLM Intelligence (P0-5)** — all agents now call `_call_llm()` via `BaseAgent`, delegating to singleton `LLMClient` in `src/llm/client.py`. Supports Azure AI Foundry (`DefaultAzureCredential`), API key auth, and direct OpenAI. Graceful degradation — returns `None` when unconfigured.
