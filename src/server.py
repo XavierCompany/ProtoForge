@@ -162,7 +162,7 @@ def create_app(
     app = FastAPI(
         title="ProtoForge",
         description="Multi-Agent Orchestrator with MCP Skills Distribution",
-        version="0.1.0",
+        version="0.1.1",
     )
 
     app.add_middleware(

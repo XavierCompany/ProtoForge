@@ -75,7 +75,7 @@ Conventional commit types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `c
 
 ## 3. Versioning — SemVer Rules
 
-**Current version**: `0.1.0` (declared in `pyproject.toml` line 3).
+**Current version**: `0.1.1` (declared in `pyproject.toml` line 3).
 
 ProtoForge uses [Semantic Versioning 2.0.0](https://semver.org/):
 
@@ -418,7 +418,7 @@ The following claims were verified against the actual codebase:
 | 18 | `GenericAgent.execute()` is placeholder (TODO: LLM) | `generic.py` L59 | ✅ |
 | 19 | Budget: allocate → fits_budget → truncate pipeline | `context_budget.py` | ✅ |
 | 20 | tiktoken in `pyproject.toml` dependencies | `pyproject.toml` L28 | ✅ |
-| 21 | Version `0.1.0` | `pyproject.toml` L3 | ✅ |
+| 21 | Version `0.1.1` | `pyproject.toml` L3 | ✅ |
 | 22 | 28 HTTP endpoints in `server.py` | `server.py` (grep count) | ✅ |
 | 23 | ForgeLoader loads: context_config → coordinator → agents → shared → contrib | `loader.py` L93–101 | ✅ |
 | 24 | ForgeLoader instantiated twice in `bootstrap()` | `main.py` ~L87, ~L110 | ✅ |

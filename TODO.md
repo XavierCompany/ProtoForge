@@ -228,4 +228,4 @@ Track completed items here with date and commit hash.
 
 ---
 
-*Last updated: 2026-02-23 — ProtoForge v0.1.0*
+*Last updated: 2026-02-23 — ProtoForge v0.1.1*

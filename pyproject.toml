@@ -1,6 +1,6 @@
 [project]
 name = "protoforge"
-version = "0.1.0"
+version = "0.1.1"
 description = "Multi-agent orchestrator with MCP skills distribution, agent registry, and workflow bundling"
 requires-python = ">=3.11"
 license = { text = "MIT" }

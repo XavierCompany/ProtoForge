@@ -180,4 +180,4 @@ When you make a change to ProtoForge:
 
 ---
 
-*Last updated: 2026-02-23 — ProtoForge v0.1.0*
+*Last updated: 2026-02-23 — ProtoForge v0.1.1*

@@ -7,7 +7,7 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ---
 
-## [Unreleased]
+## [0.1.1] — 2026-02-23
 
 ### Added
 - **Agent Lifecycle HITL** — disable/remove agents at runtime with human-in-the-loop confirmation (fail-CLOSED on timeout)
@@ -92,5 +92,5 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ---
 
-[Unreleased]: https://github.com/XavierCompany/ProtoForge/compare/v0.1.0...HEAD
+[0.1.1]: https://github.com/XavierCompany/ProtoForge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/XavierCompany/ProtoForge/releases/tag/v0.1.0

@@ -28,7 +28,7 @@ logger = structlog.get_logger(__name__)
 
 SERVER_INFO = {
     "name": "protoforge",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Multi-agent orchestrator with specialized skills",
 }
 
