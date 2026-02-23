@@ -1,10 +1,10 @@
 # Changelog
 
-> **TL;DR for LLMs**: Version history (97 lines). Current version: **0.1.1**.
+> **TL;DR for LLMs**: Version history (100+ lines). Current version: **0.1.1**.
 > Two releases: v0.1.1 (lifecycle HITL + P0 fixes) and v0.1.0 (initial release).
 >
-> **Read this doc when**: reviewing what changed between versions.
-> **Start with** [ARCHITECTURE.md](ARCHITECTURE.md) for the system overview first.
+> This is doc **6 of 9** in the reading order.
+> See [ARCHITECTURE.md](ARCHITECTURE.md) for the system overview.
 
 All notable changes to ProtoForge are documented in this file.
 

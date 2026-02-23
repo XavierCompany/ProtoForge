@@ -116,17 +116,19 @@ See SOURCE_OF_TRUTH.md for the full ownership map.
 
 ## Documentation Reading Order
 
-Every doc has a TL;DR header. Read progressively — stop when you have enough context.
+Read **ALL** documentation files in the order below. Each contains unique
+information not duplicated elsewhere. Total: ~5400 lines (~18 K tokens) — fits
+easily in modern context windows.
 
-1. **This file** (copilot-instructions.md) — always read first (~120 lines)
-2. **ARCHITECTURE.md** — compact architecture, APIs, module graph (~220 lines)
-3. **SOURCE_OF_TRUTH.md** — canonical ownership map (when changing agents, budgets, routing)
-4. **MAINTENANCE.md** — update protocol, anti-drift rules (when maintaining code)
-5. **TODO.md** — prioritised backlog P0→P3 (when planning work)
-6. **GUIDE.md** — deep-dive reference, **read selectively by section** (see ARCHITECTURE.md §10 for section index)
-7. **GUIDE2.md** — maintenance & tuning guide (when tuning budgets, governance, routing)
-8. **README.md** — onboarding, full endpoint table, quick-start
-9. **CHANGELOG.md** — version history
+1. **This file** (copilot-instructions.md) — orientation & conventions (~140 lines)
+2. **ARCHITECTURE.md** — compact architecture, APIs, module graph (~260 lines)
+3. **SOURCE_OF_TRUTH.md** — canonical ownership map (~190 lines)
+4. **MAINTENANCE.md** — update protocol, anti-drift rules (~450 lines)
+5. **TODO.md** — prioritised backlog P0→P3 (~240 lines)
+6. **GUIDE.md** — deep-dive reference, 19 sections (~2750 lines, use ARCHITECTURE.md §10 section index for navigation)
+7. **GUIDE2.md** — maintenance & tuning guide, 13 sections (~940 lines)
+8. **README.md** — onboarding, full endpoint table, quick-start (~810 lines)
+9. **CHANGELOG.md** — version history (~100 lines)
 
 ## Version
 

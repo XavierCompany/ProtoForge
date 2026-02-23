@@ -1,13 +1,11 @@
 # GUIDE2 — Maintaining ProtoForge & Tuning Subagents
 
-> **TL;DR for LLMs**: Maintenance & tuning guide (926 lines / 13 sections).
+> **TL;DR for LLMs**: Maintenance & tuning guide (940+ lines / 13 sections).
 > Covers: architecture reality check, DE critique, budget tuning, routing tuning,
 > governance tuning, prompt engineering, debugging, observability, runbook.
 >
-> **Read this doc when**: tuning token budgets, adjusting governance thresholds,
-> debugging budget enforcement, or reviewing the improvement roadmap.
->
-> **Start with** [ARCHITECTURE.md](ARCHITECTURE.md) if you haven't read it yet.
+> This is doc **9 of 9** in the reading order. Read
+> [ARCHITECTURE.md](ARCHITECTURE.md) first for orientation.
 > **See also**: [MAINTENANCE.md](MAINTENANCE.md) for the update protocol.
 
 > **Audience**: Engineers maintaining the codebase, tuning token budgets,

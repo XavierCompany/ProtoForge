@@ -1,13 +1,11 @@
 # ProtoForge — Maintenance & Versioning Guide
 
-> **TL;DR for LLMs**: Codebase-validated maintenance guide (442 lines / 9 sections).
+> **TL;DR for LLMs**: Codebase-validated maintenance guide (450+ lines / 9 sections).
 > Covers: document hierarchy, update protocol, versioning, architecture layers
 > (verified module map with line counts), common maintenance tasks, anti-drift rules.
 >
-> **Read this doc when**: maintaining code, following the update protocol,
-> verifying architecture claims, or checking the anti-drift rules.
->
-> **Start with** [ARCHITECTURE.md](ARCHITECTURE.md) for the compact overview first.
+> This is doc **4 of 9** in the reading order. Read
+> [ARCHITECTURE.md](ARCHITECTURE.md) first for orientation.
 > **See also**: [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md) for canonical ownership.
 
 > **Validated against codebase commit `72d25e8` on 2026-02-23.**

@@ -1,13 +1,11 @@
 # Source of Truth — ProtoForge Canonical Ownership Map
 
-> **TL;DR for LLMs**: Canonical ownership map (186 lines / 9 sections).
-> Answers: "where is X defined, and what copies must I update?"
+> **TL;DR for LLMs**: Canonical ownership map (190+ lines / 9 sections).
+> Answers: “where is X defined, and what copies must I update?”
 > Covers: agent identity, token budgets, routing, prompts, config, governance, tests.
 >
-> **Read this doc when**: changing agent identity, token budgets, routing patterns,
-> prompts, or any value that exists in multiple places.
->
-> **Start with** [ARCHITECTURE.md](ARCHITECTURE.md) for the system overview first.
+> This is doc **3 of 9** in the reading order. Read
+> [ARCHITECTURE.md](ARCHITECTURE.md) first for orientation.
 
 > **Purpose**: When the same concept is defined in multiple places, this file
 > declares which source is **canonical** and which are **derived/duplicated**.

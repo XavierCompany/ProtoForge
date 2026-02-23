@@ -206,30 +206,31 @@ Settings are loaded from `.env` file. Access via `get_settings()` singleton.
 
 ## 10. LLM Documentation Reading Order
 
-ProtoForge documentation uses **progressive disclosure** — start small, go
-deeper only when the task requires it. Every doc has a TL;DR header at the
-top so an LLM can decide whether to read further.
+ProtoForge has 9 documentation files totalling ~5 400 lines (~18 K tokens).
+Read **all of them** in the order below — each contains unique information not
+duplicated elsewhere and the total fits easily in modern context windows.
 
 ### Reading order (start → detail)
 
-| Order | Document | ~Lines | When to read |
-|-------|----------|-------:|--------------|
-| 1 | `.github/copilot-instructions.md` | 120 | **Always** — first-read orientation for any LLM session |
-| 2 | `ARCHITECTURE.md` (this file) | 220 | **Always** — compact architecture, APIs, common tasks |
-| 3 | `SOURCE_OF_TRUTH.md` | 186 | When changing agent identity, budgets, routing, or prompts — canonical ownership map |
-| 4 | `MAINTENANCE.md` | 442 | When maintaining code — update protocol, anti-drift rules, validated reference |
-| 5 | `TODO.md` | 232 | When planning work — prioritised backlog (P0→P3) |
-| 6 | `CHANGELOG.md` | 97 | When reviewing history — version-by-version changes |
-| 7 | `README.md` | 805 | When onboarding or checking API endpoints — full endpoint table, quick-start |
-| 8 | `GUIDE.md` | 2751 | **Selectively by section** — deep-dive reference (see section index below) |
-| 9 | `GUIDE2.md` | 926 | When tuning budgets, governance, routing, or debugging — maintenance & tuning guide |
+| Order | Document | ~Lines | What it contains |
+|-------|----------|-------:|------------------|
+| 1 | `.github/copilot-instructions.md` | 140 | Orientation & coding conventions — **always read first** |
+| 2 | `ARCHITECTURE.md` (this file) | 260 | Compact architecture, APIs, common tasks, this reading order |
+| 3 | `SOURCE_OF_TRUTH.md` | 190 | Canonical ownership map — where every value is defined + its copies |
+| 4 | `MAINTENANCE.md` | 450 | Update protocol, anti-drift rules, validated module line counts |
+| 5 | `TODO.md` | 240 | Prioritised backlog P0→P3 with completion status |
+| 6 | `CHANGELOG.md` | 100 | Version history — what changed between releases |
+| 7 | `README.md` | 810 | Onboarding, full endpoint table, quick-start, project structure |
+| 8 | `GUIDE.md` | 2750 | Deep-dive developer reference — 19 sections (see navigation index below) |
+| 9 | `GUIDE2.md` | 940 | Maintenance & tuning guide — budget tuning, governance, debugging |
 
-### GUIDE.md Section Index (read selectively)
+### GUIDE.md Section Index (navigation aid)
 
-GUIDE.md is 2751 lines — **do not read it all at once**. Use this index to
-jump to the section you need:
+GUIDE.md is the largest doc at 2750 lines. Read it fully, but use this index
+to locate specific sections quickly:
 
-| § | Title | Lines | Read when you need to… |
+| § | Title | Lines | Covers |
+|---|-------|------:|--------|
 |---|-------|------:|------------------------|
 | 1 | Why This Architecture? | ~53 | Understand the plan-first rationale |
 | 2 | Plan-First Design | ~98 | Understand engine.py pipeline flow |
