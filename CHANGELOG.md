@@ -10,6 +10,7 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 ## [Unreleased]
 
 ### Added
+- `MAINTENANCE.md` — codebase-validated maintenance and versioning guide with 29-point validation log
 - `CHANGELOG.md` — project changelog (this file)
 - `TODO.md` — prioritised backlog derived from GUIDE2 §13
 - `SOURCE_OF_TRUTH.md` — canonical ownership map for agent identities, budgets, routing, and prompts
