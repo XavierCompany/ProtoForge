@@ -64,7 +64,7 @@ forge/
   shared/              # Shared prompts and workflows
 tests/
   conftest.py          # Shared fixtures (engine, agents, guardian, router)
-  test_*.py            # 363 tests — one file per domain
+  test_*.py            # 378 tests — one file per domain
 ```
 
 ## Key Abstractions
@@ -90,7 +90,7 @@ tests/
 - **HITL pattern**: prepare review → expose via HTTP → wait with timeout → resolve
   - Timeout default: 120s → auto-resolve (fail-closed for lifecycle, fail-open for plans)
 - **Token math constraint**: `plan(32K) + sub-plan(20K) + 3×specialist(≤25K) ≤ 128K`
-- **Tests**: pytest + pytest-asyncio, fixtures in `conftest.py`, 363 tests
+- **Tests**: pytest + pytest-asyncio, fixtures in `conftest.py`, 378 tests
 - **Lint**: ruff (check + format), mypy for type checking
 - **Async**: All agent `execute()` methods are `async def`
 
@@ -124,7 +124,7 @@ information not duplicated elsewhere. Total: ~5850 lines (~60 K tokens).
 3. **SOURCE_OF_TRUTH.md** — canonical ownership map (~195 lines)
 4. **MAINTENANCE.md** — update protocol, anti-drift rules (~455 lines)
 5. **TODO.md** — prioritised backlog P0→P3 (~240 lines)
-6. **CHANGELOG.md** — version history (~105 lines)
+6. **CHANGELOG.md** — version history (~140 lines)
 7. **README.md** — onboarding, full endpoint table, quick-start (~810 lines)
 8. **GUIDE.md** — deep-dive reference, 19 sections (~2760 lines, use ARCHITECTURE.md §10 section index for navigation)
 9. **GUIDE2.md** — maintenance & tuning guide, 13 sections (~905 lines)

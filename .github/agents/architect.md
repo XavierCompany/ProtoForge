@@ -2,7 +2,7 @@
 name: 'ProtoForge Architect'
 description: 'Reviews changes for architectural consistency — budget cap, HITL gates, agent isolation, identity drift'
 tools: ['readFile', 'search', 'usages', 'problems']
-model: 'Claude Opus 4.6'
+model: 'Claude Opus 4.6'  # Also allowed: Codex 5.3, Gemini Pro 3.1
 handoffs:
   - label: 'Fix Issues'
     agent: 'agent'

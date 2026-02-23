@@ -1,7 +1,7 @@
 ---
 agent: 'agent'
 description: 'Run a documentation accuracy audit — verifies numbers, cross-references, and budget math against source code'
-model: 'Claude Opus 4.6'
+model: 'Claude Opus 4.6'  # Also allowed: Codex 5.3, Gemini Pro 3.1
 tools: ['readFile', 'search', 'runInTerminal', 'editFiles']
 ---
 

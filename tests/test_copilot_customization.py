@@ -4,7 +4,7 @@ Catches drift between customization files and the live codebase:
 - Agent identity consistency (4 locations match)
 - Token budget math (hard cap not exceeded)
 - Customization file references (files mentioned actually exist)
-- Skill/prompt/agent model defaults (Claude Opus 4.6)
+- Model policy: Claude Opus 4.6 (default), Codex 5.3, Gemini Pro 3.1 allowed
 """
 
 from __future__ import annotations
@@ -16,6 +16,12 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Allowed models for VS Code Copilot customization files.
+# Claude Opus 4.6 is the default; Codex 5.3 and Gemini Pro 3.1 are
+# first-class alternatives.  The platform itself (src/config.py) supports
+# any model — this constraint is for Copilot agent/prompt frontmatter only.
+ALLOWED_MODELS = {"Claude Opus 4.6", "Codex 5.3", "Gemini Pro 3.1"}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -213,27 +219,34 @@ class TestCustomizationFiles:
             )
 
     def test_agents_have_model_field(self) -> None:
-        """Custom agents must specify model: 'Claude Opus 4.6'."""
+        """Custom agents must specify an allowed model (default: Claude Opus 4.6).
+
+        Allowed models: Claude Opus 4.6 (default), Codex 5.3, Gemini Pro 3.1.
+        The platform supports any LLM provider — this validates VS Code Copilot
+        agent frontmatter only.  See README.md for full provider table.
+        """
         agents_dir = ROOT / ".github" / "agents"
         if not agents_dir.exists():
             pytest.skip("No .github/agents/ directory")
         for path in agents_dir.glob("*.md"):
             fm = _parse_frontmatter(path)
-            assert fm.get("model") == "Claude Opus 4.6", (
-                f"{path.relative_to(ROOT)} must set model: 'Claude Opus 4.6', "
-                f"got: {fm.get('model')!r}"
+            model = fm.get("model", "").split("#")[0].strip().strip("'\"")
+            assert model in ALLOWED_MODELS, (
+                f"{path.relative_to(ROOT)} model {model!r} not in "
+                f"allowed set {ALLOWED_MODELS}"
             )
 
     def test_prompts_have_model_field(self) -> None:
-        """Prompt files must specify model: 'Claude Opus 4.6'."""
+        """Prompt files must specify an allowed model (default: Claude Opus 4.6)."""
         prompts_dir = ROOT / ".github" / "prompts"
         if not prompts_dir.exists():
             pytest.skip("No .github/prompts/ directory")
         for path in prompts_dir.glob("*.prompt.md"):
             fm = _parse_frontmatter(path)
-            assert fm.get("model") == "Claude Opus 4.6", (
-                f"{path.relative_to(ROOT)} must set model: 'Claude Opus 4.6', "
-                f"got: {fm.get('model')!r}"
+            model = fm.get("model", "").split("#")[0].strip().strip("'\"")
+            assert model in ALLOWED_MODELS, (
+                f"{path.relative_to(ROOT)} model {model!r} not in "
+                f"allowed set {ALLOWED_MODELS}"
             )
 
     def test_skills_have_required_frontmatter(self) -> None:
@@ -289,3 +302,42 @@ class TestCustomizationFiles:
             assert path.exists(), (
                 f"Customization files reference '{ref}' but it does not exist"
             )
+
+
+# ── Model Policy ──────────────────────────────────────────────────────────
+
+
+class TestModelPolicy:
+    """Verify LLM model defaults match the project's multi-model policy.
+
+    Policy: Claude Opus 4.6 (default), Codex 5.3, Gemini Pro 3.1 as
+    first-class alternatives.  See ADR-002 in GUIDE.md.
+    """
+
+    def test_config_default_provider_is_anthropic(self) -> None:
+        """config.py must default to Anthropic (Claude Opus 4.6) when no keys set."""
+        from src.config import LLMConfig, LLMProvider
+
+        cfg = LLMConfig()
+        assert cfg.active_provider == LLMProvider.ANTHROPIC
+
+    def test_config_anthropic_model_is_opus(self) -> None:
+        """Anthropic default model must be claude-opus-4.6."""
+        from src.config import LLMConfig
+
+        cfg = LLMConfig()
+        assert cfg.anthropic_model == "claude-opus-4.6"
+
+    def test_config_openai_model_is_codex(self) -> None:
+        """OpenAI default model must be codex-5.3."""
+        from src.config import LLMConfig
+
+        cfg = LLMConfig()
+        assert cfg.openai_model == "codex-5.3"
+
+    def test_config_google_model_is_gemini_pro(self) -> None:
+        """Google default model must be gemini-pro-3.1."""
+        from src.config import LLMConfig
+
+        cfg = LLMConfig()
+        assert cfg.google_model == "gemini-pro-3.1"

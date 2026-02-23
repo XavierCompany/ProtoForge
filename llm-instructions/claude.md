@@ -42,7 +42,7 @@ User → FastAPI /chat → IntentRouter (keyword + LLM)
 - **structlog** for structured logging — `logger = structlog.get_logger(__name__)`
 - **Async**: All agent `execute()` methods are `async def`
 - **Token math**: `plan(32K) + sub-plan(20K) + 3×specialist(≤25K) ≤ 128K`
-- **Tests**: pytest + pytest-asyncio, 363 tests, fixtures in `tests/conftest.py`
+- **Tests**: pytest + pytest-asyncio, 378 tests, fixtures in `tests/conftest.py`
 - **Lint**: ruff (check + format), mypy for type checking
 
 ## Documentation — Read ALL in order
@@ -52,7 +52,7 @@ User → FastAPI /chat → IntentRouter (keyword + LLM)
 3. `SOURCE_OF_TRUTH.md` — canonical ownership map (~195 lines)
 4. `MAINTENANCE.md` — update protocol, anti-drift rules (~455 lines)
 5. `TODO.md` — prioritised backlog P0→P3 (~240 lines)
-6. `CHANGELOG.md` — version history (~105 lines)
+6. `CHANGELOG.md` — version history (~140 lines)
 7. `README.md` — onboarding, full endpoint table, quick-start (~810 lines)
 8. `GUIDE.md` — deep-dive reference, 19 sections (~2760 lines)
 9. `GUIDE2.md` — maintenance & tuning guide, 13 sections (~905 lines)

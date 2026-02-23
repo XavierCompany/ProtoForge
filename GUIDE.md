@@ -2451,8 +2451,8 @@ gh copilot explain "What does this regex match: \bfix\s.*\b(?:error|exception|bu
 
 **Status:** Accepted  
 **Context:** Need a default model that balances quality and reasoning depth  
-**Decision:** Anthropic Claude Opus 4.6 as the default provider  
-**Consequences:** Requires Anthropic API key by default, best-in-class reasoning for plan coordination  
+**Decision:** Anthropic Claude Opus 4.6 as the default provider. Also supports Codex 5.3 and Gemini Pro 3.1 as first-class alternatives.  
+**Consequences:** Requires at least one provider API key. Claude Opus 4.6 recommended for plan coordination; Codex 5.3 for code-heavy tasks; Gemini Pro 3.1 for cost-effective breadth.
 
 ### ADR-003: Keyword + LLM Two-Tier Routing
 

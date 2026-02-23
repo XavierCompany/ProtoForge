@@ -44,9 +44,9 @@ class LLMConfig(BaseSettings):
     anthropic_api_key: str | None = Field(None, alias="ANTHROPIC_API_KEY")
     anthropic_model: str = Field("claude-opus-4.6", alias="ANTHROPIC_MODEL")
 
-    # Google (Gemini 3 Pro, Gemini 3.1 Pro)
+    # Google (Gemini Pro 3.1 — latest, Gemini Pro 3.0)
     google_api_key: str | None = Field(None, alias="GOOGLE_API_KEY")
-    google_model: str = Field("gemini-3-pro", alias="GOOGLE_MODEL")
+    google_model: str = Field("gemini-pro-3.1", alias="GOOGLE_MODEL")
 
     # Auth
     auth_method: AuthMethod = Field(AuthMethod.AZURE_DEFAULT, alias="AUTH_METHOD")

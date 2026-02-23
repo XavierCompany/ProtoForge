@@ -116,9 +116,9 @@ activates if the manifest fails to load.
 
 ### Drift risk
 
-Model names in `config.py` are speculative/future (`claude-opus-4.6`,
-`codex-5.3`, etc.). When LLM integration lands (TODO P0-5), update these
-to real, available model names.
+Model names in `config.py` (`claude-opus-4.6`, `codex-5.3`, `gemini-pro-3.1`)
+are the current defaults. When LLM integration lands (TODO P0-5), verify
+these match real, available model identifiers from each provider.
 
 ---
 

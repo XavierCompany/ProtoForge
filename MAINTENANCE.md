@@ -55,7 +55,7 @@ CHANGELOG / TODO structure.
    ```powershell
    .venv\Scripts\python.exe -m pytest -q --tb=short
    ```
-   *Current: 363 tests passing in ≈12 s (verified).*
+   *Current: 378 tests passing in ≈ 10 s (verified).*
 
 2. Keep commits atomic — one logical change per commit.
 
@@ -137,7 +137,7 @@ _process_after_routing()              ← src/orchestrator/engine.py L248
 | `src/orchestrator/engine.py`     |   763 | Core pipeline: process → dispatch → fan-out → aggregate |
 | `src/orchestrator/router.py`     |   413 | Keyword + LLM routing, WorkIQ-enriched routing      |
 | `src/orchestrator/context.py`    |    86 | `ConversationContext`, `AgentResult`, `Message`      |
-| `src/orchestrator/plan_selector.py` | 374 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B)       |
+| `src/orchestrator/plan_selector.py` | 378 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B)       |
 | `src/agents/base.py`            |   122 | `BaseAgent` ABC, `from_manifest()`, `_build_messages()` |
 | `src/agents/generic.py`         |    71 | `GenericAgent` — manifest-driven, placeholder execute |
 | `src/governance/guardian.py`     |   477 | `GovernanceGuardian`: context window + skill cap + architectural audit |
@@ -435,7 +435,7 @@ The following claims were verified against the actual codebase:
 | 24 | ForgeLoader instantiated twice in `bootstrap()` | `main.py` ~L87, ~L110 | ✅ |
 | 25 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B) | `plan_selector.py`, `engine.py` L322–400 | ✅ |
 | 26 | GovernanceSelector: ContextWindowReview + SkillCapReview | `selector.py` L41–59 | ✅ |
-| 27 | 363 tests passing | `pytest --tb=no` output | ✅ |
+| 27 | 378 tests passing | `pytest --tb=no` output | ✅ |
 | 28 | Plan budget = 32K, Sub-Plan = 20K, Specialist = 22K | agent.yaml files | ✅ |
 | 29 | Worst-case = 126K (with 8K reserve) ≤ 128K cap | Calculated from YAML | ✅ |
 | 30 | `AgentLifecycleReview` dataclass in `GovernanceSelector` | `selector.py` | ✅ |
@@ -445,7 +445,7 @@ The following claims were verified against the actual codebase:
 | 34 | `deregister_patterns()` removes routing on disable/remove | `router.py` | ✅ |
 | 35 | `deallocate()` releases budget on disable/remove | `context_budget.py` | ✅ |
 | 36 | 7 new lifecycle HTTP endpoints | `server.py` | ✅ |
-| 37 | 363 tests passing (30 new lifecycle tests) | `pytest --tb=no` output | ✅ |
+| 37 | 378 tests passing (30 new lifecycle tests) | `pytest --tb=no` output | ✅ |
 
 ---
 

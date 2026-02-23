@@ -401,10 +401,10 @@ Works with any LLM provider:
 |----------|--------|-------|
 | **Anthropic** | `claude-opus-4.6` (default), `claude-sonnet-4.6` | **Recommended** — highest quality reasoning |
 | **Azure AI Foundry** | `gpt-5.3-codex` | Best quality/cost/throughput on Azure |
-| **OpenAI** | `gpt-4o`, `codex-5.3` | Direct OpenAI API access |
-| **Google** | `gemini-3-pro`, `gemini-3.1-pro` | Google AI Studio / Vertex AI |
+| **OpenAI** | `codex-5.3`, `gpt-4o` | Direct OpenAI API access |
+| **Google** | `gemini-pro-3.1` (default), `gemini-pro-3.0` | Google AI Studio / Vertex AI |
 
-> **Default:** Anthropic Claude Opus 4.6 — set `DEFAULT_LLM_PROVIDER=anthropic` or provide `ANTHROPIC_API_KEY` to use automatically.
+> **Default:** Anthropic Claude Opus 4.6. Also supports Codex 5.3 and Gemini Pro 3.1 as first-class alternatives. Set `DEFAULT_LLM_PROVIDER` or provide the relevant API key.
 
 ## Quick Start
 
@@ -663,7 +663,7 @@ workiq --version
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (363 tests)
+# Run tests (378 tests)
 pytest
 
 # Run with coverage
@@ -754,7 +754,8 @@ ProtoForge/
     ├── test_sub_plan.py        # 30 tests — sub-plan agent, plan selector, pipeline
     ├── test_workiq.py          # 52 tests — client, selector, agent, enrichment
     ├── test_github_tracker.py  # 82 tests — GitHub Tracker agent, all operations
-    └── test_governance.py      # 113 tests — guardian, selector, enforcement hooks
+    ├── test_governance.py      # 113 tests — guardian, selector, enforcement hooks
+    └── test_copilot_customization.py  # 11 tests — budget math, identity, model enforcement
 ```
 
 ## Developer Guide
@@ -772,7 +773,7 @@ See **[GUIDE.md](GUIDE.md)** for:
 - **WorkIQ integration** — 2-phase HITL enrichment pipeline, routing keyword acceptance, REST API usage
 - **Agent Registry / Catalog** — managing sub-agents, skill catalog, health metrics, persistence
 - **How to Add a Pre-Router Enrichment Source** — step-by-step guide for adding call transcripts, Jira, Slack, etc. (§19)
-- **Multi-model code review with GitHub Copilot CLI** — run Claude Opus 4.6 and Codex 5.3 in parallel terminals for critical feedback
+- **Multi-model code review with GitHub Copilot CLI** — run Claude Opus 4.6, Codex 5.3, and Gemini Pro 3.1 in parallel for critical feedback
 - Architecture Decision Records (ADRs)
 
 ## Next Engineer Quick Start

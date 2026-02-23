@@ -43,7 +43,7 @@ forge/agents/*/agent.yaml — Per-agent manifests
 - structlog for logging
 - All agent execute() methods are async def
 - Token math: plan(32K) + sub-plan(20K) + 3×specialist(≤25K) ≤ 128K
-- Tests: pytest + pytest-asyncio, 363 tests
+- Tests: pytest + pytest-asyncio, 378 tests
 
 # Documentation — Read ALL
 
@@ -52,7 +52,7 @@ forge/agents/*/agent.yaml — Per-agent manifests
 3. SOURCE_OF_TRUTH.md — canonical ownership map (~195 lines)
 4. MAINTENANCE.md — update protocol (~455 lines)
 5. TODO.md — prioritised backlog (~240 lines)
-6. CHANGELOG.md — version history (~105 lines)
+6. CHANGELOG.md — version history (~140 lines)
 7. README.md — onboarding, endpoints (~810 lines)
 8. GUIDE.md — deep-dive reference, 19 sections (~2760 lines)
 9. GUIDE2.md — maintenance & tuning guide (~905 lines)

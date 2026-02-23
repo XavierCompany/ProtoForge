@@ -15,6 +15,20 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ## [Unreleased]
 
+### Added
+- **Multi-model policy** — Claude Opus 4.6 (default), Codex 5.3, Gemini Pro 3.1 as first-class alternatives (see ADR-002)
+- 4 new model-policy tests in `TestModelPolicy` class — validates config.py defaults for all providers (378 total, up from 374)
+- `ALLOWED_MODELS` constant in `test_copilot_customization.py` — centralises model policy validation
+
+### Changed
+- `config.py`: Google model default `gemini-3-pro` → `gemini-pro-3.1` for consistent naming
+- `README.md`: Model compatibility table reordered with updated defaults and first-class alternatives
+- `GUIDE.md`: ADR-002 updated — Codex 5.3 and Gemini Pro 3.1 documented as first-class alternatives
+- `SOURCE_OF_TRUTH.md`: §5 drift risk section updated with current model names
+- `.env.example`: Google model names updated to `gemini-pro-3.1` / `gemini-pro-3.0`
+- Agent/prompt frontmatter: `# Also allowed: Codex 5.3, Gemini Pro 3.1` comment added
+- Model validation tests rewritten to check against `ALLOWED_MODELS` set (not exact string match)
+
 ### Fixed
 - **Documentation accuracy audit** — comprehensive pass to fix stale numbers, phantom files, and contradictions across all 9 docs
 - **README.md**: Removed phantom `code_research_agent.py` and `data_analysis_agent.py` from project structure (these agents use `GenericAgent`, no dedicated files exist)
@@ -63,12 +77,12 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - `get_status()` now includes `enabled_agents` and `disabled_agents` lists
 - `GovernanceSelector` docstring updated to reflect 3 review types (context window, skill cap, agent lifecycle)
 - `server.py` docstring updated with 7 new lifecycle endpoint descriptions (35 total endpoints)
-- All documentation refreshed to reflect 363 tests passing and lifecycle feature
+- All documentation refreshed to reflect 378 tests passing and lifecycle feature
 - `process()` now delegates to `_process_after_routing()` — eliminates ~30 lines of duplicate pipeline code (P0-2) — commit `4d5128c`
 - `_dispatch()` counts input tokens once and reuses the count for budget check, governance check, and post-dispatch recording (P0-4) — commit `4d5128c`
 - `_dispatch()`: `ContextWindowExceededError` import moved to module top-level (P1-10) — commit `4d5128c`
 - `_dispatch()`: governance token counting uses `self._governance.count_tokens()` instead of reaching through `self._governance._budget_manager` (P0-3) — commit `4d5128c`
-- All documentation refreshed to reflect 363 tests passing (was 333)
+- All documentation refreshed to reflect 378 tests passing (was 333)
 
 ---
 

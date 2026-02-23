@@ -185,7 +185,7 @@ Settings are loaded from `.env` file. Access via `get_settings()` singleton.
 
 ## 8. Testing
 
-- **363 tests** across 9 test files, all async (`pytest-asyncio`).
+- **378 tests** across 10 test files, all async (`pytest-asyncio`).
 - Fixtures in `tests/conftest.py` — pre-built engine, agents, guardian, router.
 - Test files map 1:1 to source domains (test_orchestrator, test_governance, etc.)
 - CI: GitHub Actions, Python 3.11 + 3.12 matrix, ruff lint + format + pytest.
@@ -207,23 +207,8 @@ Settings are loaded from `.env` file. Access via `get_settings()` singleton.
 
 ## 10. LLM Documentation Reading Order
 
-ProtoForge has 9 documentation files totalling ~4 550 lines (~18 K tokens).
-Read **all of them** in the order below — each contains unique information not
-duplicated elsewhere and the total fits easily in modern context windows.
-
-### Reading order (start → detail)
-
-| Order | Document | ~Lines | What it contains |
-|-------|----------|-------:|------------------|
-| 1 | `.github/copilot-instructions.md` | 115 | Orientation & coding conventions — **always read first** |
-| 2 | `ARCHITECTURE.md` (this file) | 200 | Compact architecture, APIs, common tasks, this reading order |
-| 3 | `SOURCE_OF_TRUTH.md` | 140 | Canonical ownership map — where every value is defined + its copies |
-| 4 | `MAINTENANCE.md` | 455 | Update protocol, anti-drift rules, validated module line counts |
-| 5 | `TODO.md` | 240 | Prioritised backlog P0→P3 with completion status |
-| 6 | `CHANGELOG.md` | 105 | Version history — what changed between releases |
-| 7 | `README.md` | 810 | Onboarding, full endpoint table, quick-start, project structure |
-| 8 | `GUIDE.md` | 2760 | Deep-dive developer reference — 19 sections (see navigation index below) |
-| 9 | `GUIDE2.md` | 905 | Maintenance & tuning guide — budget tuning, governance, debugging |
+See `.github/copilot-instructions.md` "Documentation Reading Order" section for
+the canonical 9-file reading list with line counts. Total: ~5 850 lines (~60K tokens).
 
 ### GUIDE.md Section Index (navigation aid)
 
