@@ -14,9 +14,10 @@ A comprehensive guide covering architecture rationale, extending agent capabilit
 6. [Adding a Brand-New Agent](#adding-a-brand-new-agent)
 7. [Adding New Skills & Workflows](#adding-new-skills--workflows)
 8. [Dynamic Contributions (CRUD)](#dynamic-contributions-crud)
-9. [Extending the Codebase with GitHub Copilot CLI](#extending-the-codebase-with-github-copilot-cli)
-10. [Multi-Model Code Review Workflow](#multi-model-code-review-workflow-copilot-cli--claude-opus-46--codex-53)
-11. [Architecture Decision Records](#architecture-decision-records)
+9. [WorkIQ Integration (Human-in-the-Loop)](#workiq-integration-human-in-the-loop)
+10. [Extending the Codebase with GitHub Copilot CLI](#extending-the-codebase-with-github-copilot-cli)
+11. [Multi-Model Code Review Workflow](#multi-model-code-review-workflow-copilot-cli--claude-opus-46--codex-53)
+12. [Architecture Decision Records](#architecture-decision-records)
 
 ---
 
@@ -149,13 +150,14 @@ forge/
 │   ├── skills/                 #   plan_task.yaml, identify_agents.yaml, build_strategy.yaml
 │   ├── instructions/           #   routing_rules.md, coordination.md
 │   └── workflows/              #   plan_and_execute.yaml
-├── agents/                     # 6 specialist agents (each has same structure)
+├── agents/                     # 7 specialist agents (each has same structure)
 │   ├── log_analysis/           #   agent.yaml + prompts/ + skills/ + instructions/
 │   ├── code_research/
 │   ├── remediation/
 │   ├── knowledge_base/
 │   ├── data_analysis/
-│   └── security_sentinel/
+│   ├── security_sentinel/
+│   └── workiq/                 #   WorkIQ agent (M365 context + HITL selection)
 ├── shared/                     # Cross-agent resources
 │   ├── prompts/                #   error_handling.md, output_format.md
 │   ├── instructions/           #   quality_standards.md, security_baseline.md
@@ -177,7 +179,7 @@ forge_loader = ForgeLoader(settings.forge.forge_dir)
 forge_registry = forge_loader.load()
 # forge_registry now contains:
 #   .coordinator   → AgentManifest for plan_agent
-#   .agents        → dict[str, AgentManifest] for 6 specialists
+#   .agents        → dict[str, AgentManifest] for 7 specialists
 #   .skills        → list of all skill dicts (from all agents + shared + contrib)
 #   .workflows     → list of all workflow dicts
 #   .shared_prompts, .shared_instructions
@@ -897,6 +899,228 @@ Invalid contributions raise `ValidationError` with a descriptive message.
 
 ---
 
+## WorkIQ Integration (Human-in-the-Loop)
+
+[Work IQ](https://www.npmjs.com/package/@microsoft/workiq) (`@microsoft/workiq`) brings **M365 organisational context** — emails, Teams messages, calendar events, SharePoint documents, and more — into the ProtoForge pipeline. The critical design choice here is **human-in-the-loop (HITL) selection**: the user decides which pieces of Work IQ output actually enter the LLM context.
+
+### Why Human-in-the-Loop?
+
+Work IQ queries often return multiple result sections with varying relevance. Blindly injecting all of them would:
+- **Waste token budget** — irrelevant sections consume context window space
+- **Reduce quality** — the LLM has to sift through noise
+- **Raise privacy concerns** — organisational data enters the pipeline without user awareness
+
+HITL gives the user control: they see what Work IQ found, pick the relevant sections, and only those enter the agent pipeline.
+
+### Architecture
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────────┐
+│  REST Client │────▶│  WorkIQAgent │────▶│  WorkIQClient    │
+│  (Inspector) │     │  (execute)   │     │  (subprocess)    │
+└──────┬───────┘     └──────┬───────┘     └────────┬─────────┘
+       │                    │                      │
+       │              ┌─────▼──────┐         ┌─────▼──────────┐
+       │              │ WorkIQ     │         │  workiq ask    │
+       └─────────────▶│ Selector   │         │  CLI process   │
+        (select)      │ (HITL)     │         └────────────────┘
+                      └────────────┘
+```
+
+**Components:**
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `WorkIQClient` | `src/workiq/client.py` | Async subprocess wrapper for the `workiq ask` CLI — runs the query and parses JSON output into `WorkIQResult` objects |
+| `WorkIQSelector` | `src/workiq/selector.py` | HITL selection manager — holds pending queries, waits for user selection, returns selected content |
+| `WorkIQAgent` | `src/agents/workiq_agent.py` | Agent implementation — calls client, prepares selection, waits for user input, returns grounded result |
+| REST endpoints | `src/server.py` | Three endpoints for the Inspector UI to drive the HITL flow |
+
+### The Selection Flow
+
+#### 1. Query (automated)
+
+The `WorkIQClient` runs `workiq ask "<query>"` as an async subprocess and parses the output:
+
+```python
+from src.workiq.client import WorkIQClient
+
+client = WorkIQClient()
+results = await client.query("latest standup notes from Teams")
+# → [WorkIQResult(title="Teams: Daily Standup", content="Discussed..."), ...]
+```
+
+Each `WorkIQResult` has a `title`, `content`, and `source` field.
+
+#### 2. Prepare (selector stages sections for review)
+
+The `WorkIQSelector` receives the query results and stages them for user review:
+
+```python
+from src.workiq.selector import WorkIQSelector
+
+selector = WorkIQSelector()
+request_id, sections = selector.prepare(results)
+# request_id: "abc123"
+# sections: [{"index": 0, "title": "...", "preview": "..."}, ...]
+```
+
+At this point the query is **pending** — the user hasn't picked anything yet.
+
+#### 3. User Selects (HITL — human picks relevant sections)
+
+Via the REST API or Inspector UI, the user reviews the sections and picks which ones to include:
+
+```bash
+# POST /workiq/select
+{
+  "request_id": "abc123",
+  "selected_indices": [0, 2]
+}
+```
+
+Internally this calls `selector.resolve(request_id, [0, 2])`, which:
+- Concatenates the selected sections' content
+- Stores it as `selected_content` for that request
+- Unblocks any waiting agent
+
+#### 4. Agent Receives Selected Content
+
+The `WorkIQAgent.execute()` method orchestrates the full flow:
+
+```python
+async def execute(self, message, context, params=None):
+    # 1. Query Work IQ
+    results = await self._client.query(message)
+
+    # 2. Stage for HITL selection
+    request_id, sections = self._selector.prepare(results)
+
+    # 3. Wait for user selection (up to 5 min timeout)
+    selected = await self._selector.wait_for_selection(request_id, timeout=300)
+
+    # 4. Return selected content as agent output
+    return AgentResult(
+        agent_id=self.agent_id,
+        content=selected or "No sections selected",
+        confidence=0.85 if selected else 0.3,
+        artifacts={"request_id": request_id, "sections_offered": len(sections)},
+    )
+```
+
+If the user doesn't select within the timeout, the query expires and no organisational data enters the pipeline (**fail-open → safe**).
+
+### REST API Reference
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/workiq/query` | Submit a query to Work IQ — returns `request_id` + sections |
+| GET | `/workiq/pending` | List all queries that are waiting for user selection |
+| POST | `/workiq/select` | Submit the user's selection (`request_id` + `selected_indices`) |
+
+#### `POST /workiq/query`
+
+**Request:**
+```json
+{
+  "query": "find the email thread about the production incident"
+}
+```
+
+**Response:**
+```json
+{
+  "request_id": "abc123",
+  "sections": [
+    {"index": 0, "title": "Email: [P1] Production Incident — Auth Service", "preview": "Team, auth service is returning 500s since..."},
+    {"index": 1, "title": "Teams: Incident War Room", "preview": "Just deployed a hotfix to..."},
+    {"index": 2, "title": "Email: RE: [P1] Incident Postmortem", "preview": "Root cause was a misconfigured..."}
+  ]
+}
+```
+
+#### `GET /workiq/pending`
+
+**Response:**
+```json
+{
+  "pending": [
+    {"request_id": "abc123", "query": "find the email thread about the production incident", "sections_count": 3}
+  ]
+}
+```
+
+#### `POST /workiq/select`
+
+**Request:**
+```json
+{
+  "request_id": "abc123",
+  "selected_indices": [0, 2]
+}
+```
+
+**Response:**
+```json
+{
+  "request_id": "abc123",
+  "selected_content": "Email: [P1] Production Incident — Auth Service\nTeam, auth service is returning 500s since...\n\nEmail: RE: [P1] Incident Postmortem\nRoot cause was a misconfigured..."
+}
+```
+
+### Selecting WorkIQ Output → Agent Pipeline Input
+
+The key concept: **Work IQ output is not automatically fed into agents.** The user must explicitly select which sections become agent input. This selection becomes the `content` of the `AgentResult` returned by `WorkIQAgent`, which is then available to the Plan Agent and other sub-agents via working memory.
+
+**Typical end-to-end flow:**
+
+1. **User sends a chat message** that triggers WorkIQ routing (e.g., "What did the team discuss in the standup?")
+2. **Router** matches WorkIQ keywords → dispatches to WorkIQ agent
+3. **WorkIQ agent** queries the CLI, stages sections, waits for selection
+4. **Inspector UI** shows pending sections → user picks the relevant ones
+5. **Selected content** is returned as the agent result
+6. **Plan Agent** (which always runs first) can now reference this organisational context in its strategy
+7. **Sub-agents** can access the selected content from working memory via `context.get_memory("workiq_output")`
+
+### Routing Keywords
+
+The router triggers WorkIQ for queries matching these patterns:
+
+```
+workiq, work iq, organisational, organizational,
+teams message, teams chat, teams discussion,
+outlook email, calendar event, sharepoint,
+m365, microsoft 365, office 365,
+standup notes, meeting notes, who sent, who emailed
+```
+
+### Prerequisites
+
+```bash
+# Install Work IQ CLI globally (requires Node.js)
+npm install -g @microsoft/workiq
+
+# Accept the EULA (one-time, required)
+workiq --acceptEula
+
+# Verify installation
+workiq --version
+
+# Test a query
+workiq ask "latest emails about project X"
+```
+
+If `workiq` is not installed, the WorkIQ agent gracefully degrades — it reports as unavailable in `protoforge status` and the router skips it.
+
+### Privacy & Safety
+
+- **User-controlled selection** — only explicitly chosen sections enter the pipeline
+- **Fail-open timeout** (5 min) — pending queries expire without leaking data
+- **No persistent storage** — selected content lives only in the current orchestration context
+- **Audit-ready** — `selector.pending_requests` exposes the current HITL state
+
+---
+
 ## Extending the Codebase with GitHub Copilot CLI
 
 GitHub Copilot CLI (`gh copilot`) lets you use AI directly from your terminal to explain code, suggest changes, and run AI-powered commands — without opening an editor.
@@ -1252,6 +1476,13 @@ gh copilot explain "What does this regex match: \bfix\s.*\b(?:error|exception|bu
 **Context:** Each agent needs prompts, skills, instructions — having them in separate top-level directories makes it hard to reason about what belongs to which agent  
 **Decision:** Each agent's resources are co-located in its own directory (`forge/agents/<name>/prompts/`, `skills/`, `instructions/`). Shared resources live in `forge/shared/`  
 **Consequences:** Easy to understand what each agent has. Adding/removing an agent is a single directory operation. Shared resources reduce duplication across agents  
+
+### ADR-010: WorkIQ Human-in-the-Loop Selection
+
+**Status:** Accepted  
+**Context:** Work IQ returns multiple M365 result sections per query. Injecting all sections blindly wastes tokens, degrades quality, and raises privacy concerns  
+**Decision:** Human-in-the-loop selection — Work IQ output is staged for user review; only explicitly selected sections enter the agent pipeline. Implemented via `WorkIQSelector` with REST endpoints for the Inspector UI  
+**Consequences:** Users control what organisational data enters the LLM. Adds one interaction step (query → select → proceed) but ensures relevance and privacy. Fail-open timeout (5 min) prevents stalled queries from blocking the pipeline  
 
 ---
 

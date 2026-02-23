@@ -31,6 +31,11 @@ A production-ready multi-agent orchestrator built on the [Microsoft Agent Framew
    │Knowledge │ │  Data    │ │   Security     │
    │  Base    │ │ Analysis │ │   Sentinel     │
    └──────────┘ └──────────┘ └────────────────┘
+                      │
+                 ┌────▼───────┐
+                 │  WorkIQ    │ ← M365 organisational context
+                 │  (HITL)    │   Human-in-the-loop selection
+                 └────────────┘
 
    ─── Plan-First Flow ────────────────────────────────
    User Message
@@ -58,7 +63,7 @@ The **Plan Agent** is the top-level coordinator. Every request goes through Plan
 3. Provides structured context for downstream execution
 4. Sub-agents execute in parallel, then results are aggregated
 
-## 7 Specialized Agents (1 Coordinator + 6 Sub-Agents)
+## 8 Specialized Agents (1 Coordinator + 7 Sub-Agents)
 
 | Agent | Role | Purpose |
 |-------|------|---------|
@@ -69,6 +74,7 @@ The **Plan Agent** is the top-level coordinator. Every request goes through Plan
 | **Knowledge Base** | Sub-Agent | Documentation retrieval, how-to guides, RAG |
 | **Data Analysis** | Sub-Agent | Metrics, trends, charts, statistical analysis |
 | **Security Sentinel** | Sub-Agent | Vulnerability scanning, CVE lookup, compliance audits |
+| **WorkIQ** | Sub-Agent | M365 organisational context via [Work IQ](https://www.npmjs.com/package/@microsoft/workiq) with human-in-the-loop selection |
 
 ## The Forge Ecosystem
 
@@ -86,13 +92,14 @@ forge/
 │   ├── skills/                 #   plan_task, identify_agents, build_strategy
 │   ├── instructions/           #   routing_rules, coordination
 │   └── workflows/              #   plan_and_execute.yaml
-├── agents/                     # 6 specialist agents
+├── agents/                     # 7 specialist agents
 │   ├── log_analysis/           #   agent.yaml + prompts/ + skills/ + instructions/
 │   ├── code_research/
 │   ├── remediation/
 │   ├── knowledge_base/
 │   ├── data_analysis/
-│   └── security_sentinel/
+│   ├── security_sentinel/
+│   └── workiq/                 #   WorkIQ agent (M365 context + HITL selection)
 ├── shared/                     # Cross-agent resources
 │   ├── prompts/                #   error_handling.md, output_format.md
 │   ├── instructions/           #   quality_standards.md, security_baseline.md
@@ -288,6 +295,96 @@ GET /health
 | POST | `/workflows/run` | Execute a workflow |
 | GET | `/health` | Health check |
 | GET | `/inspector` | Agent Inspector dashboard |
+| POST | `/workiq/query` | Query Work IQ for organisational context |
+| GET | `/workiq/pending` | List pending HITL selections |
+| POST | `/workiq/select` | Submit user selection for a pending query |
+
+## WorkIQ Integration (Human-in-the-Loop)
+
+ProtoForge integrates [Work IQ](https://www.npmjs.com/package/@microsoft/workiq) (`@microsoft/workiq`) to surface M365 organisational context — emails, Teams messages, calendar events, SharePoint documents, and more — directly into the agent pipeline.
+
+### How It Works
+
+WorkIQ queries return **multiple result sections** (e.g., 3 emails, 2 Teams chats, 1 calendar event). Instead of blindly feeding everything into the LLM, ProtoForge uses a **human-in-the-loop (HITL) selection flow** — the user picks which sections are relevant before they enter the orchestrator:
+
+```
+User query ("find the Teams discussion about the outage")
+  → WorkIQ CLI (`workiq ask "..."`) — returns ranked sections
+    → HITL: user reviews sections, selects the relevant ones
+      → Selected content injected into agent pipeline
+        → Plan Agent plans with real organisational context
+```
+
+### HITL Selection Flow (REST API)
+
+#### Step 1 — Query Work IQ
+
+```bash
+curl -X POST http://localhost:8080/workiq/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "latest standup notes from Teams"}'
+```
+
+**Response** — a `request_id` and ranked sections:
+
+```json
+{
+  "request_id": "abc123",
+  "sections": [
+    {"index": 0, "title": "Teams: Daily Standup 2026-02-24", "preview": "Discussed prod deploy..."},
+    {"index": 1, "title": "Teams: Standup Recap Thread", "preview": "Action items from standup..."},
+    {"index": 2, "title": "Email: Standup Summary", "preview": "Hi team, here are the notes..."}
+  ]
+}
+```
+
+#### Step 2 — Review Pending Selections
+
+```bash
+curl http://localhost:8080/workiq/pending
+```
+
+Returns all queries awaiting user selection.
+
+#### Step 3 — Select Sections
+
+Pick the sections you want (by index):
+
+```bash
+curl -X POST http://localhost:8080/workiq/select \
+  -H "Content-Type: application/json" \
+  -d '{"request_id": "abc123", "selected_indices": [0, 1]}'
+```
+
+**Response** — the selected content, ready for the pipeline:
+
+```json
+{
+  "request_id": "abc123",
+  "selected_content": "Teams: Daily Standup 2026-02-24\nDiscussed prod deploy...\n\nTeams: Standup Recap Thread\nAction items from standup..."
+}
+```
+
+The selected content is then available to the WorkIQ agent (`/chat` with a workiq-routed query) as grounded organisational context.
+
+### Prerequisites
+
+```bash
+# Install Work IQ CLI globally
+npm install -g @microsoft/workiq
+
+# Accept the EULA (one-time)
+workiq --acceptEula
+
+# Verify
+workiq --version
+```
+
+### Privacy & Control
+
+- **Fail-open timeout** — if the user doesn't select within 5 minutes, the query expires (no data leaks into the pipeline)
+- **User controls what enters the LLM** — only explicitly selected sections are used
+- **Audit-friendly** — `workiq_selector.pending_requests` shows all in-flight selections
 
 ## Development
 
@@ -295,7 +392,7 @@ GET /health
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (73 tests)
+# Run tests (110 tests)
 pytest
 
 # Run with coverage
@@ -324,13 +421,14 @@ ProtoForge/
 │   │   ├── skills/
 │   │   ├── instructions/
 │   │   └── workflows/
-│   ├── agents/                 #   6 specialist agents
+│   ├── agents/                 #   7 specialist agents
 │   │   ├── log_analysis/
 │   │   ├── code_research/
 │   │   ├── remediation/
 │   │   ├── knowledge_base/
 │   │   ├── data_analysis/
-│   │   └── security_sentinel/
+│   │   ├── security_sentinel/
+│   │   └── workiq/             #   WorkIQ (M365 context + HITL)
 │   ├── shared/                 #   Cross-agent prompts, instructions, workflows
 │   │   ├── prompts/
 │   │   ├── instructions/
@@ -342,7 +440,7 @@ ProtoForge/
 │   ├── main.py                 # Entry point & bootstrap
 │   ├── config.py               # Settings (pydantic-settings + ForgeConfig)
 │   ├── server.py               # FastAPI HTTP server
-│   ├── agents/                 # 7 agent implementations (Python)
+│   ├── agents/                 # 8 agent implementations (Python)
 │   │   ├── base.py
 │   │   ├── plan_agent.py
 │   │   ├── log_analysis_agent.py
@@ -350,7 +448,8 @@ ProtoForge/
 │   │   ├── remediation_agent.py
 │   │   ├── knowledge_base_agent.py
 │   │   ├── data_analysis_agent.py
-│   │   └── security_sentinel_agent.py
+│   │   ├── security_sentinel_agent.py
+│   │   └── workiq_agent.py     #   WorkIQ agent (M365 HITL)
 │   ├── forge/                  # ★ Forge runtime modules
 │   │   ├── loader.py           #   ForgeLoader — discovers forge/ tree
 │   │   ├── context_budget.py   #   ContextBudgetManager — token budgets
@@ -363,7 +462,10 @@ ProtoForge/
 │   │   ├── server.py           #   MCP request handler
 │   │   ├── protocol.py         #   MCP message types
 │   │   └── skills.py           #   YAML skill loader
-│   └── registry/               # Agent catalog & workflows
+│   ├── workiq/                 # WorkIQ integration (M365 context)
+│   │   ├── client.py           #   Async subprocess wrapper for `workiq ask`
+│   │   └── selector.py         #   Human-in-the-loop selection manager
+│   ├── registry/               # Agent catalog & workflows
 │       ├── catalog.py          #   Agent registration & discovery
 │       └── workflows.py        #   Workflow bundling & execution
 └── tests/
@@ -371,7 +473,8 @@ ProtoForge/
     ├── test_router.py
     ├── test_orchestrator.py
     ├── test_mcp.py
-    └── test_registry.py
+    ├── test_registry.py
+    └── test_workiq.py          # 37 tests — client, selector, agent, routing
 ```
 
 ## Developer Guide
@@ -382,5 +485,6 @@ See **[GUIDE.md](GUIDE.md)** for:
 - How to expand Plan Agent and sub-agent capabilities
 - How to add brand-new agents via code or the `forge/contrib/` system
 - Adding new skills, workflows, and shared resources
+- **WorkIQ integration** — querying M365 context, human-in-the-loop selection flow, REST API usage
 - **Multi-model code review with GitHub Copilot CLI** — run Claude Opus 4.6 and Codex 5.3 in parallel terminals for critical feedback
 - Architecture Decision Records (ADRs)
