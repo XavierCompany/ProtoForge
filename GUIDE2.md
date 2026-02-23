@@ -1,6 +1,6 @@
 # GUIDE2 — Maintaining ProtoForge & Tuning Subagents
 
-> **TL;DR for LLMs**: Maintenance & tuning guide (940+ lines / 13 sections).
+> **TL;DR for LLMs**: Maintenance & tuning guide (900+ lines / 13 sections).
 > Covers: architecture reality check, DE critique, budget tuning, routing tuning,
 > governance tuning, prompt engineering, debugging, observability, runbook.
 >
@@ -187,9 +187,9 @@ class SelectorProtocol(Protocol):
     def cleanup(self, request_id: str) -> None: ...
 ```
 
-### 2.10 — MEDIUM: server.py is 898 lines
+### 2.10 — MEDIUM: server.py is ~900 lines
 
-A single file handles 30+ HTTP endpoints. This is hard to navigate and
+A single file handles 35 HTTP endpoints. This is hard to navigate and
 makes conflict resolution during PRs painful.
 
 **Fix**: Split into route modules:
@@ -255,11 +255,15 @@ def sanitize_input(text: str, max_length: int = 10_000) -> str:
 
 ### Budget math constraint
 
-The global hard cap is **128,000 tokens**. The worst-case budget is:
+The global hard cap is **128,000 tokens**. The worst-case budget using actual
+configured agent budgets is:
 
 ```
-Plan (32K) + Sub-Plan (20K) + 3 specialists (≤25K each) = 127K
+Plan (32K) + Sub-Plan (20K) + top 3 specialists (25K + 25K + 22K) = 124K
 ```
+
+The 25K agents are `code_research` (17K+8K) and `knowledge_base` (17K+8K).
+All other specialists use 22K (15K+7K) or less. Headroom to 128K cap: **4K**.
 
 To verify your budget changes don't exceed this:
 

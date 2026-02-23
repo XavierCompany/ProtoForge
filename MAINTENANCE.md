@@ -1,6 +1,6 @@
 # ProtoForge — Maintenance & Versioning Guide
 
-> **TL;DR for LLMs**: Codebase-validated maintenance guide (450+ lines / 9 sections).
+> **TL;DR for LLMs**: Codebase-validated maintenance guide (455+ lines / 9 sections).
 > Covers: document hierarchy, update protocol, versioning, architecture layers
 > (verified module map with line counts), common maintenance tasks, anti-drift rules.
 >
@@ -8,9 +8,10 @@
 > [ARCHITECTURE.md](ARCHITECTURE.md) first for orientation.
 > **See also**: [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md) for canonical ownership.
 
-> **Validated against codebase commit `72d25e8` on 2026-02-23.**
+> **Validated against codebase commit `eb75c19` on 2026-02-23.**
 > Every claim in this document was verified by scanning the actual source files.
 > Where a number or path is cited, the corresponding file and line range are noted.
+> Line references in the validation log (§9) are approximate — recalculate after edits.
 
 ---
 
@@ -22,8 +23,8 @@ read deeper docs only when the task requires it.
 
 | Document             | Purpose                                          | When to Update                                       |
 |----------------------|--------------------------------------------------|------------------------------------------------------|
-| `copilot-instructions.md` | LLM first-read orientation (~120 lines)     | Agent identity, directory map, coding conventions    |
-| `ARCHITECTURE.md`    | Compact architecture reference (~220 lines)      | Module graph, APIs, HITL patterns, common tasks      |
+| `copilot-instructions.md` | LLM first-read orientation (~140 lines)     | Agent identity, directory map, coding conventions    |
+| `ARCHITECTURE.md`    | Compact architecture reference (~255 lines)      | Module graph, APIs, HITL patterns, common tasks      |
 | `SOURCE_OF_TRUTH.md` | Architectural ownership map (§1–§9)              | Structural changes (new agent, new layer, new YAML)  |
 | `GUIDE.md`           | Implementation deep-dives (§1–§19, ~2 700 lines) | New features, enrichment sources, pipeline changes   |
 | `GUIDE2.md`          | DE critique / tuning guide (§1–§13)              | When critique items are completed or new ones found  |
@@ -107,7 +108,7 @@ The API is not yet stable.
 
 ## 4. Architecture Layers — Verified Map
 
-The following is verified against actual source files as of commit `72d25e8`.
+The following is verified against actual source files as of commit `eb75c19`.
 
 ### 4.1 Request Flow
 
@@ -133,20 +134,20 @@ _process_after_routing()              ← src/orchestrator/engine.py L248
 
 | Module                           | Lines | Purpose                                            |
 |----------------------------------|------:|-----------------------------------------------------|
-| `src/orchestrator/engine.py`     |   644 | Core pipeline: process → dispatch → fan-out → aggregate |
-| `src/orchestrator/router.py`     |   353 | Keyword + LLM routing, WorkIQ-enriched routing      |
-| `src/orchestrator/context.py`    |    58 | `ConversationContext`, `AgentResult`, `Message`      |
-| `src/orchestrator/plan_selector.py` | 310 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B)       |
-| `src/agents/base.py`            |    96 | `BaseAgent` ABC, `from_manifest()`, `_build_messages()` |
-| `src/agents/generic.py`         |    50 | `GenericAgent` — manifest-driven, placeholder execute |
-| `src/governance/guardian.py`     |   386 | `GovernanceGuardian`: context window + skill cap + architectural audit |
-| `src/governance/selector.py`    |   365 | HITL gate for governance alerts + agent lifecycle    |
-| `src/forge/loader.py`           |   227 | `ForgeLoader`: walks `forge/`, builds `ForgeRegistry` |
-| `src/forge/context_budget.py`   |   172 | `ContextBudgetManager`: allocate, truncate, fits_budget |
-| `src/forge/contributions.py`    |   201 | `ContributionManager`: CRUD for contrib/ with audit  |
-| `src/config.py`                 |    88 | `Settings`: LLM, Server, MCP, Forge, Observability  |
-| `src/main.py`                   |   303 | Bootstrap, CLI (serve / chat / status)               |
-| `src/server.py`                 |   866 | FastAPI app: 35 HTTP endpoints + inspector dashboard |
+| `src/orchestrator/engine.py`     |   763 | Core pipeline: process → dispatch → fan-out → aggregate |
+| `src/orchestrator/router.py`     |   413 | Keyword + LLM routing, WorkIQ-enriched routing      |
+| `src/orchestrator/context.py`    |    86 | `ConversationContext`, `AgentResult`, `Message`      |
+| `src/orchestrator/plan_selector.py` | 374 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B)       |
+| `src/agents/base.py`            |   122 | `BaseAgent` ABC, `from_manifest()`, `_build_messages()` |
+| `src/agents/generic.py`         |    71 | `GenericAgent` — manifest-driven, placeholder execute |
+| `src/governance/guardian.py`     |   477 | `GovernanceGuardian`: context window + skill cap + architectural audit |
+| `src/governance/selector.py`    |   441 | HITL gate for governance alerts + agent lifecycle    |
+| `src/forge/loader.py`           |   276 | `ForgeLoader`: walks `forge/`, builds `ForgeRegistry` |
+| `src/forge/context_budget.py`   |   212 | `ContextBudgetManager`: allocate, truncate, fits_budget |
+| `src/forge/contributions.py`    |   258 | `ContributionManager`: CRUD for contrib/ with audit  |
+| `src/config.py`                 |   134 | `Settings`: LLM, Server, MCP, Forge, Observability  |
+| `src/main.py`                   |   359 | Bootstrap, CLI (serve / chat / status)               |
+| `src/server.py`                 |   896 | FastAPI app: 35 HTTP endpoints + inspector dashboard |
 | `src/mcp/`                      |     — | MCP protocol, skill server, skill loader             |
 | `src/workiq/`                   |     — | WorkIQ CLI client + HITL selector                    |
 | `src/registry/`                 |     — | `AgentCatalog`, `WorkflowEngine`                     |
@@ -160,12 +161,12 @@ Verified from `AgentType(StrEnum)` in `src/orchestrator/router.py` lines 14–23
 | `plan`             | coordinator | `PlanAgent`                 | 24K + 8K = **32K**   |
 | `sub_plan`         | specialist  | `SubPlanAgent`              | 14K + 6K = **20K**   |
 | `log_analysis`     | specialist  | `LogAnalysisAgent`          | 15K + 7K = **22K**   |
-| `code_research`    | specialist  | `GenericAgent` (fallback)   | 15K + 7K = **22K**   |
+| `code_research`    | specialist  | `GenericAgent` (fallback)   | 17K + 8K = **25K**   |
 | `remediation`      | specialist  | `RemediationAgent`          | 15K + 7K = **22K**   |
-| `knowledge_base`   | specialist  | `KnowledgeBaseAgent`        | 15K + 7K = **22K**   |
+| `knowledge_base`   | specialist  | `KnowledgeBaseAgent`        | 17K + 8K = **25K**   |
 | `data_analysis`    | specialist  | `GenericAgent` (fallback)   | 15K + 7K = **22K**   |
 | `security_sentinel`| specialist  | `SecuritySentinelAgent`     | 15K + 7K = **22K**   |
-| `workiq`           | specialist  | `WorkIQAgent`               | 15K + 7K = **22K**   |
+| `workiq`           | specialist  | `WorkIQAgent`               | 12K + 6K = **18K**   |
 | `github_tracker`   | specialist  | `GitHubTrackerAgent`        | 15K + 7K = **22K**   |
 
 **Specialised vs Generic**: `_SPECIALISED_CLASSES` in `src/main.py` maps 8 agent
@@ -181,15 +182,14 @@ Global hard cap:           128,000 tokens
 Warning threshold:         110,000 tokens (HITL triggered)
 Aggregation reserve:         8,000 tokens
 
-Worst-case single run:
+Worst-case single run (actual configured budgets):
   Plan Agent (coordinator):    32,000
   Sub-Plan Agent:              20,000
-  3 × specialist (max):  3 × 22,000 = 66,000
+  Top 3 specialists:    25,000 + 25,000 + 22,000 = 72,000
   ──────────────────────────────────────────
-  Total:                      118,000
-  + aggregation reserve:        8,000
-  ──────────────────────────────────────────
-  Grand total:                126,000 ≤ 128,000  (2K headroom)
+  Total:                      124,000
+  Headroom to 128K cap:         4,000
+  Aggregation reserve:          8,000 (held from global pool)
 ```
 
 **Enforcement chain** (verified in `engine.py` `_dispatch()`):

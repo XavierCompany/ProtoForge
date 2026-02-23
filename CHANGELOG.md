@@ -13,6 +13,28 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Documentation accuracy audit** — comprehensive pass to fix stale numbers, phantom files, and contradictions across all 9 docs
+- **README.md**: Removed phantom `code_research_agent.py` and `data_analysis_agent.py` from project structure (these agents use `GenericAgent`, no dedicated files exist)
+- **README.md**: Fixed endpoint count 26 → 35, test counts per file (governance 68 → 113, workiq 37 → 52, orchestrator 19 → 14, mcp 14 → 7, registry 10 → 9, sub_plan 29 → 30)
+- **README.md**: Clarified agent file listing — "10 agent types (8 dedicated files + GenericAgent handles 2)"
+- **README.md**: Fixed budget math formula to use actual configured budgets (25K + 25K + 22K = 124K)
+- **ARCHITECTURE.md**: Fixed "9 implementations" → "10 implementations", "*_agent.py (7 specialists)" → "8 specialist files"
+- **ARCHITECTURE.md**: Fixed budget formula from "= 127K" to "≤ 128K cap"
+- **ARCHITECTURE.md**: Updated §10 reading order table with correct line counts (~5850 total)
+- **MAINTENANCE.md**: Updated ALL module line counts in §4.2 (e.g., engine.py 644 → 763, guardian.py 386 → 477)
+- **MAINTENANCE.md**: Fixed agent budget values in §4.3 — code_research and knowledge_base are 25K (not 22K), workiq is 18K (not 22K)
+- **MAINTENANCE.md**: Fixed worst-case budget math in §4.4 — 25K + 25K + 22K = 124K (not 3×22K = 118K)
+- **MAINTENANCE.md**: Updated validation commit reference from `72d25e8` to `eb75c19`
+- **GUIDE2.md**: Fixed TL;DR "940+ lines" → "900+ lines", §2.10 "898 lines" → "~900 lines", budget math "127K" → "124K"
+- **SOURCE_OF_TRUTH.md**: Fixed copilot-instructions.md "~120 lines" → "~140 lines"
+- **copilot-instructions.md**: Fixed reading order positions 6-9 to match ARCHITECTURE.md and TL;DR headers, updated all per-doc line counts, total "~4550 lines (~18K tokens)" → "~5850 lines (~60K tokens)"
+- **TODO.md**: Fixed P1-7 "898-line" → "~900-line"
+
+---
+
 ## [0.1.1] — 2026-02-23
 
 ### Added

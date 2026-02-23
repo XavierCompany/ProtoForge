@@ -102,7 +102,7 @@ These block any real deployment. Ordered by dependency.
 - **Effort**: 2 hours
 - **Files**: `src/server.py` → `src/server/chat.py`, `governance.py`, `workiq.py`, `github.py`, `inspector.py`
 - **What**: Create a `src/server/` package with separate routers per domain. Use FastAPI `APIRouter` includes.
-- **Why**: 898-line file is hard to navigate and causes PR merge conflicts
+- **Why**: ~900-line file is hard to navigate and causes PR merge conflicts
 - **Verify**: `pytest tests/ -v` + manual: `curl http://localhost:8080/health`
 - **GUIDE2 ref**: §2.10
 

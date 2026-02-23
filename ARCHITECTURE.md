@@ -18,7 +18,7 @@ ProtoForge is a **plan-first multi-agent orchestrator**. Every user request:
 6. Fans out to **≤3 specialist agents** in parallel
 7. Results are aggregated and returned
 
-Token budget: `Plan(32K) + SubPlan(20K) + 3×Specialist(≤25K) = 127K ≤ 128K cap`
+Token budget: `Plan(32K) + SubPlan(20K) + 3×Specialist(≤25K) ≤ 128K cap`
 
 ---
 
@@ -40,7 +40,7 @@ Token budget: `Plan(32K) + SubPlan(20K) + 3×Specialist(≤25K) = 127K ≤ 128K 
               ├── base.py (ABC)
               ├── plan_agent.py
               ├── sub_plan_agent.py
-              └── *_agent.py (7 specialists)
+              └── *_agent.py (8 specialist files)
                     │
               src/forge/              src/mcp/
               ├── loader.py           ├── server.py
@@ -68,8 +68,9 @@ Never import upward (e.g., agents must not import from orchestrator).
 
 ### `src/agents/`
 - `BaseAgent` (ABC) — `execute(context) → AgentResult`, `from_manifest()`
-- 9 implementations: plan, sub_plan, log_analysis, code_research, remediation,
+- 10 implementations: plan, sub_plan, log_analysis, code_research, remediation,
   knowledge_base, data_analysis, security_sentinel, github_tracker, workiq
+- `code_research` and `data_analysis` have no dedicated Python class — they use `GenericAgent.from_manifest()`
 
 ### `src/governance/`
 - `GovernanceGuardian` — `check_budget()`, `enforce_hard_cap()`, `audit_manifest()`
@@ -217,16 +218,16 @@ duplicated elsewhere and the total fits easily in modern context windows.
 | 1 | `.github/copilot-instructions.md` | 115 | Orientation & coding conventions — **always read first** |
 | 2 | `ARCHITECTURE.md` (this file) | 200 | Compact architecture, APIs, common tasks, this reading order |
 | 3 | `SOURCE_OF_TRUTH.md` | 140 | Canonical ownership map — where every value is defined + its copies |
-| 4 | `MAINTENANCE.md` | 360 | Update protocol, anti-drift rules, validated module line counts |
-| 5 | `TODO.md` | 200 | Prioritised backlog P0→P3 with completion status |
-| 6 | `CHANGELOG.md` | 85 | Version history — what changed between releases |
-| 7 | `README.md` | 665 | Onboarding, full endpoint table, quick-start, project structure |
-| 8 | `GUIDE.md` | 2125 | Deep-dive developer reference — 19 sections (see navigation index below) |
-| 9 | `GUIDE2.md` | 665 | Maintenance & tuning guide — budget tuning, governance, debugging |
+| 4 | `MAINTENANCE.md` | 455 | Update protocol, anti-drift rules, validated module line counts |
+| 5 | `TODO.md` | 240 | Prioritised backlog P0→P3 with completion status |
+| 6 | `CHANGELOG.md` | 105 | Version history — what changed between releases |
+| 7 | `README.md` | 810 | Onboarding, full endpoint table, quick-start, project structure |
+| 8 | `GUIDE.md` | 2760 | Deep-dive developer reference — 19 sections (see navigation index below) |
+| 9 | `GUIDE2.md` | 905 | Maintenance & tuning guide — budget tuning, governance, debugging |
 
 ### GUIDE.md Section Index (navigation aid)
 
-GUIDE.md is the largest doc at ~2125 lines. Read it fully, but use this index
+GUIDE.md is the largest doc at ~2760 lines. Read it fully, but use this index
 to locate specific sections quickly:
 
 | § | Title | Lines | Covers |

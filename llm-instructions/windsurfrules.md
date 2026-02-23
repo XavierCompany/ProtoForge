@@ -29,5 +29,5 @@ forge/_context_window.yaml — Token budget config
 - 363 tests: pytest + pytest-asyncio
 
 # Documentation — Read ALL: copilot-instructions.md → ARCHITECTURE.md →
-# SOURCE_OF_TRUTH.md → MAINTENANCE.md → TODO.md → GUIDE.md → GUIDE2.md →
-# README.md → CHANGELOG.md
+# SOURCE_OF_TRUTH.md → MAINTENANCE.md → TODO.md → CHANGELOG.md →
+# README.md → GUIDE.md → GUIDE2.md

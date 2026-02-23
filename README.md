@@ -276,7 +276,7 @@ Token budgets are centrally configured in `forge/_context_window.yaml` and enfor
 - **Budget enforcement:** `allocate()` → `fits_budget()` → `truncate()` wired into every `_dispatch()` call
 - **Strategies:** `priority` (keep highest-priority content), `sliding_window` (keep most recent), `summarize` (LLM-compress)
 - **Token counting:** tiktoken (`cl100k_base`) with character-estimate fallback
-- **Worst case:** Plan (32K) + Sub-Plan (20K) + 3 specialists (≤25K each) = 124K < 128K cap
+- **Worst case:** Plan (32K) + Sub-Plan (20K) + top 3 specialists (25K + 25K + 22K) = 124K < 128K cap
 
 ## Governance Guardian (Always-On Enforcement)
 
@@ -294,7 +294,7 @@ LLM context windows are finite and expensive. Without enforcement, a multi-agent
 
 The `GovernanceGuardian` checks cumulative token usage **before** every `agent.execute()` call and records actual usage **after** each call. When the warning threshold (110K) is crossed, a `ContextWindowReview` is staged for human review via the `GovernanceSelector`. When the hard cap (128K) is breached, the engine returns an abort `AgentResult` with `confidence=0.0`.
 
-**Why this matters:** With the enforced fan-out cap of 3 specialists, worst-case cumulative usage is Plan (32K) + Sub-Plan (20K) + 3 × 25K = 124K tokens — guaranteed to stay under the 128K hard cap.
+**Why this matters:** With the enforced fan-out cap of 3 specialists, worst-case cumulative usage is Plan (32K) + Sub-Plan (20K) + 25K + 25K + 22K = 124K tokens — guaranteed to stay under the 128K hard cap.
 
 ### Pillar 2 — Skill Cap Governance
 
@@ -711,17 +711,15 @@ ProtoForge/
 ├── src/
 │   ├── main.py                 # Entry point & bootstrap
 │   ├── config.py               # Settings (pydantic-settings + ForgeConfig)
-│   ├── server.py               # FastAPI HTTP server (26 endpoints)
-│   ├── agents/                 # 10 agent implementations (Python)
+│   ├── server.py               # FastAPI HTTP server (35 endpoints)
+│   ├── agents/                 # 10 agent types (8 dedicated files + GenericAgent handles 2)
 │   │   ├── base.py             #   BaseAgent + BaseAgent.from_manifest()
-│   │   ├── generic.py          #   GenericAgent (forge-contributed agents)
+│   │   ├── generic.py          #   GenericAgent (used by code_research & data_analysis)
 │   │   ├── plan_agent.py
 │   │   ├── sub_plan_agent.py   #   Sub-Plan Agent (resource planner + dual HITL)
 │   │   ├── log_analysis_agent.py
-│   │   ├── code_research_agent.py
 │   │   ├── remediation_agent.py
 │   │   ├── knowledge_base_agent.py
-│   │   ├── data_analysis_agent.py
 │   │   ├── security_sentinel_agent.py
 │   │   ├── github_tracker_agent.py  #   GitHub Tracker (issues, PRs, milestones)
 │   │   └── workiq_agent.py     #   WorkIQ agent (M365 2-phase HITL)
@@ -750,13 +748,13 @@ ProtoForge/
 └── tests/
     ├── test_forge.py           # 34 tests — loader, context budget, contributions
     ├── test_router.py          # 22 tests — keywords, enriched routing, hints
-    ├── test_orchestrator.py    # 19 tests — engine, fan-out, aggregation
-    ├── test_mcp.py             # 14 tests — protocol, server, skills
-    ├── test_registry.py        # 10 tests — catalog, workflows
-    ├── test_sub_plan.py        # 29 tests — sub-plan agent, plan selector, pipeline
-    ├── test_workiq.py          # 37 tests — client, selector, agent, enrichment
+    ├── test_orchestrator.py    # 14 tests — engine, fan-out, aggregation
+    ├── test_mcp.py             #  7 tests — protocol, server, skills
+    ├── test_registry.py        #  9 tests — catalog, workflows
+    ├── test_sub_plan.py        # 30 tests — sub-plan agent, plan selector, pipeline
+    ├── test_workiq.py          # 52 tests — client, selector, agent, enrichment
     ├── test_github_tracker.py  # 82 tests — GitHub Tracker agent, all operations
-    └── test_governance.py      # 68 tests — guardian, selector, enforcement hooks
+    └── test_governance.py      # 113 tests — guardian, selector, enforcement hooks
 ```
 
 ## Developer Guide
