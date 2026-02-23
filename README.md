@@ -5,14 +5,25 @@ A production-ready multi-agent orchestrator built on the [Microsoft Agent Framew
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    HTTP Server (FastAPI)                       │
-│  /chat   /mcp   /agents   /skills   /workflows   /inspector  │
-└─────────────────────────┬────────────────────────────────────┘
-                          │
+┌──────────────────────────────────────────────────────────────────┐
+│                     HTTP Server (FastAPI)                         │
+│  /chat  /chat/enriched  /mcp  /agents  /skills  /workflows       │
+│  /workiq/*  /inspector                                           │
+└──────────────────────────┬───────────────────────────────────────┘
+                           │
+            ┌──────────────▼──────────────┐
+            │      WorkIQ Pre-Router      │ ← (optional enrichment)
+            │  ┌──────────────────────┐   │
+            │  │ Phase 0: workiq ask  │   │  Query M365 context
+            │  │ Phase 1: HITL select │   │  User picks content
+            │  │ Phase 2: extract kw  │   │  Keyword hints
+            │  │ Phase 2b: HITL hints │   │  User accepts keywords
+            │  └──────────┬───────────┘   │
+            └─────────────┼───────────────┘
+                          │  routing hints
                  ┌────────▼────────┐
                  │   Orchestrator   │ ← Intent Router (keyword + LLM)
-                 │     Engine       │
+                 │     Engine       │   + WorkIQ enrichment hints
                  └────────┬────────┘
                           │  ALWAYS first
                  ┌────────▼────────┐
@@ -34,15 +45,25 @@ A production-ready multi-agent orchestrator built on the [Microsoft Agent Framew
                       │
                  ┌────▼───────┐
                  │  WorkIQ    │ ← M365 organisational context
-                 │  (HITL)    │   Human-in-the-loop selection
+                 │  (HITL)    │   2-phase human-in-the-loop
                  └────────────┘
 
-   ─── Plan-First Flow ────────────────────────────────
+   ─── Standard Flow (/chat) ──────────────────────────
    User Message
-     → Orchestrator (intent routing)
+     → Intent Router (keyword + LLM)
        → Plan Agent (ALWAYS first — produces strategy)
          → Sub-Agents (parallel fan-out based on plan)
            → Aggregated Response
+   ────────────────────────────────────────────────────
+
+   ─── Enriched Flow (/chat/enriched) ─────────────────
+   User Message
+     → WorkIQ query (M365 context)
+       → HITL Phase 1: user selects content sections
+         → Keyword extraction from selected content
+           → HITL Phase 2: user accepts/rejects keywords
+             → Intent Router (keyword + hints + LLM)
+               → Plan Agent → Sub-Agents → Aggregated Response
    ────────────────────────────────────────────────────
 
 ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐
@@ -74,7 +95,82 @@ The **Plan Agent** is the top-level coordinator. Every request goes through Plan
 | **Knowledge Base** | Sub-Agent | Documentation retrieval, how-to guides, RAG |
 | **Data Analysis** | Sub-Agent | Metrics, trends, charts, statistical analysis |
 | **Security Sentinel** | Sub-Agent | Vulnerability scanning, CVE lookup, compliance audits |
-| **WorkIQ** | Sub-Agent | M365 organisational context via [Work IQ](https://www.npmjs.com/package/@microsoft/workiq) with human-in-the-loop selection |
+| **WorkIQ** | Sub-Agent + Pre-Router Enrichment | M365 organisational context via [Work IQ](https://www.npmjs.com/package/@microsoft/workiq) with 2-phase HITL — content selection + routing-keyword acceptance |
+
+## Agent Registry / Catalog
+
+The **Agent Catalog** (`src/registry/catalog.py`) is the central registry that tracks all available agents, their capabilities, skills, health metrics, and dependencies. It supports runtime registration, search, and metric tracking.
+
+### Managing Sub-Agents via the Catalog
+
+```python
+from src.registry.catalog import AgentCatalog, AgentRegistration, CatalogEntry
+
+catalog = AgentCatalog(storage_path=Path(".forge_catalog"))
+
+# Register an agent
+catalog.register_agent(AgentRegistration(
+    agent_type="log_analysis",
+    name="Log Analysis Agent",
+    description="Expert in parsing and diagnosing application logs",
+    version="1.0.0",
+    skills=["analyze_logs"],
+    tags=["logs", "errors", "debugging"],
+))
+
+# List all active agents
+for agent in catalog.list_agents(status="active"):
+    print(f"{agent.name} — {agent.description} (skills: {agent.skills})")
+
+# Search agents by tag
+security_agents = catalog.list_agents(tag="security")
+
+# Track agent metrics (latency, errors)
+catalog.update_agent_metrics("log_analysis", latency_ms=145.2, is_error=False)
+
+# Unregister an agent
+catalog.unregister_agent("my_old_agent")
+```
+
+### Skill Catalog
+
+Skills discovered from `forge/` are auto-populated into the catalog at startup. You can also manage them at runtime:
+
+```python
+# Add a skill to the catalog
+catalog.add_to_catalog(CatalogEntry(
+    skill_name="analyze_dependencies",
+    description="Analyze project dependencies for vulnerabilities",
+    agent_type="security_sentinel",
+    version="1.0.0",
+    tags=["security", "dependencies"],
+))
+
+# Install / uninstall skills
+catalog.install_skill("analyze_dependencies")
+catalog.uninstall_skill("analyze_dependencies")
+
+# Search the skill catalog
+results = catalog.search_catalog(query="security", installed_only=True)
+
+# Bulk-populate from ForgeLoader skills
+catalog.populate_from_skills(forge_registry.skills)
+```
+
+### REST API for the Catalog
+
+```bash
+# List all registered agents with capabilities
+GET /agents
+
+# List all available skills
+GET /skills
+
+# Full system status including catalog stats
+GET /health
+```
+
+The catalog persists to `catalog.json` on disk and auto-loads at startup.
 
 ## The Forge Ecosystem
 
@@ -270,52 +366,44 @@ steps:
 
 Steps with no dependencies run in parallel. The workflow engine handles dependency ordering automatically.
 
-## Agent Registry / Catalog
-
-```bash
-# List agents
-GET /agents
-
-# Search skills
-GET /skills
-
-# Health check with full status
-GET /health
-```
-
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/chat` | Send message to orchestrator |
+| POST | `/chat` | Send message to orchestrator (standard routing) |
+| POST | `/chat/enriched` | Send message with WorkIQ 2-phase HITL enrichment |
 | POST | `/mcp` | MCP JSON-RPC endpoint |
-| GET | `/agents` | List registered agents |
-| GET | `/skills` | List available skills |
+| GET | `/agents` | List registered agents (catalog) |
+| GET | `/skills` | List available skills (catalog) |
 | GET | `/workflows` | List workflows |
 | POST | `/workflows/run` | Execute a workflow |
-| GET | `/health` | Health check |
+| GET | `/health` | Health check (includes catalog stats) |
 | GET | `/inspector` | Agent Inspector dashboard |
 | POST | `/workiq/query` | Query Work IQ for organisational context |
-| GET | `/workiq/pending` | List pending HITL selections |
-| POST | `/workiq/select` | Submit user selection for a pending query |
+| GET | `/workiq/pending` | List pending Phase 1 HITL content selections |
+| POST | `/workiq/select` | Submit user content selection for a pending query |
+| GET | `/workiq/routing-hints` | List pending Phase 2 HITL keyword hints |
+| POST | `/workiq/accept-hints` | Accept/reject routing keyword hints |
 
-## WorkIQ Integration (Human-in-the-Loop)
+## WorkIQ Integration (2-Phase Human-in-the-Loop)
 
-ProtoForge integrates [Work IQ](https://www.npmjs.com/package/@microsoft/workiq) (`@microsoft/workiq`) to surface M365 organisational context — emails, Teams messages, calendar events, SharePoint documents, and more — directly into the agent pipeline.
+ProtoForge integrates [Work IQ](https://www.npmjs.com/package/@microsoft/workiq) (`@microsoft/workiq`) to surface M365 organisational context — emails, Teams messages, calendar events, SharePoint documents, and more — as a **pre-routing enrichment layer** that feeds selected keywords directly into the Intent Router.
 
-### How It Works
+### How It Works — 2-Phase HITL Enrichment
 
-WorkIQ queries return **multiple result sections** (e.g., 3 emails, 2 Teams chats, 1 calendar event). Instead of blindly feeding everything into the LLM, ProtoForge uses a **human-in-the-loop (HITL) selection flow** — the user picks which sections are relevant before they enter the orchestrator:
+WorkIQ output flows through two human-in-the-loop gates before influencing routing:
 
 ```
 User query ("find the Teams discussion about the outage")
-  → WorkIQ CLI (`workiq ask "..."`) — returns ranked sections
-    → HITL: user reviews sections, selects the relevant ones
-      → Selected content injected into agent pipeline
-        → Plan Agent plans with real organisational context
+  → Phase 0: WorkIQ CLI (`workiq ask "..."`) — returns ranked sections
+    → Phase 1 (HITL): user selects relevant content sections
+      → Phase 2: extract routing keywords from selected content
+        → Phase 2b (HITL): user accepts/rejects keyword hints
+          → Phase 3: enriched Intent Router (message + accepted keywords)
+            → Plan Agent → Sub-Agents → Aggregated Response
 ```
 
-### HITL Selection Flow (REST API)
+### Phase 1 — Content Selection (HITL)
 
 #### Step 1 — Query Work IQ
 
@@ -338,34 +426,74 @@ curl -X POST http://localhost:8080/workiq/query \
 }
 ```
 
-#### Step 2 — Review Pending Selections
+#### Step 2 — Review Pending & Select Sections
 
 ```bash
+# Check pending selections
 curl http://localhost:8080/workiq/pending
-```
 
-Returns all queries awaiting user selection.
-
-#### Step 3 — Select Sections
-
-Pick the sections you want (by index):
-
-```bash
+# Select sections
 curl -X POST http://localhost:8080/workiq/select \
   -H "Content-Type: application/json" \
   -d '{"request_id": "abc123", "selected_indices": [0, 1]}'
 ```
 
-**Response** — the selected content, ready for the pipeline:
+### Phase 2 — Routing Keyword Acceptance (HITL)
+
+After Phase 1, the router extracts keyword hints from the selected content (e.g., "error" → log_analysis, "security" → security_sentinel). These are surfaced for user review:
+
+#### Step 3 — Review Keyword Hints
+
+```bash
+curl http://localhost:8080/workiq/routing-hints
+```
+
+**Response:**
 
 ```json
 {
-  "request_id": "abc123",
-  "selected_content": "Teams: Daily Standup 2026-02-24\nDiscussed prod deploy...\n\nTeams: Standup Recap Thread\nAction items from standup..."
+  "pending_hints": [
+    {
+      "request_id": "hint-456",
+      "hints": [
+        {"index": 0, "agent_id": "log_analysis", "keyword": "error", "matched_text": "...deploy error in the auth..."},
+        {"index": 1, "agent_id": "security_sentinel", "keyword": "security", "matched_text": "...security review needed..."}
+      ]
+    }
+  ]
 }
 ```
 
-The selected content is then available to the WorkIQ agent (`/chat` with a workiq-routed query) as grounded organisational context.
+#### Step 4 — Accept Keyword Hints
+
+```bash
+curl -X POST http://localhost:8080/workiq/accept-hints \
+  -H "Content-Type: application/json" \
+  -d '{"request_id": "hint-456", "accepted_indices": [0]}'
+```
+
+**Response:**
+
+```json
+{
+  "request_id": "hint-456",
+  "accepted": [{"agent_id": "log_analysis", "keyword": "error"}]
+}
+```
+
+Accepted keywords boost the corresponding agent's score in the Intent Router, influencing which sub-agents are dispatched.
+
+### Enriched Routing via `/chat/enriched`
+
+The **`POST /chat/enriched`** endpoint runs the full 2-phase pipeline automatically:
+
+```bash
+curl -X POST http://localhost:8080/chat/enriched \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What did the team discuss about the production outage?"}'
+```
+
+This triggers Phase 0 → Phase 1 (HITL) → Phase 2 → Phase 2b (HITL) → Phase 3 enriched routing → Plan Agent → Sub-Agents → Response. If WorkIQ is not configured or fails, it falls back to the standard `/chat` pipeline.
 
 ### Prerequisites
 
@@ -382,9 +510,10 @@ workiq --version
 
 ### Privacy & Control
 
-- **Fail-open timeout** — if the user doesn't select within 5 minutes, the query expires (no data leaks into the pipeline)
-- **User controls what enters the LLM** — only explicitly selected sections are used
-- **Audit-friendly** — `workiq_selector.pending_requests` shows all in-flight selections
+- **2-gate HITL** — user explicitly controls both content sections AND routing keywords
+- **Fail-open timeout** (2 min per phase) — pending selections expire without leaking data
+- **No persistent storage** — selected content lives only in the current orchestration context
+- **Audit-friendly** — `pending_requests`, `pending_routing_hint_requests` expose all in-flight state
 
 ## Development
 
@@ -392,7 +521,7 @@ workiq --version
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (110 tests)
+# Run tests (136 tests)
 pytest
 
 # Run with coverage
@@ -439,9 +568,10 @@ ProtoForge/
 ├── src/
 │   ├── main.py                 # Entry point & bootstrap
 │   ├── config.py               # Settings (pydantic-settings + ForgeConfig)
-│   ├── server.py               # FastAPI HTTP server
+│   ├── server.py               # FastAPI HTTP server (14 endpoints)
 │   ├── agents/                 # 8 agent implementations (Python)
-│   │   ├── base.py
+│   │   ├── base.py             #   BaseAgent + BaseAgent.from_manifest()
+│   │   ├── generic.py          #   GenericAgent (forge-contributed agents)
 │   │   ├── plan_agent.py
 │   │   ├── log_analysis_agent.py
 │   │   ├── code_research_agent.py
@@ -449,14 +579,14 @@ ProtoForge/
 │   │   ├── knowledge_base_agent.py
 │   │   ├── data_analysis_agent.py
 │   │   ├── security_sentinel_agent.py
-│   │   └── workiq_agent.py     #   WorkIQ agent (M365 HITL)
+│   │   └── workiq_agent.py     #   WorkIQ agent (M365 2-phase HITL)
 │   ├── forge/                  # ★ Forge runtime modules
 │   │   ├── loader.py           #   ForgeLoader — discovers forge/ tree
 │   │   ├── context_budget.py   #   ContextBudgetManager — token budgets
 │   │   └── contributions.py    #   ContributionManager — CRUD + audit
 │   ├── orchestrator/           # Core orchestration engine
-│   │   ├── engine.py           #   Plan-first dispatch + fan-out
-│   │   ├── router.py           #   Intent classification
+│   │   ├── engine.py           #   Plan-first dispatch + WorkIQ enrichment
+│   │   ├── router.py           #   Intent Router (keyword + LLM + enrichment)
 │   │   └── context.py          #   Shared conversation context
 │   ├── mcp/                    # MCP protocol server
 │   │   ├── server.py           #   MCP request handler
@@ -464,17 +594,17 @@ ProtoForge/
 │   │   └── skills.py           #   YAML skill loader
 │   ├── workiq/                 # WorkIQ integration (M365 context)
 │   │   ├── client.py           #   Async subprocess wrapper for `workiq ask`
-│   │   └── selector.py         #   Human-in-the-loop selection manager
-│   ├── registry/               # Agent catalog & workflows
-│       ├── catalog.py          #   Agent registration & discovery
+│   │   └── selector.py         #   2-phase HITL selector (content + keywords)
+│   └── registry/               # ★ Agent Catalog & workflows
+│       ├── catalog.py          #   AgentCatalog — registration, search, metrics
 │       └── workflows.py        #   Workflow bundling & execution
 └── tests/
     ├── test_forge.py           # 34 tests — loader, context budget, contributions
-    ├── test_router.py
-    ├── test_orchestrator.py
-    ├── test_mcp.py
-    ├── test_registry.py
-    └── test_workiq.py          # 37 tests — client, selector, agent, routing
+    ├── test_router.py          # 22 tests — keywords, enriched routing, hints
+    ├── test_orchestrator.py    # 19 tests — engine, fan-out, aggregation
+    ├── test_mcp.py             # 14 tests — protocol, server, skills
+    ├── test_registry.py        # 10 tests — catalog, workflows
+    └── test_workiq.py          # 37 tests — client, selector, agent, enrichment
 ```
 
 ## Developer Guide
@@ -485,6 +615,7 @@ See **[GUIDE.md](GUIDE.md)** for:
 - How to expand Plan Agent and sub-agent capabilities
 - How to add brand-new agents via code or the `forge/contrib/` system
 - Adding new skills, workflows, and shared resources
-- **WorkIQ integration** — querying M365 context, human-in-the-loop selection flow, REST API usage
+- **WorkIQ integration** — 2-phase HITL enrichment pipeline, routing keyword acceptance, REST API usage
+- **Agent Registry / Catalog** — managing sub-agents, skill catalog, health metrics, persistence
 - **Multi-model code review with GitHub Copilot CLI** — run Claude Opus 4.6 and Codex 5.3 in parallel terminals for critical feedback
 - Architecture Decision Records (ADRs)

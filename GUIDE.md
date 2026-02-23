@@ -9,15 +9,16 @@ A comprehensive guide covering architecture rationale, extending agent capabilit
 1. [Why This Architecture?](#why-this-architecture)
 2. [Plan-First Design: The Reasoning](#plan-first-design-the-reasoning)
 3. [The Forge Ecosystem](#the-forge-ecosystem)
-4. [Expanding Plan Agent Capabilities](#expanding-plan-agent-capabilities)
-5. [Expanding Sub-Agent Capabilities](#expanding-sub-agent-capabilities)
-6. [Adding a Brand-New Agent](#adding-a-brand-new-agent)
-7. [Adding New Skills & Workflows](#adding-new-skills--workflows)
-8. [Dynamic Contributions (CRUD)](#dynamic-contributions-crud)
-9. [WorkIQ Integration (Human-in-the-Loop)](#workiq-integration-human-in-the-loop)
-10. [Extending the Codebase with GitHub Copilot CLI](#extending-the-codebase-with-github-copilot-cli)
-11. [Multi-Model Code Review Workflow](#multi-model-code-review-workflow-copilot-cli--claude-opus-46--codex-53)
-12. [Architecture Decision Records](#architecture-decision-records)
+4. [Agent Registry / Catalog](#agent-registry--catalog)
+5. [Expanding Plan Agent Capabilities](#expanding-plan-agent-capabilities)
+6. [Expanding Sub-Agent Capabilities](#expanding-sub-agent-capabilities)
+7. [Adding a Brand-New Agent](#adding-a-brand-new-agent)
+8. [Adding New Skills & Workflows](#adding-new-skills--workflows)
+9. [Dynamic Contributions (CRUD)](#dynamic-contributions-crud)
+10. [WorkIQ Integration (2-Phase Human-in-the-Loop)](#workiq-integration-2-phase-human-in-the-loop)
+11. [Extending the Codebase with GitHub Copilot CLI](#extending-the-codebase-with-github-copilot-cli)
+12. [Multi-Model Code Review Workflow](#multi-model-code-review-workflow-copilot-cli--claude-opus-46--codex-53)
+13. [Architecture Decision Records](#architecture-decision-records)
 
 ---
 
@@ -78,7 +79,9 @@ We chose **[Microsoft Agent Framework (Python)](https://learn.microsoft.com/en-u
 
 ### How `engine.py` Works
 
-The orchestrator pipeline in `src/orchestrator/engine.py` follows this flow:
+The engine provides **two entry points** — standard routing and WorkIQ-enriched routing:
+
+#### Standard Flow — `process()`
 
 ```python
 async def process(self, user_message: str) -> str:
@@ -105,6 +108,35 @@ async def process(self, user_message: str) -> str:
     # 7. Aggregate Plan + sub-agent results
     return self._aggregate(plan_result, sub_results)
 ```
+
+#### Enriched Flow — `process_with_enrichment()`
+
+When `WorkIQClient` and `WorkIQSelector` are wired into the engine, the enriched pipeline adds a pre-routing layer:
+
+```python
+async def process_with_enrichment(self, user_message: str) -> str:
+    # Phase 0 — query Work IQ for M365 context
+    workiq_result = await self._workiq_client.ask(user_message)
+
+    # Phase 1 — HITL: user selects relevant content sections
+    content_req = self._workiq_selector.prepare(workiq_result, request_id)
+    selected_text = await self._workiq_selector.wait_for_selection(request_id)
+
+    # Phase 2 — extract routing keywords from selected content
+    hints = self._router.extract_routing_keywords(selected_text)
+
+    # Phase 2b — HITL: user accepts/rejects keyword hints
+    hint_req = self._workiq_selector.prepare_routing_hints(hints, hint_id)
+    accepted = await self._workiq_selector.wait_for_routing_hints(hint_id)
+
+    # Phase 3 — enriched routing (message + accepted keyword boosts)
+    routing = self._router.route_with_context(user_message, accepted)
+
+    # Continue: Plan Agent → Sub-Agents → Aggregate
+    return await self._process_after_routing(user_message, routing)
+```
+
+If WorkIQ is not configured or fails at any phase, the engine transparently falls back to the standard `process()` pipeline.
 
 ### Why Plan Agent Is Always First
 
@@ -157,7 +189,7 @@ forge/
 │   ├── knowledge_base/
 │   ├── data_analysis/
 │   ├── security_sentinel/
-│   └── workiq/                 #   WorkIQ agent (M365 context + HITL selection)
+│   └── workiq/                 #   WorkIQ agent (M365 context + 2-phase HITL)
 ├── shared/                     # Cross-agent resources
 │   ├── prompts/                #   error_handling.md, output_format.md
 │   ├── instructions/           #   quality_standards.md, security_baseline.md
@@ -195,6 +227,7 @@ The loader:
 6. **Collects workflows** — gathers all `workflows/*.yaml`
 7. Loads `shared/` prompts, instructions, and workflows
 8. Discovers `contrib/` additions (agents, skills, workflows)
+9. **Populates the Agent Catalog** — `catalog.populate_from_skills(forge_registry.skills)` seeds the skill catalog from loaded manifests
 
 ### Agent Manifests in Detail
 
@@ -272,6 +305,164 @@ Files in `forge/shared/` are available to **all agents**:
 - **`instructions/security_baseline.md`** — Data handling, input validation, output safety, audit requirements
 - **`workflows/code_review.yaml`** — 4-step review: security_scan → code_analysis → doc_check → review_summary
 - **`workflows/incident_response.yaml`** — 5-step response: analyze_logs → research_code + security_check → diagnose → generate_fix
+
+---
+
+## Agent Registry / Catalog
+
+The **Agent Catalog** (`src/registry/catalog.py`) is the central registry for managing sub-agents, skills, and their runtime state. It provides agent registration, discovery, health tracking, and persistence.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│              Agent Catalog                       │
+│  ┌───────────────────┐  ┌────────────────────┐  │
+│  │ Agent Registrations│  │  Skill Catalog     │  │
+│  │  • agent_type      │  │  • skill_name      │  │
+│  │  • name, desc      │  │  • agent_type      │  │
+│  │  • version         │  │  • version, tags   │  │
+│  │  • status          │  │  • installed flag   │  │
+│  │  • skills, tags    │  │  • source           │  │
+│  │  • usage_count     │  └────────────────────┘  │
+│  │  • avg_latency_ms  │                          │
+│  │  • error_rate      │  ┌────────────────────┐  │
+│  └───────────────────┘  │  Persistence        │  │
+│                          │  catalog.json       │  │
+│                          └────────────────────┘  │
+└─────────────────────────────────────────────────┘
+```
+
+### Managing Sub-Agents
+
+#### Register an Agent
+
+```python
+from src.registry.catalog import AgentCatalog, AgentRegistration
+
+catalog = AgentCatalog(storage_path=Path(".forge_catalog"))
+
+catalog.register_agent(AgentRegistration(
+    agent_type="log_analysis",
+    name="Log Analysis Agent",
+    description="Expert in parsing and diagnosing application logs",
+    version="1.0.0",
+    skills=["analyze_logs"],
+    tags=["logs", "errors", "debugging"],
+))
+```
+
+#### List, Filter, and Search Agents
+
+```python
+# List all active agents
+for agent in catalog.list_agents(status="active"):
+    print(f"{agent.name} — {agent.description}")
+    print(f"  Skills: {agent.skills}")
+    print(f"  Usage: {agent.usage_count} calls, {agent.avg_latency_ms:.0f}ms avg")
+
+# Filter by tag
+security_agents = catalog.list_agents(tag="security")
+log_agents = catalog.list_agents(tag="logs")
+
+# Unregister
+catalog.unregister_agent("my_old_agent")
+```
+
+#### Track Agent Health & Metrics
+
+The catalog tracks rolling averages for latency and error rate:
+
+```python
+# Record a successful call
+catalog.update_agent_metrics("log_analysis", latency_ms=145.2, is_error=False)
+
+# Record a failed call
+catalog.update_agent_metrics("log_analysis", latency_ms=2000.0, is_error=True)
+
+# Get catalog summary
+status = catalog.get_status()
+# → {"total_agents": 8, "active_agents": 8, "total_skills": 12, "installed_skills": 12}
+```
+
+#### Agent Status Management
+
+Each agent registration tracks a `status` field (`active`, `disabled`, `degraded`) that the engine can use for routing decisions:
+
+```python
+agent = catalog.get_agent("security_sentinel")
+if agent and agent.status == "active":
+    # Route to this agent
+    pass
+```
+
+### Skill Catalog
+
+The skill catalog tracks installable skill packages and integrates with `ForgeLoader` for auto-population:
+
+```python
+from src.registry.catalog import CatalogEntry
+
+# Add a skill to the catalog
+catalog.add_to_catalog(CatalogEntry(
+    skill_name="analyze_dependencies",
+    description="Analyze project dependencies for vulnerabilities",
+    agent_type="security_sentinel",
+    version="1.0.0",
+    tags=["security", "dependencies"],
+))
+
+# Install / uninstall
+catalog.install_skill("analyze_dependencies")
+catalog.uninstall_skill("analyze_dependencies")
+
+# Search the skill catalog
+results = catalog.search_catalog(query="security", installed_only=True)
+results = catalog.search_catalog(agent_type="log_analysis")
+
+# Bulk-populate from ForgeLoader
+catalog.populate_from_skills(forge_registry.skills)
+```
+
+### Persistence
+
+The catalog auto-persists to `catalog.json` whenever agents or skills are modified, and loads from disk at startup:
+
+```python
+# Persists to: <storage_path>/catalog.json
+catalog = AgentCatalog(storage_path=Path(".forge_catalog"))
+
+# Data format:
+{
+  "agents": {
+    "log_analysis": {
+      "agent_type": "log_analysis",
+      "name": "Log Analysis Agent",
+      "status": "active",
+      "usage_count": 42,
+      "avg_latency_ms": 156.3,
+      "error_rate": 0.02,
+      ...
+    }
+  },
+  "catalog": {
+    "analyze_logs": {
+      "skill_name": "analyze_logs",
+      "installed": true,
+      "source": "local",
+      ...
+    }
+  }
+}
+```
+
+### REST API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/agents` | List all registered agents with capabilities and metrics |
+| GET | `/skills` | List available skills (installed and catalog) |
+| GET | `/health` | System status including catalog stats |
 
 ---
 
@@ -899,32 +1090,51 @@ Invalid contributions raise `ValidationError` with a descriptive message.
 
 ---
 
-## WorkIQ Integration (Human-in-the-Loop)
+## WorkIQ Integration (2-Phase Human-in-the-Loop)
 
-[Work IQ](https://www.npmjs.com/package/@microsoft/workiq) (`@microsoft/workiq`) brings **M365 organisational context** — emails, Teams messages, calendar events, SharePoint documents, and more — into the ProtoForge pipeline. The critical design choice here is **human-in-the-loop (HITL) selection**: the user decides which pieces of Work IQ output actually enter the LLM context.
+[Work IQ](https://www.npmjs.com/package/@microsoft/workiq) (`@microsoft/workiq`) brings **M365 organisational context** — emails, Teams messages, calendar events, SharePoint documents, and more — into the ProtoForge pipeline as a **pre-routing enrichment layer**. WorkIQ output feeds directly into the Intent Router through a 2-phase human-in-the-loop (HITL) pipeline.
 
-### Why Human-in-the-Loop?
+### Why 2-Phase Human-in-the-Loop?
 
-Work IQ queries often return multiple result sections with varying relevance. Blindly injecting all of them would:
-- **Waste token budget** — irrelevant sections consume context window space
-- **Reduce quality** — the LLM has to sift through noise
-- **Raise privacy concerns** — organisational data enters the pipeline without user awareness
+Work IQ queries return multiple result sections with varying relevance. The 2-phase HITL design addresses three critical concerns:
 
-HITL gives the user control: they see what Work IQ found, pick the relevant sections, and only those enter the agent pipeline.
+| Phase | Controls | Problem Solved |
+|-------|----------|----------------|
+| **Phase 1: Content Selection** | Which M365 sections enter the pipeline | Token waste, privacy — user sees and picks relevant sections |
+| **Phase 2: Keyword Acceptance** | Which routing hints influence agent selection | Routing accuracy — user confirms which keywords should boost agent scores |
+
+Both phases fail-open on timeout (2 min) — if the user doesn't respond, the query proceeds without enrichment.
 
 ### Architecture
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────────┐
-│  REST Client │────▶│  WorkIQAgent │────▶│  WorkIQClient    │
-│  (Inspector) │     │  (execute)   │     │  (subprocess)    │
-└──────┬───────┘     └──────┬───────┘     └────────┬─────────┘
-       │                    │                      │
-       │              ┌─────▼──────┐         ┌─────▼──────────┐
-       │              │ WorkIQ     │         │  workiq ask    │
-       └─────────────▶│ Selector   │         │  CLI process   │
-        (select)      │ (HITL)     │         └────────────────┘
-                      └────────────┘
+┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  REST Client │────▶│  OrchestratorEngine  │──▶│  WorkIQClient    │
+│  (Inspector) │     │  process_with_      │    │  (subprocess)    │
+└──────┬───────┘     │  enrichment()       │    └────────┬─────────┘
+       │             └──────┬──────────────┘             │
+       │                    │                     ┌──────▼──────────┐
+       │              ┌─────▼──────────┐          │  workiq ask     │
+       │              │ WorkIQSelector │          │  CLI process    │
+       ├─────────────▶│ Phase 1: HITL  │          └─────────────────┘
+       │  (select)    │  select content│
+       │              │                │
+       ├─────────────▶│ Phase 2: HITL  │
+       │  (accept-    │  accept keyword│
+       │   hints)     │  hints         │
+       │              └─────┬──────────┘
+       │                    │ accepted hints
+       │              ┌─────▼──────────┐
+       │              │ IntentRouter   │
+       │              │ route_with_    │
+       │              │ context()      │
+       │              └─────┬──────────┘
+       │                    │ enriched routing
+       │              ┌─────▼──────────┐
+       │              │ Plan Agent →   │
+       │              │ Sub-Agents →   │
+       │              │ Aggregate      │
+       │              └────────────────┘
 ```
 
 **Components:**
@@ -932,13 +1142,15 @@ HITL gives the user control: they see what Work IQ found, pick the relevant sect
 | Component | File | Purpose |
 |-----------|------|---------|
 | `WorkIQClient` | `src/workiq/client.py` | Async subprocess wrapper for the `workiq ask` CLI — runs the query and parses JSON output into `WorkIQResult` objects |
-| `WorkIQSelector` | `src/workiq/selector.py` | HITL selection manager — holds pending queries, waits for user selection, returns selected content |
+| `WorkIQSelector` | `src/workiq/selector.py` | 2-phase HITL selector — Phase 1 manages content selection, Phase 2 manages keyword-hint acceptance |
 | `WorkIQAgent` | `src/agents/workiq_agent.py` | Agent implementation — calls client, prepares selection, waits for user input, returns grounded result |
-| REST endpoints | `src/server.py` | Three endpoints for the Inspector UI to drive the HITL flow |
+| `IntentRouter` | `src/orchestrator/router.py` | `extract_routing_keywords()` finds agent keywords in content; `route_with_context()` merges keyword + hint signals |
+| `OrchestratorEngine` | `src/orchestrator/engine.py` | `process_with_enrichment()` orchestrates the full Phase 0→3 pipeline |
+| REST endpoints | `src/server.py` | 6 endpoints for content selection + keyword-hint acceptance |
 
-### The Selection Flow
+### The 2-Phase Selection Flow
 
-#### 1. Query (automated)
+#### Phase 0 — Query (automated)
 
 The `WorkIQClient` runs `workiq ask "<query>"` as an async subprocess and parses the output:
 
@@ -946,13 +1158,12 @@ The `WorkIQClient` runs `workiq ask "<query>"` as an async subprocess and parses
 from src.workiq.client import WorkIQClient
 
 client = WorkIQClient()
-results = await client.query("latest standup notes from Teams")
-# → [WorkIQResult(title="Teams: Daily Standup", content="Discussed..."), ...]
+result = await client.ask("latest standup notes from Teams")
+# result.ok → True
+# result.content → raw text with sections
 ```
 
-Each `WorkIQResult` has a `title`, `content`, and `source` field.
-
-#### 2. Prepare (selector stages sections for review)
+#### Phase 1 — Content Selection (HITL)
 
 The `WorkIQSelector` receives the query results and stages them for user review:
 
@@ -960,75 +1171,98 @@ The `WorkIQSelector` receives the query results and stages them for user review:
 from src.workiq.selector import WorkIQSelector
 
 selector = WorkIQSelector()
-request_id, sections = selector.prepare(results)
-# request_id: "abc123"
-# sections: [{"index": 0, "title": "...", "preview": "..."}, ...]
+content_req = selector.prepare(workiq_result, request_id="abc123")
+# content_req.resolved → False (waiting for user)
 ```
 
-At this point the query is **pending** — the user hasn't picked anything yet.
-
-#### 3. User Selects (HITL — human picks relevant sections)
-
-Via the REST API or Inspector UI, the user reviews the sections and picks which ones to include:
+Via the REST API or Inspector UI, the user reviews sections and picks relevant ones:
 
 ```bash
 # POST /workiq/select
-{
-  "request_id": "abc123",
-  "selected_indices": [0, 2]
-}
+{"request_id": "abc123", "selected_indices": [0, 2]}
 ```
 
-Internally this calls `selector.resolve(request_id, [0, 2])`, which:
-- Concatenates the selected sections' content
-- Stores it as `selected_content` for that request
-- Unblocks any waiting agent
+Internally this calls `selector.resolve(request_id, [0, 2])` which:
+- Concatenates selected sections' content
+- Stores as `selected_content`
+- Unblocks any waiting pipeline
 
-#### 4. Agent Receives Selected Content
+#### Phase 2 — Keyword Extraction (automated)
 
-The `WorkIQAgent.execute()` method orchestrates the full flow:
+The router scans the selected content for agent keywords:
 
 ```python
-async def execute(self, message, context, params=None):
-    # 1. Query Work IQ
-    results = await self._client.query(message)
-
-    # 2. Stage for HITL selection
-    request_id, sections = self._selector.prepare(results)
-
-    # 3. Wait for user selection (up to 5 min timeout)
-    selected = await self._selector.wait_for_selection(request_id, timeout=300)
-
-    # 4. Return selected content as agent output
-    return AgentResult(
-        agent_id=self.agent_id,
-        content=selected or "No sections selected",
-        confidence=0.85 if selected else 0.3,
-        artifacts={"request_id": request_id, "sections_offered": len(sections)},
-    )
+hints = router.extract_routing_keywords(selected_text)
+# → [RoutingKeywordHint(agent_id="log_analysis", keyword="error", matched_text="...deploy error in..."),
+#    RoutingKeywordHint(agent_id="security_sentinel", keyword="vulnerability", matched_text="...CVE found...")]
 ```
 
-If the user doesn't select within the timeout, the query expires and no organisational data enters the pipeline (**fail-open → safe**).
+Each hint includes a ~60-character context snippet around the matched keyword.
+
+#### Phase 2b — Keyword Acceptance (HITL)
+
+Extracted keyword hints are surfaced for user review:
+
+```python
+hint_req = selector.prepare_routing_hints(hints, request_id="hint-456")
+# If ≤1 hint, auto-resolved (no user interaction needed)
+# If >1 hints, staged for HITL
+```
+
+Via the REST API:
+
+```bash
+# GET /workiq/routing-hints — see pending keyword hints
+# POST /workiq/accept-hints
+{"request_id": "hint-456", "accepted_indices": [0]}
+```
+
+Accepted hints boost the corresponding agent's score in the router.
+
+#### Phase 3 — Enriched Routing
+
+The router combines user-message keyword scoring with accepted hint boosts:
+
+```python
+routing = router.route_with_context(user_message, accepted_hints)
+# routing.enrichment_applied → True
+# routing.reasoning → "Matched: log_analysis(0.70, +enrichment: error), ..."
+```
+
+#### Full Pipeline (engine)
+
+The `process_with_enrichment()` method orchestrates all phases:
+
+```python
+async def process_with_enrichment(self, user_message: str) -> str:
+    # Phase 0: Query WorkIQ
+    # Phase 1: HITL content selection (wait for user)
+    # Phase 2: Extract keywords from selected content
+    # Phase 2b: HITL keyword acceptance (wait for user)
+    # Phase 3: route_with_context(message, accepted_hints)
+    # → Plan Agent → Sub-Agents → Aggregate
+```
+
+If WorkIQ is not configured, or any phase fails, the engine transparently falls back to `process()` (standard routing).
 
 ### REST API Reference
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/workiq/query` | Submit a query to Work IQ — returns `request_id` + sections |
-| GET | `/workiq/pending` | List all queries that are waiting for user selection |
-| POST | `/workiq/select` | Submit the user's selection (`request_id` + `selected_indices`) |
+| Method | Path | Phase | Description |
+|--------|------|-------|-------------|
+| POST | `/workiq/query` | 0 | Submit a query to Work IQ — returns `request_id` + sections |
+| GET | `/workiq/pending` | 1 | List all queries waiting for content selection |
+| POST | `/workiq/select` | 1 | Submit content selection (`request_id` + `selected_indices`) |
+| GET | `/workiq/routing-hints` | 2 | List pending keyword-hint requests |
+| POST | `/workiq/accept-hints` | 2b | Accept/reject keyword hints (`request_id` + `accepted_indices`) |
+| POST | `/chat/enriched` | All | Full 2-phase enrichment pipeline in one call |
 
 #### `POST /workiq/query`
 
-**Request:**
 ```json
-{
-  "query": "find the email thread about the production incident"
-}
-```
+// Request
+{"query": "find the email thread about the production incident"}
 
-**Response:**
-```json
+// Response
 {
   "request_id": "abc123",
   "sections": [
@@ -1039,48 +1273,76 @@ If the user doesn't select within the timeout, the query expires and no organisa
 }
 ```
 
-#### `GET /workiq/pending`
+#### `POST /workiq/select`
 
-**Response:**
 ```json
+// Request
+{"request_id": "abc123", "selected_indices": [0, 2]}
+
+// Response
+{"request_id": "abc123", "selected_content": "Email: [P1] Production Incident..."}
+```
+
+#### `GET /workiq/routing-hints`
+
+```json
+// Response
 {
-  "pending": [
-    {"request_id": "abc123", "query": "find the email thread about the production incident", "sections_count": 3}
+  "pending_hints": [
+    {
+      "request_id": "hint-456",
+      "hints": [
+        {"index": 0, "agent_id": "log_analysis", "keyword": "error", "matched_text": "...deploy error in the auth..."},
+        {"index": 1, "agent_id": "security_sentinel", "keyword": "security", "matched_text": "...security review needed..."}
+      ]
+    }
   ]
 }
 ```
 
-#### `POST /workiq/select`
+#### `POST /workiq/accept-hints`
 
-**Request:**
 ```json
-{
-  "request_id": "abc123",
-  "selected_indices": [0, 2]
-}
+// Request
+{"request_id": "hint-456", "accepted_indices": [0]}
+
+// Response
+{"request_id": "hint-456", "accepted": [{"agent_id": "log_analysis", "keyword": "error"}]}
 ```
 
-**Response:**
+#### `POST /chat/enriched`
+
+Runs the full 2-phase pipeline (Phase 0 → Phase 1 HITL → Phase 2 → Phase 2b HITL → Phase 3 → Plan → Aggregate). Falls back to standard routing if WorkIQ is unavailable.
+
 ```json
-{
-  "request_id": "abc123",
-  "selected_content": "Email: [P1] Production Incident — Auth Service\nTeam, auth service is returning 500s since...\n\nEmail: RE: [P1] Incident Postmortem\nRoot cause was a misconfigured..."
-}
+// Request
+{"message": "What did the team discuss about the production outage?"}
+
+// Response
+{"response": "...aggregated agent response..."}
 ```
 
-### Selecting WorkIQ Output → Agent Pipeline Input
+### How WorkIQ Output Feeds the Intent Router
 
-The key concept: **Work IQ output is not automatically fed into agents.** The user must explicitly select which sections become agent input. This selection becomes the `content` of the `AgentResult` returned by `WorkIQAgent`, which is then available to the Plan Agent and other sub-agents via working memory.
+The key concept: **Work IQ output is not automatically fed into agents.** It goes through two HITL gates before influencing routing:
 
-**Typical end-to-end flow:**
+1. **Phase 1 gate (content):** User selects which M365 sections are relevant — controls what organisational data enters the pipeline
+2. **Phase 2 gate (keywords):** User accepts which routing keywords extracted from the content should boost agent scores — controls routing influence
 
-1. **User sends a chat message** that triggers WorkIQ routing (e.g., "What did the team discuss in the standup?")
-2. **Router** matches WorkIQ keywords → dispatches to WorkIQ agent
-3. **WorkIQ agent** queries the CLI, stages sections, waits for selection
-4. **Inspector UI** shows pending sections → user picks the relevant ones
-5. **Selected content** is returned as the agent result
-6. **Plan Agent** (which always runs first) can now reference this organisational context in its strategy
-7. **Sub-agents** can access the selected content from working memory via `context.get_memory("workiq_output")`
+**Enriched routing mechanics:**
+
+- `extract_routing_keywords(selected_text)` scans the selected content against `_BUILTIN_KEYWORD_ROUTES` patterns and returns `RoutingKeywordHint` objects with agent_id, keyword, and ~60-char context snippet
+- `route_with_context(message, accepted_hints)` scores the user message (Phase 1 signals) then adds boost points for each accepted hint (Phase 2 signals), with boost notation in the reasoning string
+- The `enrichment_applied` flag on `RoutingDecision` indicates whether WorkIQ context influenced the routing
+
+**Working memory keys set during enrichment:**
+
+| Key | Content |
+|-----|---------|
+| `workiq_selected_content` | The user-selected text from Phase 1 |
+| `workiq_accepted_hints` | List of `{agent, keyword}` dicts from Phase 2b |
+| `workiq_content_pending` | Phase 1 request_id (while waiting) |
+| `workiq_hints_pending` | Phase 2b request_id (while waiting) |
 
 ### Routing Keywords
 
@@ -1114,10 +1376,11 @@ If `workiq` is not installed, the WorkIQ agent gracefully degrades — it report
 
 ### Privacy & Safety
 
-- **User-controlled selection** — only explicitly chosen sections enter the pipeline
-- **Fail-open timeout** (5 min) — pending queries expire without leaking data
+- **2-gate HITL** — user explicitly controls both content sections (Phase 1) AND routing keywords (Phase 2)
+- **Fail-open timeout** (2 min per phase) — pending queries expire without leaking data; on timeout, all options are accepted to avoid blocking
 - **No persistent storage** — selected content lives only in the current orchestration context
-- **Audit-ready** — `selector.pending_requests` exposes the current HITL state
+- **Audit-ready** — `selector.pending_requests()` and `selector.pending_routing_hint_requests()` expose all in-flight state
+- **Transparent fallback** — if WorkIQ fails or is not configured, the engine seamlessly falls back to standard keyword + LLM routing
 
 ---
 
@@ -1479,10 +1742,17 @@ gh copilot explain "What does this regex match: \bfix\s.*\b(?:error|exception|bu
 
 ### ADR-010: WorkIQ Human-in-the-Loop Selection
 
-**Status:** Accepted  
+**Status:** Superseded by ADR-011  
 **Context:** Work IQ returns multiple M365 result sections per query. Injecting all sections blindly wastes tokens, degrades quality, and raises privacy concerns  
 **Decision:** Human-in-the-loop selection — Work IQ output is staged for user review; only explicitly selected sections enter the agent pipeline. Implemented via `WorkIQSelector` with REST endpoints for the Inspector UI  
 **Consequences:** Users control what organisational data enters the LLM. Adds one interaction step (query → select → proceed) but ensures relevance and privacy. Fail-open timeout (5 min) prevents stalled queries from blocking the pipeline  
+
+### ADR-011: 2-Phase HITL — WorkIQ Enrichment Feeds Intent Router
+
+**Status:** Accepted  
+**Context:** ADR-010 only controlled which M365 content sections entered the pipeline — it didn't influence routing. Users wanted the ability to control which keywords extracted from WorkIQ content actually affect agent selection  
+**Decision:** Extend the HITL pipeline to 2 phases: Phase 1 (content selection, as before) and Phase 2 (routing-keyword acceptance). `extract_routing_keywords()` scans selected content for agent keyword patterns, producing `RoutingKeywordHint` objects. These are staged for user review; accepted hints boost agent scores in `route_with_context()`. The full pipeline is exposed via `POST /chat/enriched`  
+**Consequences:** Users now control both data and routing influence. Adds one additional HITL step. Auto-resolves when ≤1 hint (no user interaction needed). Both phases fail-open on timeout (2 min) to avoid pipeline stalls. Working memory tracks enrichment state (`workiq_selected_content`, `workiq_accepted_hints`)  
 
 ---
 
