@@ -10,6 +10,13 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 ## [Unreleased]
 
 ### Added
+- **Agent Lifecycle HITL** — disable/remove agents at runtime with human-in-the-loop confirmation (fail-CLOSED on timeout)
+- `GovernanceSelector.AgentLifecycleReview` dataclass + 6 lifecycle methods (`prepare_lifecycle_review`, `resolve_lifecycle_review`, `wait_for_lifecycle_review`, `pending_lifecycle_reviews`, `get_lifecycle_review`, `cleanup_lifecycle_review`)
+- `OrchestratorEngine.disable_agent()`, `enable_agent()`, `unregister_agent()`, `list_enabled_agents()`, `list_disabled_agents()` — full agent lifecycle management
+- `IntentRouter.deregister_patterns()` — removes routing patterns at runtime when an agent is disabled/removed
+- `ContextBudgetManager.deallocate()` — releases budget allocation when an agent is disabled/removed
+- 7 new HTTP endpoints: `POST /agents/{id}/disable`, `POST /agents/{id}/enable`, `DELETE /agents/{id}`, `GET /governance/lifecycle-reviews`, `POST /governance/lifecycle-reviews/resolve`, `GET /agents/enabled`, `GET /agents/disabled`
+- 30 new tests for lifecycle HITL (363 total, up from 333): `TestAgentLifecycleReviewSelector`, `TestEngineAgentLifecycle`, `TestLifecycleServerEndpoints`
 - `MAINTENANCE.md` — codebase-validated maintenance and versioning guide with 29-point validation log
 - `CHANGELOG.md` — project changelog (this file)
 - `TODO.md` — prioritised backlog derived from GUIDE2 §13
@@ -24,11 +31,16 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - **README.md**: Added "Next Engineer Quick Start" section — where to refine, how to change agents, how to add enrichment inputs
 
 ### Changed
+- `_dispatch()` skips disabled agents (returns `AgentResult(confidence=0.0, content="Agent is disabled")`)
+- `get_status()` now includes `enabled_agents` and `disabled_agents` lists
+- `GovernanceSelector` docstring updated to reflect 3 review types (context window, skill cap, agent lifecycle)
+- `server.py` docstring updated with 7 new lifecycle endpoint descriptions (35 total endpoints)
+- All documentation refreshed to reflect 363 tests passing and lifecycle feature
 - `process()` now delegates to `_process_after_routing()` — eliminates ~30 lines of duplicate pipeline code (P0-2) — commit `4d5128c`
 - `_dispatch()` counts input tokens once and reuses the count for budget check, governance check, and post-dispatch recording (P0-4) — commit `4d5128c`
 - `_dispatch()`: `ContextWindowExceededError` import moved to module top-level (P1-10) — commit `4d5128c`
 - `_dispatch()`: governance token counting uses `self._governance.count_tokens()` instead of reaching through `self._governance._budget_manager` (P0-3) — commit `4d5128c`
-- All documentation refreshed to reflect 333 tests passing (was 328)
+- All documentation refreshed to reflect 363 tests passing (was 333)
 
 ---
 

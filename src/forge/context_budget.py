@@ -90,6 +90,22 @@ class ContextBudgetManager:
         logger.debug("budget_allocated", agent=agent_id, input=budget.max_input, output=budget.max_output)
         return budget
 
+    def deallocate(self, agent_id: str) -> None:
+        """Remove budget allocation and usage tracking for *agent_id*.
+
+        Called when an agent is disabled or unregistered at runtime.
+        The freed token headroom becomes available for remaining agents.
+        """
+        removed_budget = self._budgets.pop(agent_id, None)
+        self._usage.pop(agent_id, None)
+        if removed_budget:
+            logger.info(
+                "budget_deallocated",
+                agent=agent_id,
+                freed_input=removed_budget.max_input,
+                freed_output=removed_budget.max_output,
+            )
+
     # -- Token counting -----------------------------------------------------
 
     def count_tokens(self, text: str) -> int:

@@ -224,6 +224,7 @@ Track completed items here with date and commit hash.
 | 2026-02-23 | P0-4 | `4d5128c` | Single token count in _dispatch() |
 | 2026-02-23 | P1-9 | `4d5128c` | max_history=200 on ConversationContext |
 | 2026-02-23 | P1-10 | `4d5128c` | ContextWindowExceededError import at module top |
+| 2026-02-23 | Lifecycle HITL | — | Agent disable/remove with HITL confirmation, 30 new tests (363 total) |
 
 ---
 

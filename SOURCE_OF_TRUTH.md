@@ -122,7 +122,11 @@ to real, available model names.
 | Governance rules | `src/governance/guardian.py` — `GovernanceGuardian` class | Thresholds loaded from `_context_window.yaml` at runtime |
 | `count_tokens()` public API | `src/governance/guardian.py` — `GovernanceGuardian.count_tokens()` | Called by `engine.py` (replaces direct `_budget_manager` access — P0-3) |
 | HITL selector pattern | No formal interface | Implementations: `PlanSelector`, `GovernanceSelector`, `WorkIQSelector` (see TODO P2-13) |
+| Agent lifecycle HITL | `src/governance/selector.py` — `AgentLifecycleReview` dataclass + 6 lifecycle methods | Consumed by `OrchestratorEngine.disable_agent()`, `unregister_agent()`. Fail-CLOSED on timeout. |
+| Agent lifecycle management | `src/orchestrator/engine.py` — `disable_agent()`, `enable_agent()`, `unregister_agent()`, `list_enabled_agents()`, `list_disabled_agents()` | Exposed via `server.py` HTTP endpoints. `enable_agent()` has no HITL gate. |
 | Alert counter / IDs | `GovernanceGuardian._alert_counter` | Used for both alert IDs and suggestion IDs |
+| Budget deallocation | `src/forge/context_budget.py` — `ContextBudgetManager.deallocate()` | Called by `engine.py` when an agent is disabled/removed |
+| Routing deregistration | `src/orchestrator/router.py` — `IntentRouter.deregister_patterns()` | Called by `engine.py` when an agent is disabled/removed |
 
 ---
 
@@ -176,4 +180,4 @@ When you make a change to ProtoForge:
 
 ---
 
-*Last updated: 2026-02-23 — ProtoForge v0.1.0, commit `4d5128c`*
+*Last updated: 2026-02-23 — ProtoForge v0.1.0*

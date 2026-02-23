@@ -451,7 +451,51 @@ it stays under 128K.
 
 ## 5. Removing or Disabling a Subagent
 
-### Option A: Remove from forge/ entirely
+### Option A: Runtime disable via HITL (recommended) — ✅ IMPLEMENTED
+
+Use the lifecycle HTTP endpoints to disable or remove agents at runtime
+with human-in-the-loop confirmation. No restart required.
+
+```bash
+# 1. Disable an agent (triggers HITL review)
+curl -X POST http://localhost:8080/agents/data_analysis/disable
+
+# 2. Check pending review (shows which agents remain enabled)
+curl http://localhost:8080/governance/lifecycle-reviews
+
+# 3. Approve the disable action
+curl -X POST http://localhost:8080/governance/lifecycle-reviews/resolve \
+  -H "Content-Type: application/json" \
+  -d '{"request_id": "<id from step 2>", "accepted": true}'
+
+# 4. Re-enable later (no HITL required)
+curl -X POST http://localhost:8080/agents/data_analysis/enable
+
+# 5. Permanently remove (HITL-gated, same flow as disable)
+curl -X DELETE http://localhost:8080/agents/data_analysis
+```
+
+**Key design decisions**:
+- Disable/remove are **fail-CLOSED on timeout** — if the human doesn't
+  respond within 120s, the action is rejected (unlike context/skill
+  reviews which fail-open).
+- `enable_agent()` has **no HITL gate** — re-enabling is always safe.
+- On disable/remove: routing patterns deregistered + budget deallocated
+  automatically via `IntentRouter.deregister_patterns()` and
+  `ContextBudgetManager.deallocate()`.
+
+**Endpoints**:
+| Method | Path | HITL? |
+|--------|------|-------|
+| POST | `/agents/{id}/disable` | Yes — fail-CLOSED |
+| POST | `/agents/{id}/enable` | No |
+| DELETE | `/agents/{id}` | Yes — fail-CLOSED |
+| GET | `/agents/enabled` | — |
+| GET | `/agents/disabled` | — |
+| GET | `/governance/lifecycle-reviews` | — |
+| POST | `/governance/lifecycle-reviews/resolve` | — |
+
+### Option B: Remove from forge/ entirely
 
 ```bash
 rm -rf forge/agents/<agent_id>/
@@ -460,7 +504,7 @@ rm -rf forge/agents/<agent_id>/
 Remove from `_registry.yaml`. Remove from `_SPECIALISED_CLASSES` in `main.py`
 if it had a custom class. Remove the `AgentType` enum member if one existed.
 
-### Option B: Disable without removing
+### Option C: Disable without removing (static)
 
 Add a `disabled: true` field to the agent.yaml (requires adding support
 in `ForgeLoader._load_agent_dir()`):
@@ -470,7 +514,7 @@ id: my_agent
 disabled: true   # loader skips this agent
 ```
 
-### Option C: Remove from routing only
+### Option D: Remove from routing only
 
 Remove the agent's tags/patterns from `_BUILTIN_KEYWORD_ROUTES` or its
 `tags:` list. The agent remains registered but is never routed to.
@@ -811,7 +855,8 @@ for dashboard visibility.
 
 ### Task: Add a new HITL gate
 
-Follow the selector pattern:
+Follow the selector pattern (see `AgentLifecycleReview` in `selector.py` for
+a complete worked example):
 1. Create dataclass for the review request
 2. Create a Selector class with `prepare_*()`, `resolve_*()`, `wait_for_*()`
 3. Wire into engine.py at the appropriate pipeline stage
@@ -877,4 +922,4 @@ Prioritised by impact and effort:
 
 ---
 
-*Last updated: 2026-02-23 — ProtoForge commit `4d5128c`*
+*Last updated: 2026-02-23 — ProtoForge*

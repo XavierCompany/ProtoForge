@@ -285,6 +285,46 @@ Detailed protocol in `GUIDE.md` §19.  Summary:
   - `true` = fail-closed (raises `ContextWindowExceededError`)
   - `false` = fail-open (logs warning, continues)
 
+### 5.6 Disable or Remove an Agent at Runtime (HITL-Gated)
+
+Use the lifecycle endpoints to dynamically disable or remove agents without
+restarting the server. Disable and remove actions require human confirmation
+(fail-CLOSED on timeout — action is rejected if unconfirmed).
+
+**Disable an agent** (reversible):
+
+1. `POST /agents/{agent_id}/disable` — triggers HITL lifecycle review.
+2. `GET /governance/lifecycle-reviews` — inspect the pending review.
+   The response includes `enabled_agents_after` showing which agents remain
+   active if you approve.
+3. `POST /governance/lifecycle-reviews/resolve` with `{"request_id": "...", "accepted": true}` — approve.
+4. On approval: agent is disabled, routing patterns deregistered, budget deallocated.
+5. If timeout (120s) expires without resolution → action is **rejected** (fail-CLOSED).
+
+**Re-enable a disabled agent** (no HITL required):
+
+1. `POST /agents/{agent_id}/enable` — immediately re-enables the agent.
+   No human confirmation needed (safe operation).
+
+**Permanently remove an agent** (irreversible, HITL-gated):
+
+1. `DELETE /agents/{agent_id}` — triggers HITL lifecycle review (same flow as disable).
+2. Approve via `POST /governance/lifecycle-reviews/resolve`.
+3. On approval: agent is removed from `_agents` dict, patterns deregistered, budget deallocated.
+
+**Inspect current state**:
+
+- `GET /agents/enabled` — list all currently enabled agents.
+- `GET /agents/disabled` — list all currently disabled agents.
+
+**Key design decisions**:
+- **Fail-CLOSED on timeout**: Unlike context/skill reviews which fail-open,
+  lifecycle actions are rejected if the human doesn't respond. Rationale:
+  accidental agent removal without explicit consent must be prevented.
+- **Enable has no HITL gate**: Re-enabling is always safe and instant.
+- **Budget + routing cleanup**: On disable/remove, `ContextBudgetManager.deallocate()`
+  and `IntentRouter.deregister_patterns()` are called automatically.
+
 ---
 
 ## 6. Anti-Drift Rules
@@ -346,6 +386,7 @@ Quick reference for the most-touched files during maintenance:
 | Configure LLM providers           | `src/config.py` `LLMConfig`               |
 | Write a forge contribution        | `src/forge/contributions.py` `ContributionManager` |
 | Understand HITL flow              | `src/orchestrator/plan_selector.py`, `src/governance/selector.py` |
+| Disable/remove agent at runtime   | `src/server.py` lifecycle endpoints → `src/orchestrator/engine.py` |
 | Bootstrap / wire dependencies     | `src/main.py` `bootstrap()`               |
 | Check conversation history        | `src/orchestrator/context.py` `ConversationContext` (max_history=200) |
 
@@ -386,6 +427,14 @@ The following claims were verified against the actual codebase:
 | 27 | 333 tests passing | `pytest --tb=no` output | ✅ |
 | 28 | Plan budget = 32K, Sub-Plan = 20K, Specialist = 22K | agent.yaml files | ✅ |
 | 29 | Worst-case = 126K (with 8K reserve) ≤ 128K cap | Calculated from YAML | ✅ |
+| 30 | `AgentLifecycleReview` dataclass in `GovernanceSelector` | `selector.py` | ✅ |
+| 31 | Lifecycle HITL is fail-CLOSED on timeout | `selector.py` `wait_for_lifecycle_review()` | ✅ |
+| 32 | `disable_agent()` / `unregister_agent()` are HITL-gated | `engine.py` | ✅ |
+| 33 | `enable_agent()` has NO HITL gate | `engine.py` | ✅ |
+| 34 | `deregister_patterns()` removes routing on disable/remove | `router.py` | ✅ |
+| 35 | `deallocate()` releases budget on disable/remove | `context_budget.py` | ✅ |
+| 36 | 7 new lifecycle HTTP endpoints | `server.py` | ✅ |
+| 37 | 363 tests passing (30 new lifecycle tests) | `pytest --tb=no` output | ✅ |
 
 ---
 

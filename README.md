@@ -327,6 +327,13 @@ The guardian audits manifests for architectural violations (e.g., large input bu
 | POST | `/governance/context-reviews/{id}/resolve` | Accept/reject context decomposition |
 | GET | `/governance/skill-reviews` | Pending skill cap HITL reviews |
 | POST | `/governance/skill-reviews/{id}/resolve` | Accept/reject/customise skill split |
+| GET | `/governance/lifecycle-reviews` | Pending agent lifecycle HITL reviews |
+| POST | `/governance/lifecycle-reviews/resolve` | Accept/reject agent disable/remove action |
+| POST | `/agents/{id}/disable` | Disable agent at runtime (HITL-gated) |
+| POST | `/agents/{id}/enable` | Re-enable a disabled agent (no HITL) |
+| DELETE | `/agents/{id}` | Permanently remove agent (HITL-gated) |
+| GET | `/agents/enabled` | List currently enabled agents |
+| GET | `/agents/disabled` | List currently disabled agents |
 
 ## How to Split Tasks: Agents vs Sub-Agents
 
@@ -503,6 +510,13 @@ Steps with no dependencies run in parallel. The workflow engine handles dependen
 | POST | `/governance/context-reviews/{id}/resolve` | Accept/reject context decomposition |
 | GET | `/governance/skill-reviews` | Pending skill cap HITL reviews |
 | POST | `/governance/skill-reviews/{id}/resolve` | Accept/reject/customise skill split |
+| GET | `/governance/lifecycle-reviews` | Pending agent lifecycle HITL reviews |
+| POST | `/governance/lifecycle-reviews/resolve` | Accept/reject agent disable/remove action |
+| POST | `/agents/{id}/disable` | Disable agent at runtime (HITL-gated) |
+| POST | `/agents/{id}/enable` | Re-enable a disabled agent (no HITL) |
+| DELETE | `/agents/{id}` | Permanently remove agent (HITL-gated) |
+| GET | `/agents/enabled` | List currently enabled agents |
+| GET | `/agents/disabled` | List currently disabled agents |
 
 ## WorkIQ Integration (2-Phase Human-in-the-Loop)
 

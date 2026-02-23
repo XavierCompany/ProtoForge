@@ -662,9 +662,10 @@ The **Governance Guardian** (`src/governance/guardian.py`) is an always-on enfor
 │           │                     │                      │            │
 │  ┌────────▼─────────────────────▼──────────────────────▼─────────┐  │
 │  │              GovernanceSelector (HITL Gates)                    │  │
-│  │  ContextWindowReview    SkillCapReview                         │  │
+│  │  ContextWindowReview    SkillCapReview    AgentLifecycleReview │  │
 │  │  prepare → expose → wait → resolve                             │  │
-│  │  Timeout: 120s → fail-open (accept suggestion)                 │  │
+│  │  Context/Skill: Timeout 120s → fail-open (accept suggestion)   │  │
+│  │  Lifecycle:     Timeout 120s → fail-CLOSED (reject action)     │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -674,7 +675,7 @@ The **Governance Guardian** (`src/governance/guardian.py`) is an always-on enfor
 | Component | File | Purpose |
 |-----------|------|---------|
 | `GovernanceGuardian` | `src/governance/guardian.py` | Core enforcement: `check_context_window()`, `validate_skill_cap()`, `audit_manifest()`, `governance_report()` |
-| `GovernanceSelector` | `src/governance/selector.py` | HITL gates: `ContextWindowReview` and `SkillCapReview` with prepare → expose → wait → resolve pattern |
+| `GovernanceSelector` | `src/governance/selector.py` | HITL gates: `ContextWindowReview`, `SkillCapReview`, and `AgentLifecycleReview` with prepare → expose → wait → resolve pattern. Context/skill reviews fail-open on timeout; lifecycle reviews **fail-CLOSED** (reject action on timeout). |
 | Governance rules | `forge/shared/instructions/governance_rules.md` | Human-readable rules injected into every agent's system prompt |
 | Governance config | `forge/_context_window.yaml` (governance section) | Thresholds, timeouts, caps — all configurable |
 

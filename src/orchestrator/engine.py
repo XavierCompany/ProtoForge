@@ -82,6 +82,7 @@ class OrchestratorEngine:
     ) -> None:
         self._router = IntentRouter()
         self._agents: dict[str, BaseAgent] = {}
+        self._disabled_agents: set[str] = set()
         self._context = ConversationContext()
         self._settings = get_settings()
         # Optional WorkIQ enrichment layer
@@ -111,6 +112,128 @@ class OrchestratorEngine:
         """
         self._agents[str(agent_id)] = agent
         logger.info("agent_registered", agent_id=str(agent_id), agent_class=type(agent).__name__)
+
+    # ── agent lifecycle (HITL-gated) ────────────────────────────────────
+
+    async def disable_agent(self, agent_id: str) -> dict:
+        """Disable an agent with HITL confirmation.
+
+        Prepares a lifecycle review showing which agents will remain enabled.
+        Blocks until the human confirms or the review times out (fail-closed).
+        Returns a status dict with the review outcome.
+        """
+        agent_id = str(agent_id)
+        if agent_id not in self._agents:
+            return {"ok": False, "error": f"Agent '{agent_id}' not registered"}
+        if agent_id in self._disabled_agents:
+            return {"ok": False, "error": f"Agent '{agent_id}' already disabled"}
+
+        # Compute which agents remain enabled after this disable
+        enabled_after = [
+            aid for aid in self._agents
+            if aid != agent_id and aid not in self._disabled_agents
+        ]
+
+        if self._governance_selector:
+            req_id = str(uuid.uuid4())
+            self._governance_selector.prepare_lifecycle_review(
+                req_id, "disable", agent_id, enabled_after,
+            )
+            review = await self._governance_selector.wait_for_lifecycle_review(req_id)
+            self._governance_selector.cleanup_lifecycle_review(req_id)
+
+            if not review.accepted:
+                logger.info("disable_agent_rejected", agent_id=agent_id)
+                return {
+                    "ok": False,
+                    "error": "Disable rejected by human reviewer",
+                    "request_id": req_id,
+                }
+
+        self._disabled_agents.add(agent_id)
+        self._router.deregister_patterns(agent_id)
+        if self._budget_manager:
+            self._budget_manager.deallocate(agent_id)
+        logger.info("agent_disabled", agent_id=agent_id, remaining=enabled_after)
+        return {
+            "ok": True,
+            "agent_id": agent_id,
+            "action": "disabled",
+            "enabled_agents": enabled_after,
+        }
+
+    async def enable_agent(self, agent_id: str) -> dict:
+        """Re-enable a previously disabled agent (no HITL needed)."""
+        agent_id = str(agent_id)
+        if agent_id not in self._agents:
+            return {"ok": False, "error": f"Agent '{agent_id}' not registered"}
+        if agent_id not in self._disabled_agents:
+            return {"ok": False, "error": f"Agent '{agent_id}' is not disabled"}
+
+        self._disabled_agents.discard(agent_id)
+        logger.info("agent_enabled", agent_id=agent_id)
+        return {
+            "ok": True,
+            "agent_id": agent_id,
+            "action": "enabled",
+            "enabled_agents": [
+                aid for aid in self._agents if aid not in self._disabled_agents
+            ],
+        }
+
+    async def unregister_agent(self, agent_id: str) -> dict:
+        """Remove an agent with HITL confirmation.
+
+        Prepares a lifecycle review, blocks for human confirmation (fail-closed
+        on timeout), then fully removes the agent from the engine, router, and
+        budget manager.
+        """
+        agent_id = str(agent_id)
+        if agent_id not in self._agents:
+            return {"ok": False, "error": f"Agent '{agent_id}' not registered"}
+
+        # Compute which agents remain after removal
+        enabled_after = [
+            aid for aid in self._agents
+            if aid != agent_id and aid not in self._disabled_agents
+        ]
+
+        if self._governance_selector:
+            req_id = str(uuid.uuid4())
+            self._governance_selector.prepare_lifecycle_review(
+                req_id, "remove", agent_id, enabled_after,
+            )
+            review = await self._governance_selector.wait_for_lifecycle_review(req_id)
+            self._governance_selector.cleanup_lifecycle_review(req_id)
+
+            if not review.accepted:
+                logger.info("remove_agent_rejected", agent_id=agent_id)
+                return {
+                    "ok": False,
+                    "error": "Remove rejected by human reviewer",
+                    "request_id": req_id,
+                }
+
+        self._agents.pop(agent_id, None)
+        self._disabled_agents.discard(agent_id)
+        self._router.deregister_patterns(agent_id)
+        if self._budget_manager:
+            self._budget_manager.deallocate(agent_id)
+        logger.info("agent_unregistered", agent_id=agent_id, remaining=enabled_after)
+        return {
+            "ok": True,
+            "agent_id": agent_id,
+            "action": "removed",
+            "enabled_agents": enabled_after,
+        }
+
+    def list_enabled_agents(self) -> list[str]:
+        """Return IDs of all registered and enabled agents."""
+        return [aid for aid in self._agents if aid not in self._disabled_agents]
+
+    def list_disabled_agents(self) -> list[str]:
+        """Return IDs of all disabled agents."""
+        return sorted(self._disabled_agents)
 
     @property
     def router(self) -> IntentRouter:
@@ -407,9 +530,18 @@ class OrchestratorEngine:
         """Dispatch to a single agent by ID.
 
         Budget and governance checks are performed before and after execution:
-        - Pre-dispatch: allocate per-agent budget, truncate input, context window check
+        - Pre-dispatch: check disabled status, allocate per-agent budget, truncate input, context window check
         - Post-dispatch: token usage recording
         """
+        # ── Disabled agent gate ────────────────────────────────────────
+        if str(agent_id) in self._disabled_agents:
+            logger.warning("dispatch_skipped_disabled", agent_id=str(agent_id))
+            return AgentResult(
+                agent_id=str(agent_id),
+                content=f"Agent '{agent_id}' is currently disabled.",
+                confidence=0.0,
+            )
+
         agent = self._agents.get(str(agent_id))
         if not agent:
             logger.warning("agent_not_found", agent_id=str(agent_id))
@@ -616,6 +748,8 @@ class OrchestratorEngine:
         status = {
             "session_id": self._context.session_id,
             "registered_agents": list(self._agents.keys()),
+            "enabled_agents": self.list_enabled_agents(),
+            "disabled_agents": self.list_disabled_agents(),
             "message_count": len(self._context.messages),
             "active_workflow": self._context.active_workflow,
             "provider": self._settings.llm.active_provider.value,

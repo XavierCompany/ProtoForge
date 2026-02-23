@@ -1,10 +1,10 @@
-"""HITL selector for governance alerts — context window and skill cap reviews.
+"""HITL selector for governance alerts — context window, skill cap, and agent lifecycle reviews.
 
 Follows the same prepare → expose → wait → resolve pattern established by
 :class:`~src.orchestrator.plan_selector.PlanSelector` and
 :class:`~src.workiq.selector.WorkIQSelector`.
 
-Two review types:
+Three review types:
 
 1. **Context Window Review** — triggered when cumulative tokens cross the
    warning threshold.  The human can accept task decomposition (spawn a
@@ -13,6 +13,10 @@ Two review types:
 2. **Skill Cap Review** — triggered at manifest load time when an agent
    declares > 4 skills.  The human can accept the suggested split, customise
    which skills stay vs. move, or override the violation.
+
+3. **Agent Lifecycle Review** — triggered when an operator requests to
+   disable or remove an agent at runtime.  The human reviews the action,
+   sees which agents will remain enabled, and confirms or rejects the change.
 """
 
 from __future__ import annotations
@@ -62,6 +66,23 @@ class SkillCapReview:
     overridden: bool = False
 
 
+@dataclass
+class AgentLifecycleReview:
+    """Pending HITL request for an agent disable/remove action.
+
+    The human reviews which agent is targeted and which agents will remain
+    enabled after the action, then confirms or rejects.
+    """
+
+    request_id: str
+    action: str  # "disable" or "remove"
+    target_agent_id: str
+    enabled_agents: list[str] = field(default_factory=list)
+    accepted: bool = False
+    resolved: bool = False
+    user_note: str = ""
+
+
 # ── GovernanceSelector ──────────────────────────────────────────────────────
 
 
@@ -71,6 +92,7 @@ class GovernanceSelector:
     Usage:
     - ``prepare_context_review`` / ``resolve_context_review`` / ``wait_for_context_review``
     - ``prepare_skill_review`` / ``resolve_skill_review`` / ``wait_for_skill_review``
+    - ``prepare_lifecycle_review`` / ``resolve_lifecycle_review`` / ``wait_for_lifecycle_review``
 
     If no human responds within *timeout* seconds the request auto-resolves
     (fail-open: accepts the suggestion by default).
@@ -86,6 +108,10 @@ class GovernanceSelector:
         # Skill cap reviews
         self._skill_pending: dict[str, SkillCapReview] = {}
         self._skill_events: dict[str, asyncio.Event] = {}
+
+        # Agent lifecycle reviews
+        self._lifecycle_pending: dict[str, AgentLifecycleReview] = {}
+        self._lifecycle_events: dict[str, asyncio.Event] = {}
 
     # ── Context Window Reviews ──────────────────────────────────────────
 
@@ -304,3 +330,112 @@ class GovernanceSelector:
     def cleanup_skill_review(self, request_id: str) -> None:
         self._skill_pending.pop(request_id, None)
         self._skill_events.pop(request_id, None)
+
+    # ── Agent Lifecycle Reviews ─────────────────────────────────────────
+
+    def prepare_lifecycle_review(
+        self,
+        request_id: str,
+        action: str,
+        target_agent_id: str,
+        enabled_agents: list[str],
+    ) -> AgentLifecycleReview:
+        """Create a HITL review for an agent lifecycle action (disable/remove).
+
+        *enabled_agents* is the list of agents that will remain enabled
+        **after** the action completes, allowing the human to see the impact
+        before confirming.
+        """
+        review = AgentLifecycleReview(
+            request_id=request_id,
+            action=action,
+            target_agent_id=target_agent_id,
+            enabled_agents=enabled_agents,
+        )
+        self._lifecycle_pending[request_id] = review
+        self._lifecycle_events[request_id] = asyncio.Event()
+
+        logger.info(
+            "lifecycle_review_prepared",
+            request_id=request_id,
+            action=action,
+            target_agent_id=target_agent_id,
+            remaining_agents=len(enabled_agents),
+        )
+        return review
+
+    def resolve_lifecycle_review(
+        self,
+        request_id: str,
+        accepted: bool,
+        user_note: str = "",
+    ) -> bool:
+        """Human resolves an agent lifecycle review.
+
+        - ``accepted=True``  → proceed with disable/remove
+        - ``accepted=False`` → cancel the action, keep agent as-is
+        """
+        review = self._lifecycle_pending.get(request_id)
+        if not review:
+            logger.warning("lifecycle_review_not_found", request_id=request_id)
+            return False
+
+        review.accepted = accepted
+        review.resolved = True
+        review.user_note = user_note
+
+        event = self._lifecycle_events.get(request_id)
+        if event:
+            event.set()
+
+        logger.info(
+            "lifecycle_review_resolved",
+            request_id=request_id,
+            action=review.action,
+            target_agent_id=review.target_agent_id,
+            accepted=accepted,
+        )
+        return True
+
+    async def wait_for_lifecycle_review(self, request_id: str) -> AgentLifecycleReview:
+        """Block until the human resolves the lifecycle review (or timeout).
+
+        Timeout auto-resolves as **fail-closed** (rejects the action) to
+        prevent accidental agent removal without explicit human consent.
+        """
+        review = self._lifecycle_pending.get(request_id)
+        if not review:
+            raise KeyError(f"No pending lifecycle review for {request_id}")
+        if review.resolved:
+            return review
+
+        event = self._lifecycle_events[request_id]
+        try:
+            await asyncio.wait_for(event.wait(), timeout=self._timeout)
+        except TimeoutError:
+            logger.warning("lifecycle_review_timeout", request_id=request_id)
+            review.accepted = False  # fail-CLOSED: reject action on timeout
+            review.resolved = True
+
+        return review
+
+    def pending_lifecycle_reviews(self) -> list[dict[str, Any]]:
+        """Unresolved agent lifecycle reviews (for REST API)."""
+        return [
+            {
+                "request_id": r.request_id,
+                "action": r.action,
+                "target_agent_id": r.target_agent_id,
+                "enabled_agents_after": r.enabled_agents,
+                "resolved": r.resolved,
+            }
+            for r in self._lifecycle_pending.values()
+            if not r.resolved
+        ]
+
+    def get_lifecycle_review(self, request_id: str) -> AgentLifecycleReview | None:
+        return self._lifecycle_pending.get(request_id)
+
+    def cleanup_lifecycle_review(self, request_id: str) -> None:
+        self._lifecycle_pending.pop(request_id, None)
+        self._lifecycle_events.pop(request_id, None)

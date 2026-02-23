@@ -589,6 +589,110 @@ class TestSkillCapReviewSelector:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Agent Lifecycle Review Selector tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestAgentLifecycleReviewSelector:
+    """Test HITL for agent lifecycle actions (disable/remove)."""
+
+    def test_prepare_lifecycle_review_disable(self):
+        sel = GovernanceSelector(timeout=1.0)
+        review = sel.prepare_lifecycle_review(
+            "lc-1", "disable", "log_analysis", ["plan", "code_research"],
+        )
+        assert review.request_id == "lc-1"
+        assert review.action == "disable"
+        assert review.target_agent_id == "log_analysis"
+        assert review.enabled_agents == ["plan", "code_research"]
+        assert not review.resolved
+
+    def test_prepare_lifecycle_review_remove(self):
+        sel = GovernanceSelector(timeout=1.0)
+        review = sel.prepare_lifecycle_review(
+            "lc-2", "remove", "data_analysis", ["plan"],
+        )
+        assert review.action == "remove"
+        assert review.target_agent_id == "data_analysis"
+
+    def test_resolve_lifecycle_review_accepted(self):
+        sel = GovernanceSelector(timeout=1.0)
+        sel.prepare_lifecycle_review(
+            "lc-1", "disable", "log_analysis", ["plan"],
+        )
+        ok = sel.resolve_lifecycle_review("lc-1", accepted=True, user_note="Go ahead")
+        assert ok is True
+        review = sel.get_lifecycle_review("lc-1")
+        assert review.resolved
+        assert review.accepted
+        assert review.user_note == "Go ahead"
+
+    def test_resolve_lifecycle_review_rejected(self):
+        sel = GovernanceSelector(timeout=1.0)
+        sel.prepare_lifecycle_review(
+            "lc-1", "disable", "log_analysis", ["plan"],
+        )
+        ok = sel.resolve_lifecycle_review("lc-1", accepted=False)
+        assert ok is True
+        review = sel.get_lifecycle_review("lc-1")
+        assert not review.accepted
+
+    def test_resolve_nonexistent_returns_false(self):
+        sel = GovernanceSelector()
+        ok = sel.resolve_lifecycle_review("nope", accepted=True)
+        assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_wait_for_lifecycle_review_timeout_fail_closed(self):
+        """Lifecycle reviews fail-CLOSED on timeout (rejects action)."""
+        sel = GovernanceSelector(timeout=0.1)
+        sel.prepare_lifecycle_review(
+            "lc-1", "disable", "log_analysis", ["plan"],
+        )
+        review = await sel.wait_for_lifecycle_review("lc-1")
+        assert review.resolved
+        assert not review.accepted  # fail-CLOSED — opposite of context/skill
+
+    @pytest.mark.asyncio
+    async def test_wait_for_lifecycle_review_resolved_before(self):
+        sel = GovernanceSelector(timeout=1.0)
+        sel.prepare_lifecycle_review(
+            "lc-1", "remove", "log_analysis", ["plan"],
+        )
+        sel.resolve_lifecycle_review("lc-1", accepted=True, user_note="Remove it")
+        review = await sel.wait_for_lifecycle_review("lc-1")
+        assert review.resolved
+        assert review.accepted
+
+    @pytest.mark.asyncio
+    async def test_wait_for_nonexistent_lifecycle_raises(self):
+        sel = GovernanceSelector()
+        with pytest.raises(KeyError):
+            await sel.wait_for_lifecycle_review("nope")
+
+    def test_pending_lifecycle_reviews(self):
+        sel = GovernanceSelector()
+        sel.prepare_lifecycle_review(
+            "lc-1", "disable", "log_analysis", ["plan", "code_research"],
+        )
+        pending = sel.pending_lifecycle_reviews()
+        assert len(pending) == 1
+        assert pending[0]["request_id"] == "lc-1"
+        assert pending[0]["action"] == "disable"
+        assert pending[0]["target_agent_id"] == "log_analysis"
+        assert pending[0]["enabled_agents_after"] == ["plan", "code_research"]
+
+    def test_cleanup_lifecycle_review(self):
+        sel = GovernanceSelector()
+        sel.prepare_lifecycle_review(
+            "lc-1", "disable", "log_analysis", ["plan"],
+        )
+        sel.cleanup_lifecycle_review("lc-1")
+        assert sel.pending_lifecycle_reviews() == []
+        assert sel.get_lifecycle_review("lc-1") is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Engine integration tests
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -712,6 +816,138 @@ class TestEngineGovernanceIntegration:
     def test_get_agent_returns_none_for_missing(self):
         engine, _, _ = self._make_engine()
         assert engine.get_agent("nonexistent") is None
+
+
+class TestEngineAgentLifecycle:
+    """Test engine-level disable / enable / unregister with HITL."""
+
+    def _make_engine(self):
+        from src.orchestrator.engine import OrchestratorEngine
+
+        bm = _make_budget_manager()
+        guardian = GovernanceGuardian(
+            config=_make_config(),
+            budget_manager=bm,
+        )
+        selector = GovernanceSelector(timeout=0.1)
+        engine = OrchestratorEngine(
+            governance_guardian=guardian,
+            governance_selector=selector,
+            budget_manager=bm,
+        )
+        return engine, guardian, selector, bm
+
+    def _mock_agent(self, agent_id: str = "test"):
+        agent = MagicMock()
+        agent.agent_id = agent_id
+        agent.system_prompt = "You are a test agent."
+
+        async def mock_execute(message, context, params=None):
+            from src.orchestrator.context import AgentResult
+
+            return AgentResult(
+                agent_id=agent_id,
+                content=f"Result from {agent_id}",
+                confidence=0.9,
+            )
+
+        agent.execute = AsyncMock(side_effect=mock_execute)
+        return agent
+
+    def test_list_enabled_agents(self):
+        engine, _, _, _ = self._make_engine()
+        engine.register_agent("a", self._mock_agent("a"))
+        engine.register_agent("b", self._mock_agent("b"))
+        enabled = engine.list_enabled_agents()
+        assert sorted(enabled) == ["a", "b"]
+
+    def test_list_disabled_agents_initially_empty(self):
+        engine, _, _, _ = self._make_engine()
+        assert engine.list_disabled_agents() == []
+
+    @pytest.mark.asyncio
+    async def test_enable_agent(self):
+        engine, _, _, _ = self._make_engine()
+        engine.register_agent("a", self._mock_agent("a"))
+        # Manually disable first
+        engine._disabled_agents.add("a")
+        result = await engine.enable_agent("a")
+        assert result["action"] == "enabled"
+        assert "a" not in engine._disabled_agents
+
+    @pytest.mark.asyncio
+    async def test_enable_nonexistent_returns_error(self):
+        engine, _, _, _ = self._make_engine()
+        result = await engine.enable_agent("nope")
+        assert result["ok"] is False
+
+    @pytest.mark.asyncio
+    async def test_disable_agent_timeout_rejects(self):
+        """HITL timeout for disable should fail-CLOSED (agent stays enabled)."""
+        engine, _, selector, _ = self._make_engine()
+        engine.register_agent("a", self._mock_agent("a"))
+        engine.register_agent("b", self._mock_agent("b"))
+        result = await engine.disable_agent("a")
+        # Timeout → fail-closed → rejected
+        assert result["ok"] is False
+        assert "a" not in engine._disabled_agents
+
+    @pytest.mark.asyncio
+    async def test_disable_agent_accepted(self):
+        """When HITL is resolved with accepted=True, agent is disabled."""
+        engine, _, selector, _ = self._make_engine()
+        engine.register_agent("a", self._mock_agent("a"))
+        engine.register_agent("b", self._mock_agent("b"))
+
+        # Pre-resolve the lifecycle review before engine waits
+        # We need to peek at the request_id that will be created
+        import asyncio
+
+        async def _accept_soon():
+            await asyncio.sleep(0.02)
+            pending = selector.pending_lifecycle_reviews()
+            if pending:
+                selector.resolve_lifecycle_review(pending[0]["request_id"], accepted=True)
+
+        # Increase the timeout so the async accept works
+        selector._timeout = 2.0
+        accept_task = asyncio.create_task(_accept_soon())
+        result = await engine.disable_agent("a")
+        await accept_task
+        assert result["action"] == "disabled"
+        assert "a" in engine._disabled_agents
+
+    @pytest.mark.asyncio
+    async def test_dispatch_disabled_agent_returns_early(self):
+        engine, _, _, _ = self._make_engine()
+        agent = self._mock_agent("a")
+        engine.register_agent("a", agent)
+        engine._disabled_agents.add("a")
+
+        from src.orchestrator.router import RoutingDecision
+
+        routing = RoutingDecision(primary_agent="a", confidence=0.9, reasoning="test")
+        result = await engine._dispatch("a", "hello", routing)
+        assert result.confidence == 0.0
+        assert "disabled" in result.content.lower()
+        agent.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unregister_agent_timeout_rejects(self):
+        """HITL timeout for unregister should fail-CLOSED (agent stays)."""
+        engine, _, _, _ = self._make_engine()
+        engine.register_agent("a", self._mock_agent("a"))
+        result = await engine.unregister_agent("a")
+        assert result["ok"] is False
+        assert "a" in engine._agents
+
+    def test_get_status_includes_lifecycle_info(self):
+        engine, _, _, _ = self._make_engine()
+        engine.register_agent("a", self._mock_agent("a"))
+        engine._disabled_agents.add("a")
+        status = engine.get_status()
+        assert "a" in status["disabled_agents"]
+        assert "a" not in status["enabled_agents"]
 
 
 class TestBudgetEnforcementInDispatch:
@@ -1180,3 +1416,146 @@ class TestGovernanceServerEndpoints:
         resp = tc.get("/governance/status")
         assert resp.status_code == 200
         assert resp.json()["enabled"] is False
+
+
+class TestLifecycleServerEndpoints:
+    """Test agent lifecycle REST API endpoints via TestClient."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+
+        from src.server import create_app
+
+        orchestrator = MagicMock()
+        orchestrator._governance = GovernanceGuardian(config=_make_config())
+        orchestrator.get_status.return_value = {
+            "session_id": "test",
+            "registered_agents": ["a", "b"],
+            "enabled_agents": ["a", "b"],
+            "disabled_agents": [],
+            "message_count": 0,
+            "active_workflow": None,
+            "provider": "azure_openai",
+            "workiq_enrichment_available": False,
+            "governance_enabled": True,
+        }
+        orchestrator.list_enabled_agents.return_value = ["a", "b"]
+        orchestrator.list_disabled_agents.return_value = []
+
+        # disable_agent is async
+        async def _mock_disable(agent_id):
+            return {"agent_id": agent_id, "status": "disabled"}
+
+        orchestrator.disable_agent = AsyncMock(side_effect=_mock_disable)
+
+        async def _mock_enable(agent_id):
+            return {"agent_id": agent_id, "status": "enabled"}
+
+        orchestrator.enable_agent = AsyncMock(side_effect=_mock_enable)
+
+        async def _mock_unregister(agent_id):
+            return {"agent_id": agent_id, "status": "removed"}
+
+        orchestrator.unregister_agent = AsyncMock(side_effect=_mock_unregister)
+
+        mcp_server = MagicMock()
+        mcp_server.get_status.return_value = {"tools_count": 0}
+        catalog = MagicMock()
+        catalog.list_agents.return_value = []
+        catalog.get_status.return_value = {"installed_skills": 0}
+        workflow_engine = MagicMock()
+        workflow_engine.list_workflows.return_value = []
+
+        governance_selector = GovernanceSelector(timeout=1.0)
+
+        app = create_app(
+            orchestrator=orchestrator,
+            mcp_server=mcp_server,
+            catalog=catalog,
+            workflow_engine=workflow_engine,
+            governance_selector=governance_selector,
+        )
+        return TestClient(app), orchestrator, governance_selector
+
+    def test_lifecycle_reviews_empty(self, client):
+        tc, _, _ = client
+        resp = tc.get("/governance/lifecycle-reviews")
+        assert resp.status_code == 200
+        assert resp.json()["pending"] == []
+
+    def test_lifecycle_review_lifecycle(self, client):
+        tc, _, selector = client
+        selector.prepare_lifecycle_review(
+            "lc-1", "disable", "log_analysis", ["plan", "code_research"],
+        )
+        resp = tc.get("/governance/lifecycle-reviews")
+        pending = resp.json()["pending"]
+        assert len(pending) == 1
+        assert pending[0]["action"] == "disable"
+
+        # Resolve
+        resp = tc.post(
+            "/governance/lifecycle-reviews/resolve",
+            json={"request_id": "lc-1", "accepted": True, "user_note": "OK"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["accepted"] is True
+
+    def test_resolve_nonexistent_lifecycle_review(self, client):
+        tc, _, _ = client
+        resp = tc.post(
+            "/governance/lifecycle-reviews/resolve",
+            json={"request_id": "nope", "accepted": True},
+        )
+        assert resp.status_code == 404
+
+    def test_disable_agent_endpoint(self, client):
+        tc, orch, _ = client
+        resp = tc.post("/agents/a/disable")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "disabled"
+        orch.disable_agent.assert_called_once_with("a")
+
+    def test_disable_nonexistent_agent(self, client):
+        tc, orch, _ = client
+        orch.disable_agent = AsyncMock(side_effect=KeyError("nope"))
+        resp = tc.post("/agents/nope/disable")
+        assert resp.status_code == 404
+
+    def test_enable_agent_endpoint(self, client):
+        tc, orch, _ = client
+        resp = tc.post("/agents/a/enable")
+        assert resp.status_code == 200
+        orch.enable_agent.assert_called_once_with("a")
+
+    def test_enable_nonexistent_agent(self, client):
+        tc, orch, _ = client
+        orch.enable_agent.side_effect = KeyError("nope")
+        resp = tc.post("/agents/nope/enable")
+        assert resp.status_code == 404
+
+    def test_remove_agent_endpoint(self, client):
+        tc, orch, _ = client
+        resp = tc.delete("/agents/a")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "removed"
+        orch.unregister_agent.assert_called_once_with("a")
+
+    def test_remove_nonexistent_agent(self, client):
+        tc, orch, _ = client
+        orch.unregister_agent = AsyncMock(side_effect=KeyError("nope"))
+        resp = tc.delete("/agents/nope")
+        assert resp.status_code == 404
+
+    def test_list_enabled_agents_endpoint(self, client):
+        tc, _, _ = client
+        resp = tc.get("/agents/enabled")
+        assert resp.status_code == 200
+        assert resp.json()["enabled_agents"] == ["a", "b"]
+
+    def test_list_disabled_agents_endpoint(self, client):
+        tc, _, _ = client
+        resp = tc.get("/agents/disabled")
+        assert resp.status_code == 200
+        assert resp.json()["disabled_agents"] == []

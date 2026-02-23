@@ -22,6 +22,10 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 
 class AgentType(StrEnum):
     """Well-known agent IDs shipped with ProtoForge.
@@ -224,6 +228,16 @@ class IntentRouter:
         compiled = [re.compile(p, re.IGNORECASE) for p in patterns]
         existing = self._compiled_patterns.get(agent_id, [])
         self._compiled_patterns[agent_id] = existing + compiled
+
+    def deregister_patterns(self, agent_id: str) -> None:
+        """Remove all routing patterns for *agent_id*.
+
+        Called when an agent is disabled or unregistered at runtime so
+        that the keyword router no longer considers it for routing.
+        """
+        removed = self._compiled_patterns.pop(agent_id, None)
+        if removed is not None:
+            logger.info("routing_patterns_removed", agent=agent_id, count=len(removed))
 
     @property
     def known_agent_ids(self) -> list[str]:

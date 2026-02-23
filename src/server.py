@@ -27,6 +27,13 @@ Endpoints:
 - POST /governance/context-reviews/resolve — Accept/reject context decomposition
 - GET  /governance/skill-reviews — List pending skill cap HITL reviews
 - POST /governance/skill-reviews/resolve — Accept/customise/override skill cap split
+- GET  /governance/lifecycle-reviews — List pending agent lifecycle reviews (disable/remove HITL)
+- POST /governance/lifecycle-reviews/resolve — Accept/reject agent disable or removal
+- POST /agents/{agent_id}/disable — Request agent disable (triggers HITL review)
+- POST /agents/{agent_id}/enable — Re-enable a disabled agent (no HITL required)
+- DELETE /agents/{agent_id} — Request agent removal (triggers HITL review)
+- GET  /agents/enabled — List currently enabled agents
+- GET  /agents/disabled — List currently disabled agents
 - GET  /health                 — Health check
 - GET  /inspector              — Agent Inspector dashboard
 """
@@ -133,6 +140,12 @@ class GovernanceSkillResolveRequest(BaseModel):
 class GovernanceAlertResolveRequest(BaseModel):
     alert_id: str
     resolution: str = "accepted"
+
+
+class GovernanceLifecycleResolveRequest(BaseModel):
+    request_id: str
+    accepted: bool = True
+    user_note: str = ""
 
 
 def create_app(
@@ -705,6 +718,101 @@ def create_app(
                 "overridden": request.override,
                 "status": "resolved",
             }
+        )
+
+    # ── Agent Lifecycle (HITL) ──────────────────────────────────
+
+    @app.get("/governance/lifecycle-reviews")
+    async def governance_lifecycle_reviews() -> JSONResponse:
+        """List pending agent lifecycle HITL reviews (disable/remove)."""
+        if governance_selector is None:
+            return JSONResponse(content={"pending": []})
+        return JSONResponse(content={"pending": governance_selector.pending_lifecycle_reviews()})
+
+    @app.post("/governance/lifecycle-reviews/resolve")
+    async def governance_resolve_lifecycle(
+        request: GovernanceLifecycleResolveRequest,
+    ) -> JSONResponse:
+        """Accept or reject an agent lifecycle action (disable/remove)."""
+        if governance_selector is None:
+            return JSONResponse(
+                status_code=501,
+                content={"error": "Governance HITL not configured"},
+            )
+        ok = governance_selector.resolve_lifecycle_review(
+            request.request_id,
+            request.accepted,
+            user_note=request.user_note,
+        )
+        if not ok:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No pending lifecycle review with id {request.request_id}"},
+            )
+        return JSONResponse(
+            content={
+                "request_id": request.request_id,
+                "accepted": request.accepted,
+                "status": "resolved",
+            }
+        )
+
+    @app.post("/agents/{agent_id}/disable")
+    async def disable_agent(agent_id: str) -> JSONResponse:
+        """Request disabling an agent (triggers HITL review).
+
+        The actual disable only takes effect after the lifecycle review
+        is accepted by a human operator.
+        """
+        try:
+            result = await orchestrator.disable_agent(agent_id)
+            return JSONResponse(content=result)
+        except KeyError:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Agent '{agent_id}' not found"},
+            )
+
+    @app.post("/agents/{agent_id}/enable")
+    async def enable_agent(agent_id: str) -> JSONResponse:
+        """Re-enable a previously disabled agent (no HITL required)."""
+        try:
+            result = await orchestrator.enable_agent(agent_id)
+            return JSONResponse(content=result)
+        except KeyError:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Agent '{agent_id}' not found"},
+            )
+
+    @app.delete("/agents/{agent_id}")
+    async def remove_agent(agent_id: str) -> JSONResponse:
+        """Request removal of an agent (triggers HITL review).
+
+        The actual removal only takes effect after the lifecycle review
+        is accepted by a human operator.
+        """
+        try:
+            result = await orchestrator.unregister_agent(agent_id)
+            return JSONResponse(content=result)
+        except KeyError:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Agent '{agent_id}' not found"},
+            )
+
+    @app.get("/agents/enabled")
+    async def list_enabled_agents() -> JSONResponse:
+        """List agents currently enabled for routing and dispatch."""
+        return JSONResponse(
+            content={"enabled_agents": orchestrator.list_enabled_agents()}
+        )
+
+    @app.get("/agents/disabled")
+    async def list_disabled_agents() -> JSONResponse:
+        """List agents currently disabled (not routed to)."""
+        return JSONResponse(
+            content={"disabled_agents": orchestrator.list_disabled_agents()}
         )
 
     # ── Health & Status ─────────────────────────────────────────
