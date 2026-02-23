@@ -163,6 +163,8 @@ Quick reference for where each category of files lives.
 | Backlog | `TODO.md` | ✓ Canonical — track all planned work here |
 | Architecture guide | `GUIDE.md` | ✓ Reference (may lag behind code) |
 | Maintenance guide | `GUIDE2.md` | ✓ Reference (may lag behind code) |
+| LLM architecture ref | `ARCHITECTURE.md` | ✓ Compact architecture (~250 lines, LLM-optimised) |
+| LLM instructions | `.github/copilot-instructions.md` | ✓ LLM first-read file (~120 lines) |
 
 ---
 
