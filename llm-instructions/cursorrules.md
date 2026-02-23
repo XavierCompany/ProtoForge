@@ -56,4 +56,4 @@ forge/agents/*/agent.yaml — Per-agent manifests
 7. README.md — onboarding, endpoints (~820 lines)
 8. GUIDE.md — deep-dive reference, 19 sections (~2760 lines)
 9. GUIDE2.md — maintenance & tuning guide (~905 lines)
-10. BUILDING_AGENTS.md — agent building tutorial with AI Foundry (~350 lines)
+10. BUILDING_AGENTS.md — agent building tutorial with AI Foundry (~195 lines)

@@ -4,7 +4,7 @@
 > P0: 5 items (4 done, 1 remaining — LLM wiring).
 > P1: 5 items (2 done, 3 remaining). P2: 5 items. P3: 5 items.
 >
-> This is doc **5 of 9** in the reading order.
+> This is doc **5 of 10** in the reading order.
 > See [ARCHITECTURE.md](ARCHITECTURE.md) for system overview.
 
 > **Source**: Derived from [GUIDE2.md §13 — Improvement Roadmap](GUIDE2.md#13-improvement-roadmap)
@@ -89,7 +89,7 @@ These block any real deployment. Ordered by dependency.
 - **Status**: `[ ]`
 - **Effort**: 2 hours
 - **Files**: `src/main.py`
-- **What**: Split the 120+ line `bootstrap()` into:
+- **What**: Split the ~180-line `bootstrap()` into:
   - `_init_governance(settings) -> (guardian, selector, budget_mgr)`
   - `_register_agents(orchestrator, registry) -> dict`
   - `_load_skills_and_workflows(settings, registry) -> (skills, workflows)`
@@ -102,7 +102,7 @@ These block any real deployment. Ordered by dependency.
 - **Effort**: 2 hours
 - **Files**: `src/server.py` → `src/server/chat.py`, `governance.py`, `workiq.py`, `github.py`, `inspector.py`
 - **What**: Create a `src/server/` package with separate routers per domain. Use FastAPI `APIRouter` includes.
-- **Why**: ~900-line file is hard to navigate and causes PR merge conflicts
+- **Why**: ~750-line file is hard to navigate and causes PR merge conflicts
 - **Verify**: `pytest tests/ -v` + manual: `curl http://localhost:8080/health`
 - **GUIDE2 ref**: §2.10
 

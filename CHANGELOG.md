@@ -18,6 +18,19 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 ### Added
 - **BUILDING_AGENTS.md** — practical tutorial for building a new agent with Azure AI Foundry, covering Plan Agent conversation, LLM wiring, and full pipeline walkthrough (~350 lines)
 - **Document Map** in README.md — human-friendly navigation table with recommended reading orders for humans vs LLMs
+
+### Changed (documentation validation phase 3)
+- **BUILDING_AGENTS.md**: Rewritten from ~635 lines to ~195 lines — minimal, focused 8-step tutorial
+- **GUIDE2.md**: Fixed "9 of 9" → "9 of 10" in reading order header
+- **GUIDE2.md**: Fixed §2.5 bootstrap() size "120-line" → "~180-line" (actual: lines 80–258)
+- **GUIDE2.md**: Fixed §2.8 code snippet to show `max_history` as class field (not method parameter)
+- **GUIDE2.md**: Fixed §2.10 server.py size "~900 lines" → "~750 lines" (actual: 752)
+- **GUIDE2.md**: Fixed §1 table — `_route_with_llm()` → `get_llm_routing_prompt()` (function was renamed)
+- **TODO.md**: Fixed "5 of 9" → "5 of 10" in reading order header
+- **TODO.md**: Fixed P1-6 bootstrap() size "120+" → "~180" lines
+- **TODO.md**: Fixed P1-7 server.py size "~900-line" → "~750-line"
+- **copilot-instructions.md**: Updated BUILDING_AGENTS.md line count ~350 → ~195
+- **LLM instruction variants**: Updated BUILDING_AGENTS.md line count in claude.md, cursorrules.md
 - **Multi-model policy** — Claude Opus 4.6 (default), Codex 5.3, Gemini Pro 3.1 as first-class alternatives (see ADR-002)
 - 4 new model-policy tests in `TestModelPolicy` class — validates config.py defaults for all providers (378 total, up from 374)
 - `ALLOWED_MODELS` constant in `test_copilot_customization.py` — centralises model policy validation

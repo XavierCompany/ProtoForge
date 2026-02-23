@@ -56,7 +56,7 @@ User → FastAPI /chat → IntentRouter (keyword + LLM)
 7. `README.md` — onboarding, full endpoint table, quick-start (~820 lines)
 8. `GUIDE.md` — deep-dive reference, 19 sections (~2760 lines)
 9. `GUIDE2.md` — maintenance & tuning guide, 13 sections (~905 lines)
-10. `BUILDING_AGENTS.md` — practical tutorial: build a new agent with AI Foundry (~350 lines)
+10. `BUILDING_AGENTS.md` — practical tutorial: build a new agent with AI Foundry (~195 lines)
 
 ## What NOT to Change Without Care
 

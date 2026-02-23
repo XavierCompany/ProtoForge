@@ -128,7 +128,7 @@ information not duplicated elsewhere. Total: ~6200 lines (~65 K tokens).
 7. **README.md** — onboarding, full endpoint table, quick-start (~820 lines)
 8. **GUIDE.md** — deep-dive reference, 19 sections (~2760 lines, use ARCHITECTURE.md §10 section index for navigation)
 9. **GUIDE2.md** — maintenance & tuning guide, 13 sections (~905 lines)
-10. **BUILDING_AGENTS.md** — practical tutorial: build a new agent with AI Foundry (~350 lines)
+10. **BUILDING_AGENTS.md** — practical tutorial: build a new agent with AI Foundry (~195 lines)
 
 ## Version
 

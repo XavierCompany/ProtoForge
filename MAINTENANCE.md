@@ -451,6 +451,13 @@ The following claims were verified against the actual codebase:
 | 40 | Warning threshold = 110K in all docs (not 120K) | GUIDE.md, `_context_window.yaml` | ✅ |
 | 41 | BUILDING_AGENTS.md exists (doc 10 of 10) | `BUILDING_AGENTS.md` | ✅ |
 | 42 | All 3 LLM instruction variants list 10 docs | `llm-instructions/` | ✅ |
+| 43 | GUIDE2.md reading order "9 of 10" (not "9 of 9") | `GUIDE2.md` line 7 | ✅ |
+| 44 | TODO.md reading order "5 of 10" (not "5 of 9") | `TODO.md` line 7 | ✅ |
+| 45 | GUIDE2.md §2.5 bootstrap() = ~180 lines (not 120) | `main.py` lines 80–258 | ✅ |
+| 46 | GUIDE2.md §2.10 server.py = ~750 lines (not 900) | `server.py` Measure-Object | ✅ |
+| 47 | GUIDE2.md §2.8 code matches actual `max_history` impl | `context.py` line 56 | ✅ |
+| 48 | GUIDE2.md §1 LLM routing ref = `get_llm_routing_prompt()` | `router.py` line 281 | ✅ |
+| 49 | BUILDING_AGENTS.md simplified to ~195 lines (was 635) | `BUILDING_AGENTS.md` | ✅ |
 
 ---
 

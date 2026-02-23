@@ -4,7 +4,7 @@
 > Covers: architecture reality check, DE critique, budget tuning, routing tuning,
 > governance tuning, prompt engineering, debugging, observability, runbook.
 >
-> This is doc **9 of 9** in the reading order. Read
+> This is doc **9 of 10** in the reading order. Read
 > [ARCHITECTURE.md](ARCHITECTURE.md) first for orientation.
 > **See also**: [MAINTENANCE.md](MAINTENANCE.md) for the update protocol.
 
@@ -56,7 +56,7 @@ what the docs describe.
 | Layer | Status | Impact |
 |-------|--------|--------|
 | **LLM inference** | **Stub** | Every `execute()` returns a placeholder string |
-| **LLM-based routing** | **Stub** | `_route_with_llm()` returns `None` always |
+| **LLM-based routing** | **Stub** | `get_llm_routing_prompt()` generates a prompt, but no LLM call is wired |
 | **Summarize truncation strategy** | **Stub** | Falls back to `priority` truncation |
 | **Token counting (tiktoken)** | **Available** | `tiktoken>=0.7.0` in `pyproject.toml`; falls back to `len(text) // 4` only if uninstalled |
 | **`protoforge serve`** | **Broken** | Exit code 1 — likely missing env vars |
@@ -121,7 +121,7 @@ input_tokens = self._budget_manager.count_tokens(effective_message)
 # ... use input_tokens for budget check, governance check, and recording
 ```
 
-### 2.5 — HIGH: `bootstrap()` is a 120-line God Function
+### 2.5 — HIGH: `bootstrap()` is a ~180-line God Function
 
 `main.py:bootstrap()` does forge loading, governance init, agent registration,
 skill loading, workflow loading, catalog population, and app creation in one
@@ -163,14 +163,18 @@ obscures intent. Is the enum the canonical set, or is it just convenience?
 
 ### 2.8 — MEDIUM: ConversationContext grows without bound — ✅ DONE (commit `4d5128c`)
 
-Fixed: `ConversationContext` now accepts `max_history=200` and trims on
-`add_user_message()`. Memory is bounded to 200 messages by default.
+Fixed: `ConversationContext` now has a `max_history=200` class field and trims
+on `add_user_message()`. Memory is bounded to 200 messages by default.
 
 ```python
-def add_user_message(self, content: str, max_history: int = 200) -> None:
-    self.messages.append(Message(role=MessageRole.USER, content=content))
-    if len(self.messages) > max_history:
-        self.messages = self.messages[-max_history:]
+@dataclass
+class ConversationContext:
+    max_history: int = 200
+
+    def add_user_message(self, content: str) -> None:
+        self.messages.append(Message(role=MessageRole.USER, content=content))
+        if len(self.messages) > self.max_history:
+            self.messages = self.messages[-self.max_history :]
 ```
 
 ### 2.9 — MEDIUM: No selector Protocol / ABC
@@ -187,7 +191,7 @@ class SelectorProtocol(Protocol):
     def cleanup(self, request_id: str) -> None: ...
 ```
 
-### 2.10 — MEDIUM: server.py is ~900 lines
+### 2.10 — MEDIUM: server.py is ~750 lines
 
 A single file handles 35 HTTP endpoints. This is hard to navigate and
 makes conflict resolution during PRs painful.
