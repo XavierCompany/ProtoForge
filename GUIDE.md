@@ -8,18 +8,22 @@ A comprehensive guide covering architecture rationale, extending agent capabilit
 
 1. [Why This Architecture?](#why-this-architecture)
 2. [Plan-First Design: The Reasoning](#plan-first-design-the-reasoning)
-3. [The Forge Ecosystem](#the-forge-ecosystem)
-4. [Agent Registry / Catalog](#agent-registry--catalog)
-5. [Expanding Plan Agent Capabilities](#expanding-plan-agent-capabilities)
-6. [Expanding Sub-Agent Capabilities](#expanding-sub-agent-capabilities)
-7. [Adding a Brand-New Agent](#adding-a-brand-new-agent)
-8. [Adding New Skills & Workflows](#adding-new-skills--workflows)
-9. [Dynamic Contributions (CRUD)](#dynamic-contributions-crud)
-10. [Sub-Plan Agent (Dual HITL Resource Planning)](#sub-plan-agent-dual-hitl-resource-planning)
-11. [WorkIQ Integration (2-Phase Human-in-the-Loop)](#workiq-integration-2-phase-human-in-the-loop)
-12. [Extending the Codebase with GitHub Copilot CLI](#extending-the-codebase-with-github-copilot-cli)
-13. [Multi-Model Code Review Workflow](#multi-model-code-review-workflow-copilot-cli--claude-opus-46--codex-53)
-14. [Architecture Decision Records](#architecture-decision-records)
+3. [Architecture Design & Flow](#architecture-design--flow)
+4. [Context Window Management — Why & How](#context-window-management--why--how)
+5. [Splitting Tasks: Agents, Skills & Sub-Agents](#splitting-tasks-agents-skills--sub-agents)
+6. [Governance Guardian (Always-On Enforcement)](#governance-guardian-always-on-enforcement)
+7. [The Forge Ecosystem](#the-forge-ecosystem)
+8. [Agent Registry / Catalog](#agent-registry--catalog)
+9. [Expanding Plan Agent Capabilities](#expanding-plan-agent-capabilities)
+10. [Expanding Sub-Agent Capabilities](#expanding-sub-agent-capabilities)
+11. [Adding a Brand-New Agent](#adding-a-brand-new-agent)
+12. [Adding New Skills & Workflows](#adding-new-skills--workflows)
+13. [Dynamic Contributions (CRUD)](#dynamic-contributions-crud)
+14. [Sub-Plan Agent (Dual HITL Resource Planning)](#sub-plan-agent-dual-hitl-resource-planning)
+15. [WorkIQ Integration (2-Phase Human-in-the-Loop)](#workiq-integration-2-phase-human-in-the-loop)
+16. [Extending the Codebase with GitHub Copilot CLI](#extending-the-codebase-with-github-copilot-cli)
+17. [Multi-Model Code Review Workflow](#multi-model-code-review-workflow-copilot-cli--claude-opus-46--codex-53)
+18. [Architecture Decision Records](#architecture-decision-records)
 
 ---
 
@@ -156,6 +160,553 @@ This means even a simple request like *"check the logs"* gets a plan that identi
 - What to look for in the logs
 - Whether other agents might help (e.g., code_research for stack traces)
 - What success looks like
+
+---
+
+## Architecture Design & Flow
+
+### The Full Orchestration Pipeline
+
+Every request in ProtoForge flows through a carefully designed pipeline with governance enforcement at every stage:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        HTTP Server (FastAPI)                            │
+│  /chat  /chat/enriched  /mcp  /agents  /skills  /governance/*          │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │
+         ┌──────────────────────▼──────────────────────┐
+         │           WorkIQ Pre-Router (optional)       │
+         │  Phase 0: workiq ask → Phase 1: HITL select  │
+         │  Phase 2: keywords → Phase 2b: HITL accept   │
+         └──────────────────────┬──────────────────────┘
+                                │  routing hints
+         ┌──────────────────────▼──────────────────────┐
+         │  🛡️ Governance Guardian (always-on)          │
+         │  ┌──────────────────────────────────────┐   │
+         │  │ Context Window: 128K cap, 120K warn  │   │
+         │  │ Skill Cap: max 4 per agent           │   │
+         │  │ Architecture: agents=tasks            │   │
+         │  └──────────────────────────────────────┘   │
+         └──────────────────────┬──────────────────────┘
+                                │
+         ┌──────────────────────▼──────────────────────┐
+         │           Intent Router                      │
+         │  Keyword matching → LLM fallback if < 0.5   │
+         │  + WorkIQ enrichment hints (if available)    │
+         └──────────────────────┬──────────────────────┘
+                                │  ALWAYS first
+         ┌──────────────────────▼──────────────────────┐
+         │           Plan Agent (Coordinator)           │
+         │  Analyzes → Decomposes → Routes → Criteria  │
+         │  🛡️ Pre-dispatch governance check            │
+         └──────────────────────┬──────────────────────┘
+                                │  HITL: user accepts plan
+         ┌──────────────────────▼──────────────────────┐
+         │           Sub-Plan Agent (Resources)         │
+         │  Plans minimum-viable prerequisites          │
+         │  🛡️ Pre-dispatch governance check            │
+         └──────────────────────┬──────────────────────┘
+                                │  HITL: user accepts resources
+         ┌──────────┬──────────┼──────────┬────────────┐
+         ▼          ▼          ▼          ▼            ▼
+    ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────┐ ...
+    │  Log    │ │  Code   │ │Security │ │Knowledge │
+    │Analysis │ │Research │ │Sentinel │ │  Base    │
+    │ 🛡️pre  │ │ 🛡️pre  │ │ 🛡️pre  │ │ 🛡️pre  │
+    │ 🛡️post │ │ 🛡️post │ │ 🛡️post │ │ 🛡️post │
+    └────┬────┘ └────┬────┘ └────┬────┘ └────┬─────┘
+         └──────────┬┘───────────┘────────────┘
+                    ▼
+         ┌──────────────────────────────────────────┐
+         │           Aggregation Layer               │
+         │  Plan + Sub-Plan + task results combined  │
+         └──────────────────────────────────────────┘
+```
+
+### Key Design Principles
+
+1. **Plan-first, always** — every request gets a strategic plan before any agent executes
+2. **Governance at every stage** — token usage checked pre- and post-dispatch for every agent
+3. **HITL at every decision boundary** — humans approve plans, resources, and governance alerts
+4. **Fail-open timeouts** — all HITL gates auto-resolve after 120s to prevent pipeline stalls
+5. **Parallel fan-out** — independent task agents run concurrently after planning is complete
+6. **Context isolation** — sub-agents run in separate context windows to prevent overflow
+
+### Working Memory Flow
+
+ProtoForge uses a shared `ConversationContext` that carries state across the pipeline:
+
+```
+Plan Agent writes:
+  ├── plan_output        → Strategic plan text
+  ├── plan_artifacts     → {recommended_sub_agents: [...]}
+  └── plan_keywords      → Routing keywords
+
+Sub-Plan Agent writes:
+  ├── sub_plan_output    → Resource deployment plan
+  ├── sub_plan_artifacts → {resource_items: [...]}
+  └── resource_brief     → Human brief or default minimum-viable
+
+WorkIQ enrichment writes:
+  ├── workiq_selected_content  → User-selected M365 text
+  └── workiq_accepted_hints    → [{agent, keyword}, ...]
+
+Governance writes:
+  ├── governance_alerts        → Active alerts (context, skill cap)
+  └── governance_report        → Full status snapshot
+
+Task agents read:
+  ├── plan_output        → Reference the strategic plan
+  ├── resource_brief     → Know what resources are available
+  └── workiq_*           → M365 context (if enriched flow)
+```
+
+---
+
+## Context Window Management — Why & How
+
+### Why Context Windows Matter
+
+LLM context windows are the **single most critical resource** in a multi-agent system:
+
+1. **They're finite** — even with 128K token models, a Plan + Sub-Plan + 5 parallel agents can easily exceed the limit
+2. **They're expensive** — token cost scales linearly; waste 50K tokens on irrelevant context and you're paying for noise
+3. **Quality degrades** — LLMs perform worse as context fills up ("lost in the middle" phenomenon); keeping context focused improves output quality
+4. **They're shared** — in a multi-agent orchestration, all agents draw from the same token budget for a single run
+
+### The Two-Layer Token Budget System
+
+ProtoForge manages context at two levels:
+
+#### Layer 1 — Per-Agent Budgets (`ContextBudgetManager`)
+
+Each agent has its own input/output token budget defined in its `agent.yaml` manifest:
+
+```yaml
+# forge/agents/log_analysis/agent.yaml
+context_budget:
+  max_input_tokens: 16000    # max tokens for input to this agent
+  max_output_tokens: 8000    # max tokens for output from this agent
+  strategy: sliding_window   # how to handle overflow
+```
+
+The `ContextBudgetManager` (`src/forge/context_budget.py`) enforces these per-agent limits:
+
+```python
+manager = ContextBudgetManager(context_config)
+
+# Allocate a budget for an agent
+budget = manager.allocate("log_analysis", "specialist", override=manifest.context_budget)
+
+# Check if content fits
+if not manager.fits_budget("log_analysis", content, direction="input"):
+    content = manager.truncate("log_analysis", content, direction="input")
+
+# Record actual usage after execution
+manager.record_usage("log_analysis", input_tokens=12000, output_tokens=6000)
+```
+
+**Three truncation strategies** handle overflow differently:
+
+| Strategy | How It Works | Best For |
+|----------|-------------|----------|
+| `priority` | Keeps content by priority order (errors > stack traces > code > metadata). Drops lowest-priority content first | Plan Agent, general use |
+| `sliding_window` | Keeps the most recent N tokens, oldest content drops off | Log Analysis (recent entries matter most) |
+| `summarize` | LLM-compresses content before passing to agent; falls back to `priority` if LLM unavailable | Knowledge Base, long documents |
+
+#### Layer 2 — Global Budget (`GovernanceGuardian`)
+
+The `GovernanceGuardian` tracks **cumulative** token usage across all agents in a single orchestration run:
+
+```
+Global budget: 128,000 tokens
+  ├── Reserved for Plan Agent:    32,000
+  ├── Reserved for aggregation:   16,000
+  └── Available for task agents:  80,000
+```
+
+The guardian enforces two thresholds:
+
+| Threshold | Tokens | What Happens |
+|-----------|--------|-------------|
+| **Warning** | 120,000 | HITL triggered — `ContextWindowReview` created for human review. The guardian presents per-agent usage breakdown and suggests decomposing the remaining work into a sub-agent with a fresh context window |
+| **Hard cap** | 128,000 | Execution **halted**. The task MUST be decomposed before any further agents can execute |
+
+### How Governance Checks Work at Runtime
+
+The `OrchestratorEngine` calls the guardian at every dispatch:
+
+```python
+# In engine.py — _dispatch() method
+
+async def _dispatch(self, agent_type, message, routing):
+    # ── PRE-DISPATCH: estimate and check ──
+    estimated_tokens = self._budget_manager.count_tokens(message)
+    alert = self._guardian.check_context_window(agent_id, estimated_tokens)
+
+    if alert and alert.level == "critical":
+        # Hard cap breached → halt + HITL
+        await self._handle_governance_alert(alert)
+        return  # cannot proceed
+
+    if alert and alert.level == "warning":
+        # Warning threshold → HITL review
+        await self._handle_governance_alert(alert)
+        # continues after human accepts/rejects
+
+    # ── EXECUTE ──
+    result = await agent.execute(message, context)
+
+    # ── POST-DISPATCH: record actual usage ──
+    self._guardian.record_agent_usage(agent_id, result.tokens_used)
+```
+
+### The HITL Decomposition Flow
+
+When the warning threshold is crossed, here's exactly what happens:
+
+```
+1. GovernanceGuardian.check_context_window() → GovernanceAlert(level=WARNING)
+2. Engine calls _handle_governance_alert()
+3. GovernanceSelector.prepare_context_review() → ContextWindowReview
+   └── Staged for human at GET /governance/context-reviews
+       Includes:
+       - Current cumulative tokens (e.g., 121,000)
+       - Per-agent breakdown (Plan: 8K, Log: 15K, Code: 20K, ...)
+       - Suggestion: "Decompose remaining work into log_analysis_overflow sub-agent"
+
+4. Human reviews at POST /governance/context-reviews/{id}/resolve
+   Option A: accepted=true  → Task is decomposed, sub-agent spawned with fresh 128K window
+   Option B: accepted=false → Execution continues at operator's risk
+
+5. If timeout (120s) → auto-resolve as "accept" (fail-open)
+```
+
+### Practical Example: A 7-Agent Orchestration
+
+Consider a complex request: *"Investigate the auth outage, fix it, and audit for security gaps"*
+
+```
+Plan Agent:
+  Input: ~8K (system prompt + user message + routing context)
+  Output: ~4K (strategic plan + agent recommendations)
+  Cumulative: 12K ✅
+
+Sub-Plan Agent:
+  Input: ~5K (plan output + resource planning prompt)
+  Output: ~3K (minimum viable resources)
+  Cumulative: 20K ✅
+
+Log Analysis:
+  Input: ~15K (system prompt + log content — sliding_window truncated)
+  Output: ~8K (error analysis + patterns)
+  Cumulative: 43K ✅
+
+Code Research:
+  Input: ~20K (codebase snippets + plan context)
+  Output: ~10K (root cause analysis)
+  Cumulative: 73K ✅
+
+Security Sentinel:
+  Input: ~18K (CVE databases + code audit)
+  Output: ~8K (vulnerability report)
+  Cumulative: 99K ✅
+
+Remediation:
+  Input: ~15K (all prior outputs + fix generation)
+  Output: ~8K (patches + verification)
+  Cumulative: 122K ⚠️ WARNING TRIGGERED!
+
+  → GovernanceSelector HITL: "Context at 122K/128K.
+     Suggest moving Knowledge Base work to fresh sub-agent."
+  → Human accepts
+
+Knowledge Base (in sub-agent, fresh context):
+  Input: ~12K (documentation query)
+  Output: ~6K (relevant docs)
+  Fresh window cumulative: 18K ✅
+```
+
+### Configuration Reference
+
+All context window settings live in `forge/_context_window.yaml`:
+
+```yaml
+global:
+  max_total_tokens: 128000         # hard limit for entire run
+  reserve_for_plan: 32000          # guaranteed Plan Agent allocation
+  reserve_for_aggregation: 16000   # held back for final assembly
+
+governance:
+  context_window:
+    warning_threshold: 120000      # HITL at this level
+    hard_cap: 128000               # execution stops
+    check_before_dispatch: true    # check BEFORE each agent.execute()
+    check_after_dispatch: true     # record AFTER each agent.execute()
+  skill_cap:
+    max_skills_per_agent: 4
+    allow_override: true           # human can override after review
+  hitl:
+    timeout_seconds: 120           # auto-resolve after 2 minutes
+    auto_resolve_action: accept    # fail-open: accept decomposition
+
+defaults:
+  specialist:
+    max_input_tokens: 16000
+    max_output_tokens: 8000
+    strategy: priority
+  coordinator:
+    max_input_tokens: 24000
+    max_output_tokens: 12000
+    strategy: priority
+```
+
+---
+
+## Splitting Tasks: Agents, Skills & Sub-Agents
+
+Understanding the **separation of concerns** between agents, skills, and sub-agents is the key to building a maintainable multi-agent system. The governance system enforces these boundaries automatically.
+
+### The Three Component Types
+
+#### Agents — Task Handlers
+
+An **agent** handles a complete task. It has its own system prompt, context budget, and skills. It receives a goal and returns a structured result.
+
+```
+Agent = Task
+  ├── Has its own context window budget
+  ├── Has ≤ 4 skills (governance enforced)
+  ├── Can read working memory (plan context, prior results)
+  └── Returns AgentResult (content, confidence, artifacts)
+```
+
+**Examples:** Log Analysis Agent (diagnose log errors), Security Sentinel (audit for vulnerabilities), Remediation Agent (generate fixes)
+
+#### Skills — Reusable Capabilities
+
+A **skill** is a single, stateless capability that an agent can invoke — like a tool. Skills are defined in YAML and exposed as MCP tools.
+
+```
+Skill = Capability
+  ├── Stateless — no context window of its own
+  ├── Defined in YAML (name, description, parameters)
+  ├── Belongs to one agent (or shared/)
+  └── Exposed as MCP tool automatically
+```
+
+**Examples:** `analyze_logs` (parse log files), `search_code` (find code patterns), `scan_vulnerabilities` (CVE lookup)
+
+#### Sub-Agents — Context Isolation
+
+A **sub-agent** handles context-heavy work in its own **fresh context window**. This prevents the parent agent from overflowing its context budget.
+
+```
+Sub-Agent = Context Isolation
+  ├── Runs in a FRESH context window (128K available)
+  ├── Inherits governance rules (128K cap, 4-skill limit)
+  ├── Created when parent would overflow
+  └── Results folded back into parent's working memory
+```
+
+**Examples:** A `log_analysis_overflow` sub-agent for processing massive log files, a `code_research_deep` sub-agent for multi-file codebase analysis
+
+### Decision Matrix: What to Use When
+
+| Scenario | Component | Rationale |
+|----------|-----------|-----------|
+| Need to parse log files | **Skill** on Log Analysis Agent | Stateless tool — no context overhead |
+| Need to diagnose an outage from logs | **Log Analysis Agent** | Complete task with its own goal and context |
+| Log files are 100K+ tokens | **Sub-agent** under Log Analysis | Context isolation — fresh window prevents overflow |
+| Agent needs 6 skills | **Split: agent (4) + sub-agent (2)** | Governance enforces 4-skill cap |
+| Orchestration hits 120K tokens | **Sub-agent** for remaining work | Governance HITL triggers decomposition |
+| Reusable API call (GitHub, Jira) | **Skill** | Stateless, reusable across agents |
+| Full security audit of codebase | **Security Sentinel Agent** | Complete task with dedicated context |
+| Security audit needs to process 200 files | **Sub-agent** per file batch | Context isolation per batch |
+
+### How Sub-Agent Spawning Works
+
+When the governance system triggers a context decomposition:
+
+```
+1. GovernanceGuardian detects: cumulative tokens > 120K
+
+2. HITL Review created:
+   "Agent 'knowledge_base' would push context to 125K.
+    Suggest creating 'knowledge_base_overflow' sub-agent."
+
+3. Human accepts → engine spawns sub-agent:
+   - Fresh 128K context window
+   - Inherits parent's system prompt + plan context (compressed)
+   - Executes remaining work
+   - Returns result to parent's working memory
+
+4. Aggregation layer combines:
+   - Plan Agent output
+   - Direct task agent outputs
+   - Sub-agent outputs
+   → Final response to user
+```
+
+### The 4-Skill Rule
+
+Each agent is limited to **4 skills** by governance. This forces clean separation:
+
+```
+❌ Overloaded Agent (6 skills):
+  security_sentinel
+  ├── scan_vulnerabilities
+  ├── check_dependencies
+  ├── audit_permissions
+  ├── review_network_config    ← skill 4
+  ├── analyze_encryption       ← skill 5 — GOVERNANCE VIOLATION
+  └── check_compliance         ← skill 6 — GOVERNANCE VIOLATION
+
+✅ Properly Split (2 agents, 4 + 2 skills):
+  security_sentinel (primary)
+  ├── scan_vulnerabilities
+  ├── check_dependencies
+  ├── audit_permissions
+  └── review_network_config
+
+  security_sentinel_overflow (sub-agent)
+  ├── analyze_encryption
+  └── check_compliance
+```
+
+The `GovernanceGuardian` generates this split suggestion automatically at manifest load time, surfaced for human review via the HITL gate.
+
+---
+
+## Governance Guardian (Always-On Enforcement)
+
+The **Governance Guardian** (`src/governance/guardian.py`) is an always-on enforcement system that runs at every stage of the orchestration pipeline. It cannot be disabled by individual agents and enforces three pillars: context window management, skill cap limits, and architectural principles.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                   Governance Guardian                                │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+│  │ Context Window    │  │ Skill Cap        │  │ Architecture     │  │
+│  │ ─────────────── │  │ ──────────────── │  │ ──────────────── │  │
+│  │ 128K hard cap     │  │ 4 skills max     │  │ Agents = tasks   │  │
+│  │ 120K warning      │  │ HITL on overflow │  │ Skills = tools   │  │
+│  │ Pre/post dispatch │  │ Split suggestion │  │ Sub-agents =     │  │
+│  │ HITL decomposes   │  │ at manifest load │  │ context isolation │  │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘  │
+│           │                     │                      │            │
+│  ┌────────▼─────────────────────▼──────────────────────▼─────────┐  │
+│  │              GovernanceSelector (HITL Gates)                    │  │
+│  │  ContextWindowReview    SkillCapReview                         │  │
+│  │  prepare → expose → wait → resolve                             │  │
+│  │  Timeout: 120s → fail-open (accept suggestion)                 │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `GovernanceGuardian` | `src/governance/guardian.py` | Core enforcement: `check_context_window()`, `validate_skill_cap()`, `audit_manifest()`, `governance_report()` |
+| `GovernanceSelector` | `src/governance/selector.py` | HITL gates: `ContextWindowReview` and `SkillCapReview` with prepare → expose → wait → resolve pattern |
+| Governance rules | `forge/shared/instructions/governance_rules.md` | Human-readable rules injected into every agent's system prompt |
+| Governance config | `forge/_context_window.yaml` (governance section) | Thresholds, timeouts, caps — all configurable |
+
+### GovernanceGuardian API
+
+```python
+from src.governance.guardian import GovernanceGuardian
+
+# Initialised at bootstrap with context_window.yaml config
+guardian = GovernanceGuardian(config=context_config, budget_manager=budget_manager)
+
+# ── Context Window ──
+alert = guardian.check_context_window("log_analysis", estimated_tokens=15000)
+# Returns None (healthy), GovernanceAlert(WARNING), or GovernanceAlert(CRITICAL)
+
+guardian.record_agent_usage("log_analysis", tokens_used=14500)
+
+# ── Skill Cap ──
+alert = guardian.validate_skill_cap(manifest)
+# Returns None or GovernanceAlert with SkillSplitSuggestion
+
+# ── Architectural Audit ──
+alerts = guardian.audit_manifest(manifest)
+# Returns list of GovernanceAlert (skill cap + architecture hints)
+
+# ── Status ──
+report = guardian.governance_report()
+# {cumulative_tokens, hard_cap, utilisation_pct, agent_usage, alerts, violations}
+
+guardian.reset_run()  # reset at start of new orchestration
+```
+
+### GovernanceSelector API (HITL)
+
+```python
+from src.governance.selector import GovernanceSelector
+
+selector = GovernanceSelector(timeout=120.0)
+
+# ── Context Window Review ──
+review = selector.prepare_context_review(request_id, alert, decomposition)
+pending = selector.pending_context_reviews()  # for REST API
+selector.resolve_context_review(request_id, accepted=True, user_note="Split KB work")
+result = await selector.wait_for_context_review(request_id)
+
+# ── Skill Cap Review ──
+review = selector.prepare_skill_review(request_id, alert, split_suggestion)
+pending = selector.pending_skill_reviews()
+selector.resolve_skill_review(request_id, accepted=True)
+# Or customise the split:
+selector.resolve_skill_review(
+    request_id, accepted=True,
+    custom_keep=["scan_vulns", "check_deps", "audit_perms", "review_net"],
+    custom_overflow=["analyze_encrypt", "check_compliance"],
+)
+# Or override (acknowledge violation, proceed with > 4 skills):
+selector.resolve_skill_review(request_id, accepted=False, overridden=True)
+```
+
+### REST API: Governance Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/governance/status` | Full governance report: cumulative tokens, utilisation %, per-agent usage, alert counts, violations |
+| GET | `/governance/alerts` | All alerts (resolved + unresolved) |
+| GET | `/governance/alerts/unresolved` | Only unresolved alerts |
+| POST | `/governance/alerts/{id}/resolve` | Resolve an alert (`{resolution: "accepted"}`) |
+| GET | `/governance/context-reviews` | Pending context window HITL reviews (includes token breakdown + decomposition suggestion) |
+| POST | `/governance/context-reviews/{id}/resolve` | Accept/reject context decomposition (`{accepted: true, user_note: "..."}`) |
+| GET | `/governance/skill-reviews` | Pending skill cap HITL reviews (includes split suggestion) |
+| POST | `/governance/skill-reviews/{id}/resolve` | Accept/reject/customise skill split |
+
+### Example: Governance Status Response
+
+```json
+GET /governance/status
+
+{
+  "cumulative_tokens": 95000,
+  "hard_cap": 128000,
+  "warning_threshold": 120000,
+  "utilisation_pct": 74.2,
+  "agent_usage": {
+    "plan": 12000,
+    "sub_plan": 8000,
+    "log_analysis": 23000,
+    "code_research": 28000,
+    "security_sentinel": 24000
+  },
+  "max_skills_per_agent": 4,
+  "total_alerts": 1,
+  "unresolved_alerts": 0,
+  "skill_violations": []
+}
+```
 
 ---
 
@@ -1895,6 +2446,13 @@ gh copilot explain "What does this regex match: \bfix\s.*\b(?:error|exception|bu
 **Context:** Complex requests (e.g., "create workspace connectors") require prerequisite resources (storage accounts, service principals, API registrations) that don't map to any task agent. The Plan Agent shouldn't handle both strategic planning AND infrastructure provisioning  
 **Decision:** Insert a Sub-Plan Agent between Plan Agent and task agents. Both Plan output and Sub-Plan output go through HITL gates (`PlanSelector`). The Sub-Plan Agent defaults to a "minimum viable resources" brief, which users can override. Phase A: user accepts plan suggestions/keywords. Phase B: user accepts resource items and optionally provides a custom brief  
 **Consequences:** Cleaner separation of concerns — Plan Agent strategizes, Sub-Plan Agent provisions. Two additional HITL steps (both fail-open at 120s). Users control both the plan AND the resource plan. Default brief prevents over-provisioning. Sub-Plan is excluded from task agent fan-out  
+
+### ADR-013: Always-On Governance Guardian
+
+**Status:** Accepted  
+**Context:** Multi-agent orchestration can silently consume unbounded context tokens, agents can accumulate too many skills (violating single-responsibility), and the architectural boundary between agents/skills/sub-agents needs enforcement  
+**Decision:** Implement a `GovernanceGuardian` with three enforcement pillars: (1) Context window governance with a 128K hard cap and 120K warning threshold triggering HITL decomposition, (2) Skill cap enforcement limiting agents to 4 skills with HITL-reviewed split suggestions, (3) Architectural principle enforcement auditing manifests for design violations. A `GovernanceSelector` provides HITL gates (ContextWindowReview + SkillCapReview) using the same prepare → expose → wait → resolve pattern as PlanSelector and WorkIQSelector. All HITL gates fail-open after 120s  
+**Consequences:** Token costs are bounded and predictable. Agents stay focused (≤ 4 skills). Sub-agent creation is guided by governance. Adds governance check overhead to every dispatch (~1ms). 7 new REST endpoints for governance monitoring and HITL resolution. Governance rules are injected into every agent's system prompt via `forge/shared/instructions/governance_rules.md`  
 
 ---
 

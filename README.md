@@ -96,10 +96,11 @@ The **Plan Agent** is the top-level coordinator. Every request goes through Plan
 4. **HITL gate**: user accepts/rejects resource plan, can override brief
 5. Task agents execute in parallel, then results are aggregated
 
-## 9 Specialized Agents (1 Coordinator + 8 Sub-Agents)
+## 10 Specialized Agents (1 Coordinator + 9 Sub-Agents)
 
 | Agent | Role | Purpose |
 |-------|------|---------|
+| **GitHub Tracker** | Sub-Agent | Issue tracking, PR monitoring, commit search, milestone tracking via GitHub API |
 | **Plan** | Coordinator | Top-level: analyzes requests, produces plans, identifies sub-agents |
 | **Sub-Plan** | Resource Planner | Plans minimum-viable prerequisite resources (infra, connectors, APIs) before task agents execute — dual HITL gates for plan and resource acceptance |
 | **Log Analysis** | Sub-Agent | Log parsing, error analysis, stack traces, crash investigation |
@@ -109,6 +110,7 @@ The **Plan Agent** is the top-level coordinator. Every request goes through Plan
 | **Data Analysis** | Sub-Agent | Metrics, trends, charts, statistical analysis |
 | **Security Sentinel** | Sub-Agent | Vulnerability scanning, CVE lookup, compliance audits |
 | **WorkIQ** | Sub-Agent + Pre-Router Enrichment | M365 organisational context via [Work IQ](https://www.npmjs.com/package/@microsoft/workiq) with 2-phase HITL — content selection + routing-keyword acceptance |
+| **GitHub Tracker** | Sub-Agent | Issue tracking, PR monitoring, commit search, milestone tracking via GitHub API |
 
 ## Agent Registry / Catalog
 
@@ -266,6 +268,96 @@ Token budgets are centrally configured in `forge/_context_window.yaml` and enfor
 - **Token counting:** tiktoken (`cl100k_base`) with character-estimate fallback
 - **Dynamic scaling:** Rebalances unused budget across agents when overflow detected
 
+## Governance Guardian (Always-On Enforcement)
+
+ProtoForge includes an **always-on governance system** that enforces three pillars at every stage of the orchestration pipeline. These rules cannot be overridden by individual agents.
+
+### Pillar 1 — Context Window Governance
+
+LLM context windows are finite and expensive. Without enforcement, a multi-agent orchestration run can silently consume unbounded tokens, degrading quality and exceeding cost budgets.
+
+| Threshold | Action |
+|-----------|--------|
+| 0 – 120K tokens | ✅ Normal operation |
+| 120K – 128K tokens | ⚠️ **HITL triggered** — human decides whether to decompose the task and spawn a sub-agent |
+| ≥ 128K tokens | 🛑 **Hard cap** — execution halted, task MUST be decomposed |
+
+The `GovernanceGuardian` checks cumulative token usage **before** every `agent.execute()` call and records actual usage **after** each call. When the warning threshold is crossed, a `ContextWindowReview` is staged for human review via the `GovernanceSelector`.
+
+**Why this matters:** In a Plan → Sub-Plan → 5 task agents fan-out, unmanaged context can easily reach 200K+ tokens. The 128K hard cap forces decomposition into sub-agents with fresh context windows — keeping each agent focused and cost-effective.
+
+### Pillar 2 — Skill Cap Governance
+
+| Condition | Action |
+|-----------|--------|
+| ≤ 4 skills per agent | ✅ Normal |
+| > 4 skills | ⚠️ **HITL triggered** — suggests creating a custom sub-agent for overflow skills |
+
+At manifest load time, the `GovernanceGuardian` validates each agent's skill count. If exceeded, it generates a `SkillSplitSuggestion` recommending which skills to keep and which to move to a new sub-agent. The human can accept, customise, or override.
+
+### Pillar 3 — Architectural Principle Enforcement
+
+| Component | Responsibility |
+|-----------|---------------|
+| **Agent** | Handles a complete **task** — receives a goal, coordinates skills, returns a result |
+| **Skill** | Provides a single, reusable **capability** — a tool the agent invokes |
+| **Sub-agent** | Handles **isolated, context-heavy work** — runs in its own context window |
+
+The guardian audits manifests for architectural violations (e.g., large input budgets without sub-agents) and surfaces recommendations.
+
+### Enforcement Points
+
+| Stage | Check |
+|-------|-------|
+| **Manifest load** (`ForgeLoader`) | Skill count ≤ 4, architectural audit |
+| **Pre-dispatch** (`OrchestratorEngine._dispatch`) | Cumulative tokens < 120K warning / 128K hard cap |
+| **Post-dispatch** | Token usage recorded; budget report updated |
+| **Fan-out** | Each parallel agent checked before execution |
+
+### Governance REST API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/governance/status` | Full governance report (tokens, alerts, violations) |
+| GET | `/governance/alerts` | All governance alerts (resolved + unresolved) |
+| GET | `/governance/alerts/unresolved` | Only unresolved alerts |
+| POST | `/governance/alerts/{id}/resolve` | Resolve an alert via HITL |
+| GET | `/governance/context-reviews` | Pending context window HITL reviews |
+| POST | `/governance/context-reviews/{id}/resolve` | Accept/reject context decomposition |
+| GET | `/governance/skill-reviews` | Pending skill cap HITL reviews |
+| POST | `/governance/skill-reviews/{id}/resolve` | Accept/reject/customise skill split |
+
+## How to Split Tasks: Agents vs Sub-Agents
+
+Understanding **when to use an agent, a skill, or a sub-agent** is the key architectural decision in ProtoForge:
+
+### Decision Matrix
+
+| Situation | Use | Why |
+|-----------|-----|-----|
+| Reusable tool capability (search, parse, call API) | **Skill** | Skills are stateless tools an agent can invoke — no context overhead |
+| Distinct task with its own goal | **Agent** | Each agent has its own prompt, skills, and context budget |
+| Large input that would consume the parent's context | **Sub-agent** | Sub-agents run in a **fresh context window**, isolating heavy work |
+| > 4 skills needed for a logical domain | **Split into agent + sub-agent** | Governance enforces the 4-skill cap; the sub-agent carries overflow |
+| Orchestration approaching 120K tokens | **Decompose into sub-agent** | Governance HITL triggers — spawn a sub-agent to continue in fresh context |
+
+### Context Window Decomposition Flow
+
+```
+Orchestration run (128K budget)
+  ├── Plan Agent           →  ~8K tokens
+  ├── Sub-Plan Agent       →  ~5K tokens
+  ├── Log Analysis         → ~15K tokens
+  ├── Code Research        → ~20K tokens   ← cumulative: 48K ✅
+  ├── Security Sentinel    → ~18K tokens   ← cumulative: 66K ✅
+  ├── Knowledge Base       → ~30K tokens   ← cumulative: 96K ✅
+  ├── Data Analysis        → ~25K tokens   ← cumulative: 121K ⚠️ WARNING!
+  │   └─ GovernanceGuardian triggers HITL
+  │   └─ Human accepts decomposition
+  │   └─ Remaining work spawns sub-agent with fresh 128K context
+  └── [Spawned sub-agent]  → fresh 128K window
+```
+
 ### Dynamic Contributions
 
 The `ContributionManager` provides full CRUD for adding agents, skills, and workflows at runtime:
@@ -402,6 +494,14 @@ Steps with no dependencies run in parallel. The workflow engine handles dependen
 | POST | `/plan/accept` | Accept/reject Plan Agent suggestions |
 | GET | `/sub-plan/pending` | List pending Sub-Plan resource reviews (HITL) |
 | POST | `/sub-plan/accept` | Accept/reject resources + optional user brief override |
+| GET | `/governance/status` | Full governance report (tokens, alerts, violations) |
+| GET | `/governance/alerts` | All governance alerts |
+| GET | `/governance/alerts/unresolved` | Only unresolved alerts |
+| POST | `/governance/alerts/{id}/resolve` | Resolve a governance alert |
+| GET | `/governance/context-reviews` | Pending context window HITL reviews |
+| POST | `/governance/context-reviews/{id}/resolve` | Accept/reject context decomposition |
+| GET | `/governance/skill-reviews` | Pending skill cap HITL reviews |
+| POST | `/governance/skill-reviews/{id}/resolve` | Accept/reject/customise skill split |
 
 ## WorkIQ Integration (2-Phase Human-in-the-Loop)
 
@@ -539,7 +639,7 @@ workiq --version
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (166 tests)
+# Run tests (316 tests)
 pytest
 
 # Run with coverage
@@ -568,13 +668,14 @@ ProtoForge/
 │   │   ├── skills/
 │   │   ├── instructions/
 │   │   └── workflows/
-│   ├── agents/                 #   7 specialist agents
+│   ├── agents/                 #   8 specialist agents
 │   │   ├── log_analysis/
 │   │   ├── code_research/
 │   │   ├── remediation/
 │   │   ├── knowledge_base/
 │   │   ├── data_analysis/
 │   │   ├── security_sentinel/
+│   │   ├── github_tracker/     #   GitHub issue/PR tracking
 │   │   └── workiq/             #   WorkIQ (M365 context + HITL)
 │   ├── shared/                 #   Cross-agent prompts, instructions, workflows
 │   │   ├── prompts/
@@ -586,8 +687,8 @@ ProtoForge/
 ├── src/
 │   ├── main.py                 # Entry point & bootstrap
 │   ├── config.py               # Settings (pydantic-settings + ForgeConfig)
-│   ├── server.py               # FastAPI HTTP server (18 endpoints)
-│   ├── agents/                 # 9 agent implementations (Python)
+│   ├── server.py               # FastAPI HTTP server (26 endpoints)
+│   ├── agents/                 # 10 agent implementations (Python)
 │   │   ├── base.py             #   BaseAgent + BaseAgent.from_manifest()
 │   │   ├── generic.py          #   GenericAgent (forge-contributed agents)
 │   │   ├── plan_agent.py
@@ -598,11 +699,15 @@ ProtoForge/
 │   │   ├── knowledge_base_agent.py
 │   │   ├── data_analysis_agent.py
 │   │   ├── security_sentinel_agent.py
+│   │   ├── github_tracker_agent.py  #   GitHub Tracker (issues, PRs, milestones)
 │   │   └── workiq_agent.py     #   WorkIQ agent (M365 2-phase HITL)
 │   ├── forge/                  # ★ Forge runtime modules
 │   │   ├── loader.py           #   ForgeLoader — discovers forge/ tree
 │   │   ├── context_budget.py   #   ContextBudgetManager — token budgets
 │   │   └── contributions.py    #   ContributionManager — CRUD + audit
+│   ├── governance/             # ★ Always-on governance enforcement
+│   │   ├── guardian.py         #   GovernanceGuardian — 3-pillar enforcement
+│   │   └── selector.py         #   GovernanceSelector — HITL gates for violations
 │   ├── orchestrator/           # Core orchestration engine
 │   │   ├── engine.py           #   Plan-first dispatch + Sub-Plan pipeline
 │   │   ├── router.py           #   Intent Router (keyword + LLM + enrichment)
@@ -625,7 +730,9 @@ ProtoForge/
     ├── test_mcp.py             # 14 tests — protocol, server, skills
     ├── test_registry.py        # 10 tests — catalog, workflows
     ├── test_sub_plan.py        # 29 tests — sub-plan agent, plan selector, pipeline
-    └── test_workiq.py          # 37 tests — client, selector, agent, enrichment
+    ├── test_workiq.py          # 37 tests — client, selector, agent, enrichment
+    ├── test_github_tracker.py  # 82 tests — GitHub Tracker agent, all operations
+    └── test_governance.py      # 68 tests — guardian, selector, enforcement hooks
 ```
 
 ## Developer Guide
@@ -633,6 +740,9 @@ ProtoForge/
 See **[GUIDE.md](GUIDE.md)** for:
 - Why this architecture was chosen (Plan-first vs flat dispatch)
 - The Forge ecosystem in depth (manifests, context budgets, contributions)
+- **Context Window Management** — why token budgets matter, how the 128K cap works, decomposition strategies
+- **Governance Guardian** — always-on 3-pillar enforcement (context window, skill cap, architectural principles)
+- **Splitting Tasks: Agents, Skills & Sub-Agents** — decision matrix and practical decomposition patterns
 - **Sub-Plan Agent** — dual HITL gates for Plan and resource review, minimum-viable resource planning
 - How to expand Plan Agent and sub-agent capabilities
 - How to add brand-new agents via code or the `forge/contrib/` system
