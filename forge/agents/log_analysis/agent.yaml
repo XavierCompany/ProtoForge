@@ -12,8 +12,8 @@ description: >
 version: "1.0.0"
 
 context_budget:
-  max_input_tokens: 16000
-  max_output_tokens: 8000
+  max_input_tokens: 15000
+  max_output_tokens: 7000   # 22K envelope
   strategy: sliding_window
   priority_order:
     - system_prompt

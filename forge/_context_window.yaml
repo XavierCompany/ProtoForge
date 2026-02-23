@@ -1,21 +1,29 @@
 # ProtoForge Context Window Configuration
 # Controls how token budgets are allocated and managed across agents.
+#
+# DESIGN CONSTRAINT: No single orchestration run may exceed 128K tokens.
+# Budget math: Plan (32K) + Sub-Plan (20K) + max 3 specialists (≤25K each)
+# Worst case: 32K + 20K + 25K + 25K + 22K = 124K  (4K headroom)
 
-version: "1.1.0"
+version: "1.2.0"
 
 # Global budget for a single orchestration run
 global:
-  max_total_tokens: 128000      # total across all agents in one run
+  max_total_tokens: 128000      # hard limit — sum of ALL agent I/O in one run
   reserve_for_plan: 32000       # guaranteed allocation for Plan Agent
-  reserve_for_aggregation: 16000 # held back for final aggregation step
+  reserve_for_aggregation: 8000 # held back for final aggregation step
 
 # ── Governance thresholds ─────────────────────────────────────────────
 governance:
   context_window:
-    warning_threshold: 120000   # HITL triggered when cumulative tokens exceed this
+    warning_threshold: 110000   # HITL triggered when cumulative tokens exceed this
     hard_cap: 128000            # execution halted — task MUST be decomposed
+    enforce_hard_cap: true      # when true, raises ContextWindowExceededError (fail-closed)
     check_before_dispatch: true # check BEFORE each agent.execute()
     check_after_dispatch: true  # record usage AFTER each agent.execute()
+  budget_enforcement:
+    allocate_on_dispatch: true  # call allocate() for each agent before execute()
+    truncate_on_dispatch: true  # call truncate() on input when over budget
   skill_cap:
     max_skills_per_agent: 4     # HITL triggered when exceeded at manifest load
     allow_override: true        # human can override after review
@@ -26,13 +34,13 @@ governance:
 # Default per-agent budgets (overridden by agent.yaml if present)
 defaults:
   specialist:
-    max_input_tokens: 16000
-    max_output_tokens: 8000
+    max_input_tokens: 15000
+    max_output_tokens: 7000
     strategy: priority           # priority | sliding_window | summarize
 
   coordinator:
     max_input_tokens: 24000
-    max_output_tokens: 12000
+    max_output_tokens: 8000
     strategy: priority
 
 # Context window strategies
@@ -60,9 +68,9 @@ token_counting:
   model: cl100k_base             # tokenizer model (used by tiktoken)
   fallback: character_estimate   # if tiktoken unavailable, 1 token ≈ 4 chars
 
-# Dynamic scaling
+# Dynamic scaling — enforced in engine._fan_out()
 scaling:
   enabled: true
   min_agents: 1
-  max_parallel_agents: 4
+  max_parallel_agents: 3         # hard cap on concurrent specialists per fan-out
   rebalance_on_overflow: true    # redistribute budget when an agent under-uses

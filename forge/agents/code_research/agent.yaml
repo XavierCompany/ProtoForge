@@ -9,9 +9,9 @@ description: >
 version: "1.0.0"
 
 context_budget:
-  max_input_tokens: 16000
-  max_output_tokens: 8000
-  strategy: priority
+  max_input_tokens: 17000
+  max_output_tokens: 8000   # 25K envelope — heavy specialist
+  strategy: sliding_window  # code navigation benefits from recent context
   priority_order:
     - system_prompt
     - current_message

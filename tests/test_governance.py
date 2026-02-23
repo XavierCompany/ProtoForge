@@ -18,6 +18,7 @@ import pytest
 from src.forge.context_budget import ContextBudgetManager
 from src.forge.loader import AgentManifest
 from src.governance.guardian import (
+    ContextWindowExceededError,
     GovernanceAlert,
     GovernanceCategory,
     GovernanceGuardian,
@@ -137,10 +138,10 @@ class TestContextWindowEnforcement:
     def test_hard_cap_triggers(self):
         g = GovernanceGuardian(config=_make_config(hard_cap=128_000))
         g.record_agent_usage("agent_a", 120_000)
-        alert = g.check_context_window("agent_b", 10_000)
-        assert alert is not None
-        assert alert.level == GovernanceLevel.CRITICAL
-        assert "hard cap" in alert.message.lower()
+        with pytest.raises(ContextWindowExceededError) as exc_info:
+            g.check_context_window("agent_b", 10_000)
+        assert "hard cap" in exc_info.value.alert.message.lower()
+        assert exc_info.value.alert.level == GovernanceLevel.CRITICAL
 
     def test_exactly_at_warning_threshold(self):
         g = GovernanceGuardian(config=_make_config(warning=120_000))
@@ -691,6 +692,237 @@ class TestEngineGovernanceIntegration:
     def test_get_agent_returns_none_for_missing(self):
         engine, _, _ = self._make_engine()
         assert engine.get_agent("nonexistent") is None
+
+
+class TestBudgetEnforcementInDispatch:
+    """Test that per-agent budget allocation and truncation fire in _dispatch."""
+
+    def _make_budget_engine(self, warning: int = 120_000, hard_cap: int = 128_000):
+        from src.forge.loader import AgentManifest, ForgeRegistry
+        from src.orchestrator.engine import OrchestratorEngine
+
+        # Build a minimal ForgeRegistry with a manifest
+        registry = ForgeRegistry()
+        registry.agents["test_agent"] = AgentManifest(
+            id="test_agent",
+            name="Test Agent",
+            type="specialist",
+            version="1.0.0",
+            description="Test",
+            context_budget={"max_input_tokens": 100, "max_output_tokens": 50, "strategy": "priority"},
+        )
+        registry.context_config = {
+            "scaling": {"max_parallel_agents": 3},
+            "governance": {
+                "context_window": {
+                    "warning_threshold": warning,
+                    "hard_cap": hard_cap,
+                    "enforce_hard_cap": True,
+                    "check_before_dispatch": True,
+                    "check_after_dispatch": True,
+                },
+            },
+        }
+
+        bm = _make_budget_manager()
+        guardian = GovernanceGuardian(
+            config=_make_config(warning=warning, hard_cap=hard_cap),
+            budget_manager=bm,
+        )
+        selector = GovernanceSelector(timeout=0.1)
+        engine = OrchestratorEngine(
+            governance_guardian=guardian,
+            governance_selector=selector,
+            budget_manager=bm,
+            forge_registry=registry,
+        )
+        return engine, guardian, bm, registry
+
+    def _mock_agent(self, agent_id: str = "test_agent"):
+        agent = MagicMock()
+        agent.agent_id = agent_id
+        agent.system_prompt = "System."
+
+        async def mock_execute(message, context, params=None):
+            from src.orchestrator.context import AgentResult
+
+            return AgentResult(
+                agent_id=agent_id,
+                content=f"Result from {agent_id}",
+                confidence=0.9,
+            )
+
+        agent.execute = AsyncMock(side_effect=mock_execute)
+        return agent
+
+    @pytest.mark.asyncio
+    async def test_dispatch_allocates_budget(self):
+        engine, _, bm, _ = self._make_budget_engine()
+        agent = self._mock_agent()
+        engine.register_agent("test_agent", agent)
+
+        from src.orchestrator.router import RoutingDecision
+
+        routing = RoutingDecision(primary_agent="test_agent", confidence=0.9, reasoning="test")
+        await engine._dispatch("test_agent", "short msg", routing)
+
+        # Budget should have been allocated for test_agent
+        assert "test_agent" in bm._budgets
+        assert bm._budgets["test_agent"].max_input == 100
+        assert bm._budgets["test_agent"].max_output == 50
+
+    @pytest.mark.asyncio
+    async def test_dispatch_truncates_long_input(self):
+        engine, _, bm, _ = self._make_budget_engine()
+        agent = self._mock_agent()
+        engine.register_agent("test_agent", agent)
+
+        from src.orchestrator.router import RoutingDecision
+
+        routing = RoutingDecision(primary_agent="test_agent", confidence=0.9, reasoning="test")
+        # Send a message that's way over the 100-token input budget (~400 chars at 4 chars/token)
+        long_msg = "x" * 2000
+        await engine._dispatch("test_agent", long_msg, routing)
+
+        # The agent should have been called with a truncated message
+        call_args = agent.execute.call_args
+        actual_msg = call_args[0][0]
+        assert len(actual_msg) < len(long_msg)
+
+    @pytest.mark.asyncio
+    async def test_dispatch_records_budget_usage(self):
+        engine, _, bm, _ = self._make_budget_engine()
+        agent = self._mock_agent()
+        engine.register_agent("test_agent", agent)
+
+        from src.orchestrator.router import RoutingDecision
+
+        routing = RoutingDecision(primary_agent="test_agent", confidence=0.9, reasoning="test")
+        await engine._dispatch("test_agent", "hello", routing)
+
+        # Usage should be recorded
+        usage = bm._usage.get("test_agent")
+        assert usage is not None
+        assert usage["input"] > 0
+        assert usage["output"] > 0
+
+    @pytest.mark.asyncio
+    async def test_dispatch_aborts_on_hard_cap(self):
+        engine, guardian, _, _ = self._make_budget_engine(hard_cap=50)
+        agent = self._mock_agent()
+        engine.register_agent("test_agent", agent)
+
+        # Pre-fill tokens to hit hard cap
+        guardian.record_agent_usage("prev", 100)
+
+        from src.orchestrator.router import RoutingDecision
+
+        routing = RoutingDecision(primary_agent="test_agent", confidence=0.9, reasoning="test")
+        result = await engine._dispatch("test_agent", "hello", routing)
+
+        # Should abort with hard cap message
+        assert "hard cap" in result.content.lower()
+        assert result.confidence == 0.0
+        # Agent execute should NOT have been called
+        agent.execute.assert_not_called()
+
+
+class TestFanOutCapEnforcement:
+    """Test that _resolve_sub_agents enforces the max_parallel_agents cap."""
+
+    def test_fan_out_cap_enforced(self):
+        from src.forge.loader import ForgeRegistry
+        from src.orchestrator.engine import OrchestratorEngine
+
+        registry = ForgeRegistry()
+        registry.context_config = {"scaling": {"max_parallel_agents": 2}}
+
+        engine = OrchestratorEngine(forge_registry=registry)
+
+        from src.orchestrator.router import RoutingDecision
+
+        routing = RoutingDecision(
+            primary_agent="log_analysis",
+            confidence=0.9,
+            reasoning="test",
+            secondary_agents=["code_research", "remediation", "security_sentinel"],
+        )
+        result = engine._resolve_sub_agents(routing)
+        assert len(result) == 2
+        assert result == ["log_analysis", "code_research"]
+
+    def test_fan_out_under_cap_passes_all(self):
+        from src.forge.loader import ForgeRegistry
+        from src.orchestrator.engine import OrchestratorEngine
+
+        registry = ForgeRegistry()
+        registry.context_config = {"scaling": {"max_parallel_agents": 5}}
+
+        engine = OrchestratorEngine(forge_registry=registry)
+
+        from src.orchestrator.router import RoutingDecision
+
+        routing = RoutingDecision(
+            primary_agent="log_analysis",
+            confidence=0.9,
+            reasoning="test",
+            secondary_agents=["code_research"],
+        )
+        result = engine._resolve_sub_agents(routing)
+        assert len(result) == 2
+
+    def test_fan_out_default_cap_is_three(self):
+        from src.orchestrator.engine import OrchestratorEngine
+
+        engine = OrchestratorEngine()
+        assert engine._max_parallel_agents == 3
+
+
+class TestHardCapBehavior:
+    """Test enforce_hard_cap config flag behaviour."""
+
+    def test_enforce_hard_cap_defaults_true(self):
+        g = GovernanceGuardian()
+        assert g.enforce_hard_cap is True
+
+    def test_enforce_hard_cap_raises_exception(self):
+        config = _make_config(hard_cap=100)
+        config["governance"]["context_window"]["enforce_hard_cap"] = True
+        g = GovernanceGuardian(config=config)
+        g.record_agent_usage("a", 95)
+        with pytest.raises(ContextWindowExceededError):
+            g.check_context_window("b", 10)
+
+    def test_enforce_hard_cap_disabled_returns_alert(self):
+        config = _make_config(hard_cap=100)
+        config["governance"]["context_window"]["enforce_hard_cap"] = False
+        g = GovernanceGuardian(config=config)
+        g.record_agent_usage("a", 95)
+        alert = g.check_context_window("b", 10)
+        assert alert is not None
+        assert alert.level == GovernanceLevel.CRITICAL
+
+    def test_exception_carries_alert(self):
+        config = _make_config(hard_cap=50)
+        g = GovernanceGuardian(config=config)
+        g.record_agent_usage("a", 45)
+        with pytest.raises(ContextWindowExceededError) as exc_info:
+            g.check_context_window("b", 10)
+        assert exc_info.value.alert.category == GovernanceCategory.CONTEXT_WINDOW
+
+
+class TestBudgetManagerUsageReport:
+    """Test the usage_report from ContextBudgetManager."""
+
+    def test_usage_report_after_allocation(self):
+        bm = _make_budget_manager()
+        bm.allocate("agent_a", "specialist", override={"max_input_tokens": 15000, "max_output_tokens": 7000})
+        bm.record_usage("agent_a", 5000, direction="input")
+        bm.record_usage("agent_a", 2000, direction="output")
+        report = bm.usage_report()
+        assert "agent_a" in report
+        assert report["agent_a"]["used"]["input"] == 5000
+        assert report["agent_a"]["remaining"]["input"] == 10000
 
 
 # ═══════════════════════════════════════════════════════════════════════════

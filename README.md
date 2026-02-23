@@ -38,8 +38,8 @@ A production-ready multi-agent orchestrator built on the [Microsoft Agent Framew
                  │                 │    "minimum viable resources"
                  └────────┬────────┘
                           │  HITL: user accepts resource plan
-        ┌─────────┬───────┼───────┬───────────┐
-        ▼         ▼       ▼       ▼           ▼
+        ┌─────────┬───────┼───────┐
+        ▼         ▼       ▼       ▼  (max 3 specialists)
    ┌──────────┐ ┌─────────┐ ┌─────────────────┐
    │   Log    │ │  Code   │ │   Remediation   │
    │ Analysis │ │Research │ └─────────────────┘
@@ -62,7 +62,7 @@ A production-ready multi-agent orchestrator built on the [Microsoft Agent Framew
          → HITL: user accepts plan suggestions & keywords
            → Sub-Plan Agent (resource deployment plan)
              → HITL: user accepts resources & brief
-               → Task Agents (parallel fan-out)
+               → Task Agents (parallel fan-out, max 3 specialists)
                  → Aggregated Response
    ────────────────────────────────────────────────────
 
@@ -238,7 +238,7 @@ description: >
 version: "1.0.0"
 context_budget:
   max_input_tokens: 24000
-  max_output_tokens: 12000
+  max_output_tokens: 8000
   strategy: priority       # priority | sliding_window | summarize
 subagents:
   - log_analysis
@@ -260,13 +260,15 @@ instructions:
 
 ### Context Window Management
 
-Token budgets are centrally configured in `forge/_context_window.yaml` and enforced by the `ContextBudgetManager`:
+Token budgets are centrally configured in `forge/_context_window.yaml` and enforced by the `ContextBudgetManager` and `GovernanceGuardian`:
 
-- **Global budget:** 128K tokens per orchestration run (32K reserved for Plan, 16K for aggregation)
-- **Per-agent budgets:** Defined in each `agent.yaml` or defaults by type (specialist: 16K/8K, coordinator: 24K/12K)
+- **Global budget:** 128K tokens per orchestration run — **enforced** (hard cap raises `ContextWindowExceededError`)
+- **Per-agent budgets:** Defined in each `agent.yaml` with optimized envelopes (specialist: 15K/7K default, coordinator: 24K/8K default)
+- **Fan-out cap:** Max 3 specialists per run (enforced in `_resolve_sub_agents()`)
+- **Budget enforcement:** `allocate()` → `fits_budget()` → `truncate()` wired into every `_dispatch()` call
 - **Strategies:** `priority` (keep highest-priority content), `sliding_window` (keep most recent), `summarize` (LLM-compress)
 - **Token counting:** tiktoken (`cl100k_base`) with character-estimate fallback
-- **Dynamic scaling:** Rebalances unused budget across agents when overflow detected
+- **Worst case:** Plan (32K) + Sub-Plan (20K) + 3 specialists (≤25K each) = 124K < 128K cap
 
 ## Governance Guardian (Always-On Enforcement)
 
@@ -278,13 +280,13 @@ LLM context windows are finite and expensive. Without enforcement, a multi-agent
 
 | Threshold | Action |
 |-----------|--------|
-| 0 – 120K tokens | ✅ Normal operation |
-| 120K – 128K tokens | ⚠️ **HITL triggered** — human decides whether to decompose the task and spawn a sub-agent |
-| ≥ 128K tokens | 🛑 **Hard cap** — execution halted, task MUST be decomposed |
+| 0 – 110K tokens | ✅ Normal operation |
+| 110K – 128K tokens | ⚠️ **HITL triggered** — human decides whether to decompose the task and spawn a sub-agent |
+| ≥ 128K tokens | 🛑 **Hard cap** — `ContextWindowExceededError` raised, dispatch aborted (fail-closed) |
 
-The `GovernanceGuardian` checks cumulative token usage **before** every `agent.execute()` call and records actual usage **after** each call. When the warning threshold is crossed, a `ContextWindowReview` is staged for human review via the `GovernanceSelector`.
+The `GovernanceGuardian` checks cumulative token usage **before** every `agent.execute()` call and records actual usage **after** each call. When the warning threshold (110K) is crossed, a `ContextWindowReview` is staged for human review via the `GovernanceSelector`. When the hard cap (128K) is breached, the engine returns an abort `AgentResult` with `confidence=0.0`.
 
-**Why this matters:** In a Plan → Sub-Plan → 5 task agents fan-out, unmanaged context can easily reach 200K+ tokens. The 128K hard cap forces decomposition into sub-agents with fresh context windows — keeping each agent focused and cost-effective.
+**Why this matters:** With the enforced fan-out cap of 3 specialists, worst-case cumulative usage is Plan (32K) + Sub-Plan (20K) + 3 × 25K = 124K tokens — guaranteed to stay under the 128K hard cap.
 
 ### Pillar 2 — Skill Cap Governance
 

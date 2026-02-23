@@ -19,8 +19,8 @@ version: "1.0.0"
 
 # ── Context Window Budget ───────────────────────────────────
 context_budget:
-  max_input_tokens: 20000
-  max_output_tokens: 10000
+  max_input_tokens: 14000
+  max_output_tokens: 6000   # 20K envelope
   strategy: priority
   priority_order:
     - system_prompt

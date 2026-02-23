@@ -115,6 +115,8 @@ def bootstrap() -> tuple:
         plan_selector=plan_selector,
         governance_guardian=governance_guardian,
         governance_selector=governance_selector,
+        budget_manager=budget_manager,
+        forge_registry=forge_registry,
     )
 
     # 2. Register agents — prefer manifests, fall back to defaults

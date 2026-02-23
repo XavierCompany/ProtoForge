@@ -31,6 +31,17 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+# ── Exceptions ──────────────────────────────────────────────────────────────
+
+
+class ContextWindowExceededError(Exception):
+    """Raised when the hard cap is breached and enforce_hard_cap is enabled."""
+
+    def __init__(self, alert: GovernanceAlert) -> None:
+        self.alert = alert
+        super().__init__(alert.message)
+
+
 # ── Enums & data-classes ────────────────────────────────────────────────────
 
 
@@ -120,6 +131,7 @@ class GovernanceGuardian:
         cw = gov.get("context_window", {})
         self._warning_threshold: int = cw.get("warning_threshold", 120_000)
         self._hard_cap: int = cw.get("hard_cap", 128_000)
+        self._enforce_hard_cap: bool = cw.get("enforce_hard_cap", True)
         self._check_before: bool = cw.get("check_before_dispatch", True)
         self._check_after: bool = cw.get("check_after_dispatch", True)
 
@@ -189,6 +201,8 @@ class GovernanceGuardian:
                 projected=projected,
                 hard_cap=self._hard_cap,
             )
+            if self._enforce_hard_cap:
+                raise ContextWindowExceededError(alert)
             return alert
 
         if projected >= self._warning_threshold:
@@ -342,6 +356,10 @@ class GovernanceGuardian:
     @property
     def hard_cap(self) -> int:
         return self._hard_cap
+
+    @property
+    def enforce_hard_cap(self) -> bool:
+        return self._enforce_hard_cap
 
     @property
     def max_skills(self) -> int:

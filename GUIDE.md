@@ -184,9 +184,10 @@ Every request in ProtoForge flows through a carefully designed pipeline with gov
          ┌──────────────────────▼──────────────────────┐
          │  🛡️ Governance Guardian (always-on)          │
          │  ┌──────────────────────────────────────┐   │
-         │  │ Context Window: 128K cap, 120K warn  │   │
-         │  │ Skill Cap: max 4 per agent           │   │
-         │  │ Architecture: agents=tasks            │   │
+         │  │ Context Window: 128K cap, 110K warn  │   │
+         │  │ Fan-out cap: max 3 specialists        │   │
+         │  │ Skill Cap: max 4 per agent            │   │
+         │  │ Architecture: agents=tasks             │   │
          │  └──────────────────────────────────────┘   │
          └──────────────────────┬──────────────────────┘
                                 │
@@ -208,15 +209,15 @@ Every request in ProtoForge flows through a carefully designed pipeline with gov
          │  🛡️ Pre-dispatch governance check            │
          └──────────────────────┬──────────────────────┘
                                 │  HITL: user accepts resources
-         ┌──────────┬──────────┼──────────┬────────────┐
-         ▼          ▼          ▼          ▼            ▼
-    ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────┐ ...
-    │  Log    │ │  Code   │ │Security │ │Knowledge │
-    │Analysis │ │Research │ │Sentinel │ │  Base    │
-    │ 🛡️pre  │ │ 🛡️pre  │ │ 🛡️pre  │ │ 🛡️pre  │
-    │ 🛡️post │ │ 🛡️post │ │ 🛡️post │ │ 🛡️post │
-    └────┬────┘ └────┬────┘ └────┬────┘ └────┬─────┘
-         └──────────┬┘───────────┘────────────┘
+         ┌──────────┬──────────┼──────────┐
+         ▼          ▼          ▼          ▼
+    ┌─────────┐ ┌─────────┐ ┌─────────┐
+    │  Log    │ │  Code   │ │Security │ (max 3 specialists)
+    │Analysis │ │Research │ │Sentinel │
+    │ 🛡️pre  │ │ 🛡️pre  │ │ 🛡️pre  │
+    │ 🛡️post │ │ 🛡️post │ │ 🛡️post │
+    └────┬────┘ └────┬────┘ └────┬────┘
+         └──────────┬┘───────────┘
                     ▼
          ┌──────────────────────────────────────────┐
          │           Aggregation Layer               │
@@ -228,10 +229,13 @@ Every request in ProtoForge flows through a carefully designed pipeline with gov
 
 1. **Plan-first, always** — every request gets a strategic plan before any agent executes
 2. **Governance at every stage** — token usage checked pre- and post-dispatch for every agent
-3. **HITL at every decision boundary** — humans approve plans, resources, and governance alerts
-4. **Fail-open timeouts** — all HITL gates auto-resolve after 120s to prevent pipeline stalls
-5. **Parallel fan-out** — independent task agents run concurrently after planning is complete
-6. **Context isolation** — sub-agents run in separate context windows to prevent overflow
+3. **Hard cap is enforced** — if cumulative tokens reach 128K, execution aborts with `ContextWindowExceededError` (fail-closed); the task must be decomposed
+4. **Fan-out cap** — max 3 specialists per orchestration run (enforced in `_resolve_sub_agents()`), keeping worst-case at 124K tokens
+5. **Per-agent budget enforcement** — every dispatch allocates a budget via `ContextBudgetManager`, inputs are truncated before reaching the agent
+6. **HITL at every decision boundary** — humans approve plans, resources, and governance alerts
+7. **Fail-open timeouts** — all HITL gates auto-resolve after 120s to prevent pipeline stalls
+8. **Parallel fan-out** — independent task agents run concurrently after planning is complete
+9. **Context isolation** — sub-agents run in separate context windows to prevent overflow
 
 ### Working Memory Flow
 
@@ -270,7 +274,7 @@ Task agents read:
 
 LLM context windows are the **single most critical resource** in a multi-agent system:
 
-1. **They're finite** — even with 128K token models, a Plan + Sub-Plan + 5 parallel agents can easily exceed the limit
+1. **They're finite** — with a 128K token hard cap per orchestration run, Plan + Sub-Plan + 3 specialists must share a single budget
 2. **They're expensive** — token cost scales linearly; waste 50K tokens on irrelevant context and you're paying for noise
 3. **Quality degrades** — LLMs perform worse as context fills up ("lost in the middle" phenomenon); keeping context focused improves output quality
 4. **They're shared** — in a multi-agent orchestration, all agents draw from the same token budget for a single run
@@ -286,26 +290,43 @@ Each agent has its own input/output token budget defined in its `agent.yaml` man
 ```yaml
 # forge/agents/log_analysis/agent.yaml
 context_budget:
-  max_input_tokens: 16000    # max tokens for input to this agent
-  max_output_tokens: 8000    # max tokens for output from this agent
+  max_input_tokens: 15000    # max tokens for input to this agent
+  max_output_tokens: 7000    # max tokens for output from this agent
   strategy: sliding_window   # how to handle overflow
 ```
 
-The `ContextBudgetManager` (`src/forge/context_budget.py`) enforces these per-agent limits:
+The `ContextBudgetManager` (`src/forge/context_budget.py`) enforces these per-agent limits **at dispatch time** inside `engine.py`:
 
 ```python
-manager = ContextBudgetManager(context_config)
-
-# Allocate a budget for an agent
+# Called automatically in engine._dispatch() for every agent execution
 budget = manager.allocate("log_analysis", "specialist", override=manifest.context_budget)
 
-# Check if content fits
+# Check if content fits the allocated budget
 if not manager.fits_budget("log_analysis", content, direction="input"):
     content = manager.truncate("log_analysis", content, direction="input")
 
 # Record actual usage after execution
-manager.record_usage("log_analysis", input_tokens=12000, output_tokens=6000)
+manager.record_usage("log_analysis", input_tokens, direction="input")
+manager.record_usage("log_analysis", output_tokens, direction="output")
 ```
+
+**Optimized Per-Agent Budget Table** (designed to guarantee ≤ 128K worst case):
+
+| Agent | Type | Input | Output | Strategy | Envelope |
+|-------|------|-------|--------|----------|----------|
+| Plan | coordinator | 24,000 | 8,000 | priority | 32K |
+| Sub-Plan | specialist | 14,000 | 6,000 | priority | 20K |
+| Knowledge Base | specialist | 17,000 | 8,000 | summarize | 25K (heavy) |
+| Code Research | specialist | 17,000 | 8,000 | sliding_window | 25K (heavy) |
+| Log Analysis | specialist | 15,000 | 7,000 | sliding_window | 22K |
+| Data Analysis | specialist | 15,000 | 7,000 | sliding_window | 22K |
+| Remediation | specialist | 15,000 | 7,000 | priority | 22K |
+| Security Sentinel | specialist | 15,000 | 7,000 | priority | 22K |
+| GitHub Tracker | specialist | 15,000 | 7,000 | priority | 22K |
+| WorkIQ | specialist | 12,000 | 6,000 | priority | 18K (light) |
+
+**Worst case** (Plan + Sub-Plan + 2 heavy + 1 medium): 32 + 20 + 25 + 25 + 22 = **124K** (4K headroom)
+**Typical** (Plan + Sub-Plan + 2 medium): 32 + 20 + 22 + 22 = **96K** (32K headroom)
 
 **Three truncation strategies** handle overflow differently:
 
@@ -321,45 +342,59 @@ The `GovernanceGuardian` tracks **cumulative** token usage across all agents in 
 
 ```
 Global budget: 128,000 tokens
-  ├── Reserved for Plan Agent:    32,000
-  ├── Reserved for aggregation:   16,000
-  └── Available for task agents:  80,000
+  ├── Plan Agent:      up to 32,000
+  ├── Sub-Plan Agent:  up to 20,000
+  ├── 3 Specialists:   up to 25,000 each (max 75,000)
+  └── Headroom:        ~4,000
 ```
 
-The guardian enforces two thresholds:
+The guardian enforces two thresholds with **real enforcement** (not advisory):
 
 | Threshold | Tokens | What Happens |
 |-----------|--------|-------------|
-| **Warning** | 120,000 | HITL triggered — `ContextWindowReview` created for human review. The guardian presents per-agent usage breakdown and suggests decomposing the remaining work into a sub-agent with a fresh context window |
-| **Hard cap** | 128,000 | Execution **halted**. The task MUST be decomposed before any further agents can execute |
+| **Warning** | 110,000 | HITL triggered — `ContextWindowReview` created for human review. Guardian presents per-agent usage breakdown and suggests decomposition |
+| **Hard cap** | 128,000 | `ContextWindowExceededError` **raised** — dispatch aborts immediately with confidence=0.0. The task MUST be decomposed. This is fail-closed: no agent executes beyond this point |
+
+#### Layer 3 — Fan-Out Cap
+
+The `_resolve_sub_agents()` method enforces a maximum of **3 specialists** per orchestration run (configured via `max_parallel_agents` in `_context_window.yaml`). Excess candidates are dropped in priority order with a warning log.
 
 ### How Governance Checks Work at Runtime
 
-The `OrchestratorEngine` calls the guardian at every dispatch:
+The `OrchestratorEngine._dispatch()` method performs budget enforcement at every agent execution:
 
 ```python
-# In engine.py — _dispatch() method
+# In engine.py — _dispatch() method (simplified)
 
-async def _dispatch(self, agent_type, message, routing):
-    # ── PRE-DISPATCH: estimate and check ──
-    estimated_tokens = self._budget_manager.count_tokens(message)
-    alert = self._guardian.check_context_window(agent_id, estimated_tokens)
+async def _dispatch(self, agent_id, message, routing):
+    # ── PER-AGENT BUDGET: allocate & truncate ──
+    effective_message = message
+    if self._budget_manager:
+        override = manifest.context_budget if manifest else None
+        self._budget_manager.allocate(agent_id, agent_type, override=override)
 
-    if alert and alert.level == "critical":
-        # Hard cap breached → halt + HITL
-        await self._handle_governance_alert(alert)
-        return  # cannot proceed
+        payload = message + agent.system_prompt
+        if not self._budget_manager.fits_budget(agent_id, payload, direction="input"):
+            effective_message = self._budget_manager.truncate(agent_id, message, direction="input")
+
+    # ── PRE-DISPATCH: governance hard cap check ──
+    estimated_tokens = budget_manager.count_tokens(effective_message + system_prompt)
+    try:
+        alert = guardian.check_context_window(agent_id, estimated_tokens)
+    except ContextWindowExceededError:
+        # Hard cap breached → abort immediately (fail-closed)
+        return AgentResult(agent_id=agent_id, content="Hard cap exceeded", confidence=0.0)
 
     if alert and alert.level == "warning":
-        # Warning threshold → HITL review
-        await self._handle_governance_alert(alert)
-        # continues after human accepts/rejects
+        await self._handle_governance_alert(alert)  # HITL review
 
     # ── EXECUTE ──
-    result = await agent.execute(message, context)
+    result = await agent.execute(effective_message, context)
 
-    # ── POST-DISPATCH: record actual usage ──
-    self._guardian.record_agent_usage(agent_id, result.tokens_used)
+    # ── POST-DISPATCH: record usage ──
+    budget_manager.record_usage(agent_id, input_tokens, direction="input")
+    budget_manager.record_usage(agent_id, output_tokens, direction="output")
+    guardian.record_agent_usage(agent_id, total_tokens)
 ```
 
 ### The HITL Decomposition Flow
@@ -383,9 +418,11 @@ When the warning threshold is crossed, here's exactly what happens:
 5. If timeout (120s) → auto-resolve as "accept" (fail-open)
 ```
 
-### Practical Example: A 7-Agent Orchestration
+### Practical Example: A 5-Agent Orchestration
 
 Consider a complex request: *"Investigate the auth outage, fix it, and audit for security gaps"*
+
+With the enforced fan-out cap (max 3 specialists) and optimized budgets:
 
 ```
 Plan Agent:
@@ -398,69 +435,79 @@ Sub-Plan Agent:
   Output: ~3K (minimum viable resources)
   Cumulative: 20K ✅
 
-Log Analysis:
-  Input: ~15K (system prompt + log content — sliding_window truncated)
-  Output: ~8K (error analysis + patterns)
-  Cumulative: 43K ✅
+Log Analysis (specialist 1/3):
+  Input: ~15K (system prompt + log content — sliding_window truncated to budget)
+  Output: ~7K (error analysis + patterns)
+  Cumulative: 42K ✅
 
-Code Research:
-  Input: ~20K (codebase snippets + plan context)
-  Output: ~10K (root cause analysis)
-  Cumulative: 73K ✅
+Code Research (specialist 2/3):
+  Input: ~17K (codebase snippets + plan context — sliding_window truncated)
+  Output: ~8K (root cause analysis)
+  Cumulative: 67K ✅
 
-Security Sentinel:
-  Input: ~18K (CVE databases + code audit)
-  Output: ~8K (vulnerability report)
-  Cumulative: 99K ✅
+Security Sentinel (specialist 3/3):
+  Input: ~15K (CVE databases + code audit — priority truncated to budget)
+  Output: ~7K (vulnerability report)
+  Cumulative: 89K ✅
 
-Remediation:
-  Input: ~15K (all prior outputs + fix generation)
-  Output: ~8K (patches + verification)
-  Cumulative: 122K ⚠️ WARNING TRIGGERED!
-
-  → GovernanceSelector HITL: "Context at 122K/128K.
-     Suggest moving Knowledge Base work to fresh sub-agent."
-  → Human accepts
-
-Knowledge Base (in sub-agent, fresh context):
-  Input: ~12K (documentation query)
-  Output: ~6K (relevant docs)
-  Fresh window cumulative: 18K ✅
+  → Aggregation combines all results
+  → Total: 89K of 128K budget used (69.5% utilisation)
+  → Remediation was dropped by fan-out cap — route as follow-up request
 ```
+
+**Note:** If the router requested 4+ specialists, `_resolve_sub_agents()` would truncate to the top 3 by priority order and log the dropped agents.
 
 ### Configuration Reference
 
 All context window settings live in `forge/_context_window.yaml`:
 
 ```yaml
+version: "1.2.0"
+
 global:
-  max_total_tokens: 128000         # hard limit for entire run
-  reserve_for_plan: 32000          # guaranteed Plan Agent allocation
-  reserve_for_aggregation: 16000   # held back for final assembly
+  max_total_tokens: 128000
+  reserve_for_plan: 32000
+  reserve_for_aggregation: 8000
+
+scaling:
+  max_parallel_agents: 3   # fan-out cap — enforced in _resolve_sub_agents()
 
 governance:
   context_window:
-    warning_threshold: 120000      # HITL at this level
-    hard_cap: 128000               # execution stops
-    check_before_dispatch: true    # check BEFORE each agent.execute()
-    check_after_dispatch: true     # record AFTER each agent.execute()
+    warning_threshold: 110000     # HITL at this level
+    hard_cap: 128000              # execution aborts (ContextWindowExceededError)
+    enforce_hard_cap: true        # true = fail-closed, false = advisory only
+    check_before_dispatch: true
+    check_after_dispatch: true
+  budget_enforcement:
+    allocate_on_dispatch: true    # allocate per-agent budget before execute()
+    truncate_on_dispatch: true    # auto-truncate inputs that exceed budget
   skill_cap:
     max_skills_per_agent: 4
-    allow_override: true           # human can override after review
+    allow_override: true
   hitl:
-    timeout_seconds: 120           # auto-resolve after 2 minutes
-    auto_resolve_action: accept    # fail-open: accept decomposition
+    timeout_seconds: 120
+    auto_resolve_action: accept
 
 defaults:
   specialist:
-    max_input_tokens: 16000
-    max_output_tokens: 8000
+    max_input_tokens: 15000
+    max_output_tokens: 7000
     strategy: priority
   coordinator:
     max_input_tokens: 24000
-    max_output_tokens: 12000
+    max_output_tokens: 8000
     strategy: priority
 ```
+
+#### Budget Enforcement Flags
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `enforce_hard_cap` | `true` | When `true`, `check_context_window()` raises `ContextWindowExceededError` on hard cap breach (fail-closed). When `false`, returns a CRITICAL alert but allows execution to continue (advisory) |
+| `allocate_on_dispatch` | `true` | When `true`, `_dispatch()` calls `budget_manager.allocate()` before every agent execution |
+| `truncate_on_dispatch` | `true` | When `true`, `_dispatch()` calls `budget_manager.truncate()` when input exceeds the per-agent budget |
+| `max_parallel_agents` | `3` | Maximum number of specialist agents in a single fan-out. Excess candidates are dropped by priority order |
 
 ---
 
@@ -618,14 +665,18 @@ The **Governance Guardian** (`src/governance/guardian.py`) is an always-on enfor
 ### GovernanceGuardian API
 
 ```python
-from src.governance.guardian import GovernanceGuardian
+from src.governance.guardian import GovernanceGuardian, ContextWindowExceededError
 
 # Initialised at bootstrap with context_window.yaml config
 guardian = GovernanceGuardian(config=context_config, budget_manager=budget_manager)
 
 # ── Context Window ──
-alert = guardian.check_context_window("log_analysis", estimated_tokens=15000)
-# Returns None (healthy), GovernanceAlert(WARNING), or GovernanceAlert(CRITICAL)
+try:
+    alert = guardian.check_context_window("log_analysis", estimated_tokens=15000)
+    # Returns None (healthy) or GovernanceAlert(WARNING)
+except ContextWindowExceededError as exc:
+    # Hard cap breached and enforce_hard_cap=true → abort
+    print(exc.alert)  # GovernanceAlert(CRITICAL)
 
 guardian.record_agent_usage("log_analysis", tokens_used=14500)
 

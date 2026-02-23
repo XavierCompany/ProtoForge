@@ -43,6 +43,8 @@ from src.orchestrator.router import AgentType, IntentRouter, RoutingDecision
 
 if TYPE_CHECKING:
     from src.agents.base import BaseAgent
+    from src.forge.context_budget import ContextBudgetManager
+    from src.forge.loader import ForgeRegistry
     from src.governance.guardian import GovernanceGuardian
     from src.governance.selector import GovernanceSelector
     from src.orchestrator.plan_selector import PlanSelector
@@ -74,6 +76,8 @@ class OrchestratorEngine:
         plan_selector: PlanSelector | None = None,
         governance_guardian: GovernanceGuardian | None = None,
         governance_selector: GovernanceSelector | None = None,
+        budget_manager: ContextBudgetManager | None = None,
+        forge_registry: ForgeRegistry | None = None,
     ) -> None:
         self._router = IntentRouter()
         self._agents: dict[str, BaseAgent] = {}
@@ -87,6 +91,14 @@ class OrchestratorEngine:
         # Governance enforcement layer
         self._governance = governance_guardian
         self._governance_selector = governance_selector
+        # Budget enforcement layer
+        self._budget_manager = budget_manager
+        self._forge_registry = forge_registry
+        # Fan-out cap from context config (default 3)
+        self._max_parallel_agents: int = 3
+        if forge_registry and forge_registry.context_config:
+            scaling = forge_registry.context_config.get("scaling", {})
+            self._max_parallel_agents = scaling.get("max_parallel_agents", 3)
 
     # ── agent registration ──────────────────────────────────────────────
 
@@ -324,7 +336,8 @@ class OrchestratorEngine:
         """Build the list of sub-agents to invoke after the Plan Agent.
 
         Collects the primary + secondary agents from routing, removes PLAN
-        and SUB_PLAN (since they already ran), and deduplicates.
+        and SUB_PLAN (since they already ran), deduplicates, and enforces
+        the ``max_parallel_agents`` fan-out cap from ``_context_window.yaml``.
         """
         excluded = {AgentType.PLAN, AgentType.SUB_PLAN}
         candidates: list[str] = []
@@ -335,6 +348,16 @@ class OrchestratorEngine:
         for agent_id in routing.secondary_agents:
             if agent_id not in excluded and agent_id not in candidates:
                 candidates.append(agent_id)
+
+        # Enforce fan-out cap — keep highest-priority candidates
+        if len(candidates) > self._max_parallel_agents:
+            logger.warning(
+                "fan_out_cap_enforced",
+                requested=len(candidates),
+                cap=self._max_parallel_agents,
+                dropped=candidates[self._max_parallel_agents:],
+            )
+            candidates = candidates[: self._max_parallel_agents]
 
         return candidates
 
@@ -427,10 +450,12 @@ class OrchestratorEngine:
     ) -> AgentResult:
         """Dispatch to a single agent by ID.
 
-        Governance checks are performed before and after execution:
-        - Pre-dispatch: context window warning/hard-cap check
+        Budget and governance checks are performed before and after execution:
+        - Pre-dispatch: allocate per-agent budget, truncate input, context window check
         - Post-dispatch: token usage recording
         """
+        from src.governance.guardian import ContextWindowExceededError
+
         agent = self._agents.get(str(agent_id))
         if not agent:
             logger.warning("agent_not_found", agent_id=str(agent_id))
@@ -440,26 +465,82 @@ class OrchestratorEngine:
                 confidence=0.0,
             )
 
+        # ── Per-agent budget allocation & truncation ────────────────────
+        effective_message = message
+        if self._budget_manager:
+            # Look up manifest context_budget override
+            override: dict | None = None
+            if self._forge_registry:
+                manifest = None
+                if self._forge_registry.coordinator and self._forge_registry.coordinator.id == str(agent_id):
+                    manifest = self._forge_registry.coordinator
+                elif str(agent_id) in self._forge_registry.agents:
+                    manifest = self._forge_registry.agents[str(agent_id)]
+                if manifest and manifest.context_budget:
+                    override = manifest.context_budget
+
+            # Determine agent type for default budget lookup
+            agent_type = "coordinator" if str(agent_id) in (AgentType.PLAN,) else "specialist"
+
+            self._budget_manager.allocate(str(agent_id), agent_type, override=override)
+
+            # Truncate input to fit per-agent budget
+            payload = message + (agent.system_prompt or "")
+            if not self._budget_manager.fits_budget(str(agent_id), payload, direction="input"):
+                effective_message = self._budget_manager.truncate(str(agent_id), message, direction="input")
+                logger.info(
+                    "input_truncated",
+                    agent_id=str(agent_id),
+                    original_tokens=self._budget_manager.count_tokens(message),
+                    truncated_tokens=self._budget_manager.count_tokens(effective_message),
+                )
+
         # ── Pre-dispatch governance check ───────────────────────────────
         estimated_tokens = 0
         if self._governance:
             # Estimate input size from the message + system prompt
-            payload = message + (agent.system_prompt or "")
+            payload = effective_message + (agent.system_prompt or "")
             if self._governance._budget_manager:
                 estimated_tokens = self._governance._budget_manager.count_tokens(payload)
             else:
                 estimated_tokens = max(1, len(payload) // 4)
 
-            alert = self._governance.check_context_window(str(agent_id), estimated_tokens)
-            if alert:
-                # Trigger HITL for governance breach
-                await self._handle_governance_alert(alert, str(agent_id))
+            try:
+                alert = self._governance.check_context_window(str(agent_id), estimated_tokens)
+            except ContextWindowExceededError as exc:
+                # Hard cap enforced — abort this dispatch
+                logger.critical(
+                    "dispatch_aborted_hard_cap",
+                    agent_id=str(agent_id),
+                    alert_id=exc.alert.alert_id,
+                )
+                if self._governance_selector:
+                    await self._handle_governance_alert(exc.alert, str(agent_id))
+                return AgentResult(
+                    agent_id=str(agent_id),
+                    content=(
+                        f"Context window hard cap exceeded ({self._governance.hard_cap:,} tokens). "
+                        f"Agent '{agent_id}' dispatch aborted. Decompose the task."
+                    ),
+                    confidence=0.0,
+                )
+            else:
+                if alert:
+                    # Warning threshold — trigger HITL but continue
+                    await self._handle_governance_alert(alert, str(agent_id))
 
         start = time.perf_counter()
         try:
-            result = await agent.execute(message, self._context, routing.extracted_params)
+            result = await agent.execute(effective_message, self._context, routing.extracted_params)
             result.duration_ms = (time.perf_counter() - start) * 1000
             self._context.add_result(result)
+
+            # ── Post-dispatch: record per-agent budget usage ────────────
+            if self._budget_manager:
+                input_tokens = self._budget_manager.count_tokens(effective_message)
+                output_tokens = self._budget_manager.count_tokens(result.content)
+                self._budget_manager.record_usage(str(agent_id), input_tokens, direction="input")
+                self._budget_manager.record_usage(str(agent_id), output_tokens, direction="output")
 
             # ── Post-dispatch governance recording ──────────────────────
             if self._governance:
