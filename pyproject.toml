@@ -7,7 +7,6 @@ license = { text = "MIT" }
 authors = [{ name = "ProtoForge Team" }]
 
 dependencies = [
-    "microsoft-agents>=1.0.0",
     "azure-identity>=1.19.0",
     "azure-ai-projects>=1.0.0",
     "openai>=1.60.0",

@@ -599,7 +599,10 @@ class TestAgentLifecycleReviewSelector:
     def test_prepare_lifecycle_review_disable(self):
         sel = GovernanceSelector(timeout=1.0)
         review = sel.prepare_lifecycle_review(
-            "lc-1", "disable", "log_analysis", ["plan", "code_research"],
+            "lc-1",
+            "disable",
+            "log_analysis",
+            ["plan", "code_research"],
         )
         assert review.request_id == "lc-1"
         assert review.action == "disable"
@@ -610,7 +613,10 @@ class TestAgentLifecycleReviewSelector:
     def test_prepare_lifecycle_review_remove(self):
         sel = GovernanceSelector(timeout=1.0)
         review = sel.prepare_lifecycle_review(
-            "lc-2", "remove", "data_analysis", ["plan"],
+            "lc-2",
+            "remove",
+            "data_analysis",
+            ["plan"],
         )
         assert review.action == "remove"
         assert review.target_agent_id == "data_analysis"
@@ -618,7 +624,10 @@ class TestAgentLifecycleReviewSelector:
     def test_resolve_lifecycle_review_accepted(self):
         sel = GovernanceSelector(timeout=1.0)
         sel.prepare_lifecycle_review(
-            "lc-1", "disable", "log_analysis", ["plan"],
+            "lc-1",
+            "disable",
+            "log_analysis",
+            ["plan"],
         )
         ok = sel.resolve_lifecycle_review("lc-1", accepted=True, user_note="Go ahead")
         assert ok is True
@@ -630,7 +639,10 @@ class TestAgentLifecycleReviewSelector:
     def test_resolve_lifecycle_review_rejected(self):
         sel = GovernanceSelector(timeout=1.0)
         sel.prepare_lifecycle_review(
-            "lc-1", "disable", "log_analysis", ["plan"],
+            "lc-1",
+            "disable",
+            "log_analysis",
+            ["plan"],
         )
         ok = sel.resolve_lifecycle_review("lc-1", accepted=False)
         assert ok is True
@@ -647,7 +659,10 @@ class TestAgentLifecycleReviewSelector:
         """Lifecycle reviews fail-CLOSED on timeout (rejects action)."""
         sel = GovernanceSelector(timeout=0.1)
         sel.prepare_lifecycle_review(
-            "lc-1", "disable", "log_analysis", ["plan"],
+            "lc-1",
+            "disable",
+            "log_analysis",
+            ["plan"],
         )
         review = await sel.wait_for_lifecycle_review("lc-1")
         assert review.resolved
@@ -657,7 +672,10 @@ class TestAgentLifecycleReviewSelector:
     async def test_wait_for_lifecycle_review_resolved_before(self):
         sel = GovernanceSelector(timeout=1.0)
         sel.prepare_lifecycle_review(
-            "lc-1", "remove", "log_analysis", ["plan"],
+            "lc-1",
+            "remove",
+            "log_analysis",
+            ["plan"],
         )
         sel.resolve_lifecycle_review("lc-1", accepted=True, user_note="Remove it")
         review = await sel.wait_for_lifecycle_review("lc-1")
@@ -673,7 +691,10 @@ class TestAgentLifecycleReviewSelector:
     def test_pending_lifecycle_reviews(self):
         sel = GovernanceSelector()
         sel.prepare_lifecycle_review(
-            "lc-1", "disable", "log_analysis", ["plan", "code_research"],
+            "lc-1",
+            "disable",
+            "log_analysis",
+            ["plan", "code_research"],
         )
         pending = sel.pending_lifecycle_reviews()
         assert len(pending) == 1
@@ -685,7 +706,10 @@ class TestAgentLifecycleReviewSelector:
     def test_cleanup_lifecycle_review(self):
         sel = GovernanceSelector()
         sel.prepare_lifecycle_review(
-            "lc-1", "disable", "log_analysis", ["plan"],
+            "lc-1",
+            "disable",
+            "log_analysis",
+            ["plan"],
         )
         sel.cleanup_lifecycle_review("lc-1")
         assert sel.pending_lifecycle_reviews() == []
@@ -884,7 +908,7 @@ class TestEngineAgentLifecycle:
     @pytest.mark.asyncio
     async def test_disable_agent_timeout_rejects(self):
         """HITL timeout for disable should fail-CLOSED (agent stays enabled)."""
-        engine, _, selector, _ = self._make_engine()
+        engine, _, _, _ = self._make_engine()
         engine.register_agent("a", self._mock_agent("a"))
         engine.register_agent("b", self._mock_agent("b"))
         result = await engine.disable_agent("a")
@@ -1029,7 +1053,7 @@ class TestBudgetEnforcementInDispatch:
 
     @pytest.mark.asyncio
     async def test_dispatch_truncates_long_input(self):
-        engine, _, bm, _ = self._make_budget_engine()
+        engine, _, _, _ = self._make_budget_engine()
         agent = self._mock_agent()
         engine.register_agent("test_agent", agent)
 
@@ -1487,7 +1511,10 @@ class TestLifecycleServerEndpoints:
     def test_lifecycle_review_lifecycle(self, client):
         tc, _, selector = client
         selector.prepare_lifecycle_review(
-            "lc-1", "disable", "log_analysis", ["plan", "code_research"],
+            "lc-1",
+            "disable",
+            "log_analysis",
+            ["plan", "code_research"],
         )
         resp = tc.get("/governance/lifecycle-reviews")
         pending = resp.json()["pending"]

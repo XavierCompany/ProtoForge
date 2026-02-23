@@ -804,16 +804,12 @@ def create_app(
     @app.get("/agents/enabled")
     async def list_enabled_agents() -> JSONResponse:
         """List agents currently enabled for routing and dispatch."""
-        return JSONResponse(
-            content={"enabled_agents": orchestrator.list_enabled_agents()}
-        )
+        return JSONResponse(content={"enabled_agents": orchestrator.list_enabled_agents()})
 
     @app.get("/agents/disabled")
     async def list_disabled_agents() -> JSONResponse:
         """List agents currently disabled (not routed to)."""
-        return JSONResponse(
-            content={"disabled_agents": orchestrator.list_disabled_agents()}
-        )
+        return JSONResponse(content={"disabled_agents": orchestrator.list_disabled_agents()})
 
     # ── Health & Status ─────────────────────────────────────────
 

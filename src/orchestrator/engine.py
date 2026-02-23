@@ -129,15 +129,15 @@ class OrchestratorEngine:
             return {"ok": False, "error": f"Agent '{agent_id}' already disabled"}
 
         # Compute which agents remain enabled after this disable
-        enabled_after = [
-            aid for aid in self._agents
-            if aid != agent_id and aid not in self._disabled_agents
-        ]
+        enabled_after = [aid for aid in self._agents if aid != agent_id and aid not in self._disabled_agents]
 
         if self._governance_selector:
             req_id = str(uuid.uuid4())
             self._governance_selector.prepare_lifecycle_review(
-                req_id, "disable", agent_id, enabled_after,
+                req_id,
+                "disable",
+                agent_id,
+                enabled_after,
             )
             review = await self._governance_selector.wait_for_lifecycle_review(req_id)
             self._governance_selector.cleanup_lifecycle_review(req_id)
@@ -176,9 +176,7 @@ class OrchestratorEngine:
             "ok": True,
             "agent_id": agent_id,
             "action": "enabled",
-            "enabled_agents": [
-                aid for aid in self._agents if aid not in self._disabled_agents
-            ],
+            "enabled_agents": [aid for aid in self._agents if aid not in self._disabled_agents],
         }
 
     async def unregister_agent(self, agent_id: str) -> dict:
@@ -193,15 +191,15 @@ class OrchestratorEngine:
             return {"ok": False, "error": f"Agent '{agent_id}' not registered"}
 
         # Compute which agents remain after removal
-        enabled_after = [
-            aid for aid in self._agents
-            if aid != agent_id and aid not in self._disabled_agents
-        ]
+        enabled_after = [aid for aid in self._agents if aid != agent_id and aid not in self._disabled_agents]
 
         if self._governance_selector:
             req_id = str(uuid.uuid4())
             self._governance_selector.prepare_lifecycle_review(
-                req_id, "remove", agent_id, enabled_after,
+                req_id,
+                "remove",
+                agent_id,
+                enabled_after,
             )
             review = await self._governance_selector.wait_for_lifecycle_review(req_id)
             self._governance_selector.cleanup_lifecycle_review(req_id)
@@ -434,7 +432,7 @@ class OrchestratorEngine:
                 "fan_out_cap_enforced",
                 requested=len(candidates),
                 cap=self._max_parallel_agents,
-                dropped=candidates[self._max_parallel_agents:],
+                dropped=candidates[self._max_parallel_agents :],
             )
             candidates = candidates[: self._max_parallel_agents]
 
