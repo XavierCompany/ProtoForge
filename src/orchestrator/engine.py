@@ -43,6 +43,8 @@ from src.orchestrator.router import AgentType, IntentRouter, RoutingDecision
 
 if TYPE_CHECKING:
     from src.agents.base import BaseAgent
+    from src.governance.guardian import GovernanceGuardian
+    from src.governance.selector import GovernanceSelector
     from src.orchestrator.plan_selector import PlanSelector
     from src.workiq.client import WorkIQClient
     from src.workiq.selector import WorkIQSelector
@@ -70,6 +72,8 @@ class OrchestratorEngine:
         workiq_client: WorkIQClient | None = None,
         workiq_selector: WorkIQSelector | None = None,
         plan_selector: PlanSelector | None = None,
+        governance_guardian: GovernanceGuardian | None = None,
+        governance_selector: GovernanceSelector | None = None,
     ) -> None:
         self._router = IntentRouter()
         self._agents: dict[str, BaseAgent] = {}
@@ -80,6 +84,9 @@ class OrchestratorEngine:
         self._workiq_selector = workiq_selector
         # Plan + Sub-Plan HITL layer
         self._plan_selector = plan_selector
+        # Governance enforcement layer
+        self._governance = governance_guardian
+        self._governance_selector = governance_selector
 
     # ── agent registration ──────────────────────────────────────────────
 
@@ -104,6 +111,8 @@ class OrchestratorEngine:
     def reset_context(self) -> None:
         """Reset conversation context for a new session."""
         self._context = ConversationContext()
+        if self._governance:
+            self._governance.reset_run()
 
     async def process(self, user_message: str) -> str:
         """Process a user message through the Plan-first orchestration pipeline.
@@ -119,6 +128,10 @@ class OrchestratorEngine:
         8. Aggregate Plan + Sub-Plan + sub-agent results
         """
         self._context.add_user_message(user_message)
+
+        # Reset governance counters for this new orchestration run
+        if self._governance:
+            self._governance.reset_run()
 
         # Step 1: Route to identify which sub-agents are relevant
         routing = self._router.route_by_keywords(user_message)
@@ -412,7 +425,12 @@ class OrchestratorEngine:
         message: str,
         routing: RoutingDecision,
     ) -> AgentResult:
-        """Dispatch to a single agent by ID."""
+        """Dispatch to a single agent by ID.
+
+        Governance checks are performed before and after execution:
+        - Pre-dispatch: context window warning/hard-cap check
+        - Post-dispatch: token usage recording
+        """
         agent = self._agents.get(str(agent_id))
         if not agent:
             logger.warning("agent_not_found", agent_id=str(agent_id))
@@ -422,11 +440,36 @@ class OrchestratorEngine:
                 confidence=0.0,
             )
 
+        # ── Pre-dispatch governance check ───────────────────────────────
+        estimated_tokens = 0
+        if self._governance:
+            # Estimate input size from the message + system prompt
+            payload = message + (agent.system_prompt or "")
+            if self._governance._budget_manager:
+                estimated_tokens = self._governance._budget_manager.count_tokens(payload)
+            else:
+                estimated_tokens = max(1, len(payload) // 4)
+
+            alert = self._governance.check_context_window(str(agent_id), estimated_tokens)
+            if alert:
+                # Trigger HITL for governance breach
+                await self._handle_governance_alert(alert, str(agent_id))
+
         start = time.perf_counter()
         try:
             result = await agent.execute(message, self._context, routing.extracted_params)
             result.duration_ms = (time.perf_counter() - start) * 1000
             self._context.add_result(result)
+
+            # ── Post-dispatch governance recording ──────────────────────
+            if self._governance:
+                if self._governance._budget_manager:
+                    output_tokens = self._governance._budget_manager.count_tokens(result.content)
+                else:
+                    output_tokens = max(1, len(result.content) // 4)
+                total_tokens = estimated_tokens + output_tokens
+                self._governance.record_agent_usage(str(agent_id), total_tokens)
+
             logger.info(
                 "agent_completed",
                 agent_id=agent.agent_id,
@@ -443,6 +486,62 @@ class OrchestratorEngine:
                 confidence=0.0,
                 duration_ms=duration_ms,
             )
+
+    async def _handle_governance_alert(
+        self,
+        alert: Any,
+        agent_id: str,
+    ) -> None:
+        """Trigger HITL for a governance alert (context window or skill cap).
+
+        If no :class:`GovernanceSelector` is configured, logs the alert and
+        continues (fail-open).
+        """
+
+        if not self._governance_selector:
+            logger.warning(
+                "governance_alert_no_selector",
+                alert_id=alert.alert_id,
+                level=alert.level,
+                message=alert.message,
+            )
+            return
+
+        req_id = str(uuid.uuid4())
+
+        # Get the decomposition suggestion if available
+        decomposition = self._governance.get_context_suggestion(alert.alert_id) if self._governance else None
+
+        review = self._governance_selector.prepare_context_review(
+            req_id,
+            alert,
+            decomposition=decomposition,
+        )
+
+        if not review.resolved:
+            self._context.set_memory("governance_review_pending", req_id)
+            review = await self._governance_selector.wait_for_context_review(req_id)
+
+        if review.accepted:
+            logger.info(
+                "governance_decomposition_accepted",
+                alert_id=alert.alert_id,
+                agent_id=agent_id,
+            )
+            self._context.set_memory("governance_decomposition_accepted", True)
+        else:
+            logger.info(
+                "governance_decomposition_rejected",
+                alert_id=alert.alert_id,
+                agent_id=agent_id,
+            )
+
+        # Mark alert as resolved in the guardian
+        if self._governance:
+            resolution = "accepted" if review.accepted else "rejected"
+            self._governance.resolve_alert(alert.alert_id, resolution)
+
+        self._governance_selector.cleanup_context_review(req_id)
 
     async def _fan_out(
         self,
@@ -483,11 +582,19 @@ class OrchestratorEngine:
 
     def get_status(self) -> dict[str, Any]:
         """Return current orchestrator status for health checks."""
-        return {
+        status = {
             "session_id": self._context.session_id,
             "registered_agents": list(self._agents.keys()),
             "message_count": len(self._context.messages),
             "active_workflow": self._context.active_workflow,
             "provider": self._settings.llm.active_provider.value,
             "workiq_enrichment_available": (self._workiq_client is not None and self._workiq_selector is not None),
+            "governance_enabled": self._governance is not None,
         }
+        if self._governance:
+            status["governance"] = self._governance.governance_report()
+        return status
+
+    def get_agent(self, agent_id: str) -> BaseAgent | None:
+        """Return a registered agent by ID, or ``None``."""
+        return self._agents.get(str(agent_id))

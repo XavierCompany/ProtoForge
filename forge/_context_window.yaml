@@ -1,13 +1,27 @@
 # ProtoForge Context Window Configuration
 # Controls how token budgets are allocated and managed across agents.
 
-version: "1.0.0"
+version: "1.1.0"
 
 # Global budget for a single orchestration run
 global:
   max_total_tokens: 128000      # total across all agents in one run
   reserve_for_plan: 32000       # guaranteed allocation for Plan Agent
   reserve_for_aggregation: 16000 # held back for final aggregation step
+
+# ── Governance thresholds ─────────────────────────────────────────────
+governance:
+  context_window:
+    warning_threshold: 120000   # HITL triggered when cumulative tokens exceed this
+    hard_cap: 128000            # execution halted — task MUST be decomposed
+    check_before_dispatch: true # check BEFORE each agent.execute()
+    check_after_dispatch: true  # record usage AFTER each agent.execute()
+  skill_cap:
+    max_skills_per_agent: 4     # HITL triggered when exceeded at manifest load
+    allow_override: true        # human can override after review
+  hitl:
+    timeout_seconds: 120        # auto-resolve (fail-open) after this many seconds
+    auto_resolve_action: accept # accept | reject — what happens on timeout
 
 # Default per-agent budgets (overridden by agent.yaml if present)
 defaults:

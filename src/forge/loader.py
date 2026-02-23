@@ -64,9 +64,14 @@ class ForgeRegistry:
 class ForgeLoader:
     """Discovers and loads the forge/ ecosystem."""
 
-    def __init__(self, forge_root: Path | str = "forge") -> None:
+    def __init__(
+        self,
+        forge_root: Path | str = "forge",
+        governance_guardian: Any | None = None,
+    ) -> None:
         self.forge_root = Path(forge_root).resolve()
         self.registry = ForgeRegistry()
+        self._governance = governance_guardian
 
     # -- Public API ---------------------------------------------------------
 
@@ -222,6 +227,19 @@ class ForgeLoader:
                     manifest.resolved_instructions[p.stem] = p.read_text(encoding="utf-8")
 
             logger.info("agent_manifest_loaded", id=manifest.id, type=manifest.type, path=str(agent_dir))
+
+            # Governance: validate skill cap and architectural rules
+            if self._governance:
+                alerts = self._governance.audit_manifest(manifest)
+                for alert in alerts:
+                    logger.warning(
+                        "governance_alert_at_load",
+                        agent_id=manifest.id,
+                        category=alert.category,
+                        level=alert.level,
+                        message=alert.message,
+                    )
+
             return manifest
 
         except Exception as exc:

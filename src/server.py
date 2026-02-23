@@ -20,6 +20,13 @@ Endpoints:
 - POST /github/document-commit — Classify and document a commit
 - POST /github/manage-issue    — Create/update/close/comment on a GitHub issue
 - POST /github/changelog       — Generate a grouped changelog from commit history
+- GET  /governance/status      — Current governance report (tokens, alerts, violations)
+- GET  /governance/alerts      — List unresolved governance alerts
+- POST /governance/resolve-alert — Resolve a governance alert by ID
+- GET  /governance/context-reviews — List pending context window HITL reviews
+- POST /governance/context-reviews/resolve — Accept/reject context decomposition
+- GET  /governance/skill-reviews — List pending skill cap HITL reviews
+- POST /governance/skill-reviews/resolve — Accept/customise/override skill cap split
 - GET  /health                 — Health check
 - GET  /inspector              — Agent Inspector dashboard
 """
@@ -109,6 +116,25 @@ class GitHubChangelogRequest(BaseModel):
     version: str = "Unreleased"
 
 
+class GovernanceContextResolveRequest(BaseModel):
+    request_id: str
+    accepted: bool = True
+    user_note: str = ""
+
+
+class GovernanceSkillResolveRequest(BaseModel):
+    request_id: str
+    accepted: bool = True
+    custom_keep: list[str] = []
+    custom_overflow: list[str] = []
+    override: bool = False
+
+
+class GovernanceAlertResolveRequest(BaseModel):
+    alert_id: str
+    resolution: str = "accepted"
+
+
 def create_app(
     orchestrator: Any,
     mcp_server: Any,
@@ -116,6 +142,7 @@ def create_app(
     workflow_engine: Any,
     workiq_selector: Any | None = None,
     plan_selector: Any | None = None,
+    governance_selector: Any | None = None,
 ) -> FastAPI:
     """Create the FastAPI application with all routes wired up."""
 
@@ -545,6 +572,140 @@ def create_app(
             },
         )
         return JSONResponse(content={"result": result.content, "artifacts": result.artifacts})
+
+    # ── Governance Endpoints ───────────────────────────────────────
+
+    @app.get("/governance/status")
+    async def governance_status() -> JSONResponse:
+        """Return the current governance report (token usage, alerts, skill violations)."""
+        gov = getattr(orchestrator, "_governance", None)
+        if gov is None:
+            return JSONResponse(content={"enabled": False})
+        report = gov.governance_report()
+        report["enabled"] = True
+        return JSONResponse(content=report)
+
+    @app.get("/governance/alerts")
+    async def governance_alerts() -> JSONResponse:
+        """List all unresolved governance alerts."""
+        gov = getattr(orchestrator, "_governance", None)
+        if gov is None:
+            return JSONResponse(content={"alerts": []})
+        alerts = gov.unresolved_alerts()
+        return JSONResponse(
+            content={
+                "alerts": [
+                    {
+                        "alert_id": a.alert_id,
+                        "category": a.category,
+                        "level": a.level,
+                        "agent_id": a.agent_id,
+                        "message": a.message,
+                        "suggestion": a.suggestion,
+                        "details": a.details,
+                    }
+                    for a in alerts
+                ]
+            }
+        )
+
+    @app.post("/governance/resolve-alert")
+    async def governance_resolve_alert(
+        request: GovernanceAlertResolveRequest,
+    ) -> JSONResponse:
+        """Resolve a governance alert by ID."""
+        gov = getattr(orchestrator, "_governance", None)
+        if gov is None:
+            return JSONResponse(
+                status_code=501,
+                content={"error": "Governance not configured"},
+            )
+        ok = gov.resolve_alert(request.alert_id, request.resolution)
+        if not ok:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No unresolved alert with id {request.alert_id}"},
+            )
+        return JSONResponse(
+            content={
+                "alert_id": request.alert_id,
+                "resolution": request.resolution,
+                "status": "resolved",
+            }
+        )
+
+    @app.get("/governance/context-reviews")
+    async def governance_context_reviews() -> JSONResponse:
+        """List pending context window HITL reviews."""
+        if governance_selector is None:
+            return JSONResponse(content={"pending": []})
+        return JSONResponse(content={"pending": governance_selector.pending_context_reviews()})
+
+    @app.post("/governance/context-reviews/resolve")
+    async def governance_resolve_context(
+        request: GovernanceContextResolveRequest,
+    ) -> JSONResponse:
+        """Accept or reject a context window decomposition suggestion."""
+        if governance_selector is None:
+            return JSONResponse(
+                status_code=501,
+                content={"error": "Governance HITL not configured"},
+            )
+        ok = governance_selector.resolve_context_review(
+            request.request_id,
+            request.accepted,
+            user_note=request.user_note,
+        )
+        if not ok:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No pending context review with id {request.request_id}"},
+            )
+        return JSONResponse(
+            content={
+                "request_id": request.request_id,
+                "accepted": request.accepted,
+                "status": "resolved",
+            }
+        )
+
+    @app.get("/governance/skill-reviews")
+    async def governance_skill_reviews() -> JSONResponse:
+        """List pending skill cap HITL reviews."""
+        if governance_selector is None:
+            return JSONResponse(content={"pending": []})
+        return JSONResponse(content={"pending": governance_selector.pending_skill_reviews()})
+
+    @app.post("/governance/skill-reviews/resolve")
+    async def governance_resolve_skill(
+        request: GovernanceSkillResolveRequest,
+    ) -> JSONResponse:
+        """Accept, customise, or override a skill cap violation."""
+        if governance_selector is None:
+            return JSONResponse(
+                status_code=501,
+                content={"error": "Governance HITL not configured"},
+            )
+        ok = governance_selector.resolve_skill_review(
+            request.request_id,
+            request.accepted,
+            custom_keep=request.custom_keep or None,
+            custom_overflow=request.custom_overflow or None,
+            override=request.override,
+        )
+        if not ok:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No pending skill review with id {request.request_id}"},
+            )
+        return JSONResponse(
+            content={
+                "request_id": request.request_id,
+                "accepted": request.accepted,
+                "overridden": request.override,
+                "status": "resolved",
+            }
+        )
 
     # ── Health & Status ─────────────────────────────────────────
 

@@ -7,6 +7,7 @@ Wires together:
 - Agent catalog for registry/discovery
 - Workflow engine for bundled workflows
 - Forge ecosystem (agents, prompts, skills, workflows, context budgets)
+- Governance Guardian (context window + skill cap enforcement with HITL)
 - FastAPI HTTP server with Agent Inspector
 """
 
@@ -29,7 +30,10 @@ from src.agents.security_sentinel_agent import SecuritySentinelAgent
 from src.agents.sub_plan_agent import SubPlanAgent
 from src.agents.workiq_agent import WorkIQAgent
 from src.config import get_settings
+from src.forge.context_budget import ContextBudgetManager
 from src.forge.loader import AgentManifest, ForgeLoader
+from src.governance.guardian import GovernanceGuardian
+from src.governance.selector import GovernanceSelector
 from src.mcp.server import MCPSkillServer
 from src.mcp.skills import SkillLoader
 from src.orchestrator.engine import OrchestratorEngine
@@ -81,10 +85,27 @@ def bootstrap() -> tuple:
     settings = get_settings()
 
     # 0. Load the forge/ ecosystem (agents, prompts, skills, context budgets)
-    forge_loader = ForgeLoader(settings.forge.forge_dir)
+    #    Create the governance guardian FIRST so the loader can validate
+    #    skill caps and architectural rules as manifests are discovered.
+    forge_loader_pre = ForgeLoader(settings.forge.forge_dir)
+    # Pre-load context config to initialise governance
+    forge_loader_pre._load_context_config()
+    context_config = forge_loader_pre.registry.context_config
+
+    budget_manager = ContextBudgetManager(context_config)
+    governance_guardian = GovernanceGuardian(
+        config=context_config,
+        budget_manager=budget_manager,
+    )
+    governance_selector = GovernanceSelector(
+        timeout=float(context_config.get("governance", {}).get("hitl", {}).get("timeout_seconds", 120)),
+    )
+
+    # Now reload with governance attached for manifest validation
+    forge_loader = ForgeLoader(settings.forge.forge_dir, governance_guardian=governance_guardian)
     forge_registry = forge_loader.load()
 
-    # 1. Create orchestrator (with WorkIQ enrichment + Plan HITL support)
+    # 1. Create orchestrator (with WorkIQ enrichment + Plan HITL + Governance)
     workiq_client = WorkIQClient()
     workiq_selector = WorkIQSelector()
     plan_selector = PlanSelector()
@@ -92,6 +113,8 @@ def bootstrap() -> tuple:
         workiq_client=workiq_client,
         workiq_selector=workiq_selector,
         plan_selector=plan_selector,
+        governance_guardian=governance_guardian,
+        governance_selector=governance_selector,
     )
 
     # 2. Register agents — prefer manifests, fall back to defaults
@@ -209,7 +232,9 @@ def bootstrap() -> tuple:
                 logger.debug("forge_workflow_load_failed", source=source)
 
     # 6. Create FastAPI app
-    app = create_app(orchestrator, mcp_server, catalog, workflow_engine, workiq_selector, plan_selector)
+    app = create_app(
+        orchestrator, mcp_server, catalog, workflow_engine, workiq_selector, plan_selector, governance_selector
+    )
 
     logger.info(
         "protoforge_bootstrapped",
@@ -220,6 +245,8 @@ def bootstrap() -> tuple:
         forge_skills=len(forge_registry.skills),
         provider=settings.llm.active_provider.value,
         workiq_available=workiq_client.available,
+        governance_enabled=True,
+        governance_alerts=len(governance_guardian.unresolved_alerts()),
     )
 
     return app, orchestrator, mcp_server, catalog, workflow_engine, workiq_selector, plan_selector
