@@ -117,6 +117,26 @@ class TestGovernanceGuardianInit:
         assert g.agent_token_usage() == {}
 
 
+class TestGovernanceCountTokens:
+    """Test the public count_tokens() facade (P0-3)."""
+
+    def test_count_tokens_with_budget_manager(self):
+        bm = _make_budget_manager()
+        g = GovernanceGuardian(config=_make_config(), budget_manager=bm)
+        count = g.count_tokens("hello world")
+        assert count == bm.count_tokens("hello world")
+
+    def test_count_tokens_without_budget_manager(self):
+        g = GovernanceGuardian()
+        count = g.count_tokens("hello world")
+        expected = max(1, len("hello world") // 4)
+        assert count == expected
+
+    def test_count_tokens_empty_string(self):
+        g = GovernanceGuardian()
+        assert g.count_tokens("") == 1  # max(1, 0//4)
+
+
 class TestContextWindowEnforcement:
     """Test context window threshold detection."""
 

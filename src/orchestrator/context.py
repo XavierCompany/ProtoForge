@@ -49,12 +49,17 @@ class ConversationContext:
     working_memory: dict[str, Any] = field(default_factory=dict)
     agent_results: list[AgentResult] = field(default_factory=list)
     active_workflow: str | None = None
+    max_history: int = 200
 
     def add_user_message(self, content: str) -> None:
         self.messages.append(Message(role=MessageRole.USER, content=content))
+        if len(self.messages) > self.max_history:
+            self.messages = self.messages[-self.max_history :]
 
     def add_agent_message(self, agent_id: str, content: str) -> None:
         self.messages.append(Message(role=MessageRole.ASSISTANT, content=content, agent_id=agent_id))
+        if len(self.messages) > self.max_history:
+            self.messages = self.messages[-self.max_history :]
 
     def add_result(self, result: AgentResult) -> None:
         self.agent_results.append(result)

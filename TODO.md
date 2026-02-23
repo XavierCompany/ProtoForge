@@ -22,7 +22,7 @@
 These block any real deployment. Ordered by dependency.
 
 ### P0-1: Install tiktoken in dependencies
-- **Status**: `[ ]`
+- **Status**: `[x]`
 - **Effort**: 5 min
 - **Files**: `pyproject.toml`
 - **What**: Add `tiktoken>=0.7.0` to `[project.dependencies]`
@@ -31,7 +31,7 @@ These block any real deployment. Ordered by dependency.
 - **GUIDE2 ref**: §2.4, §10
 
 ### P0-2: Fix `process()` / `_process_after_routing()` duplication
-- **Status**: `[ ]`
+- **Status**: `[x]`
 - **Effort**: 1 hour
 - **Files**: `src/orchestrator/engine.py`
 - **What**: Make `process()` compute routing then delegate to `_process_after_routing()` — eliminate ~30 lines of duplicate pipeline logic
@@ -40,7 +40,7 @@ These block any real deployment. Ordered by dependency.
 - **GUIDE2 ref**: §2.2
 
 ### P0-3: Fix `_governance._budget_manager` encapsulation leak
-- **Status**: `[ ]`
+- **Status**: `[x]`
 - **Effort**: 30 min
 - **Files**: `src/governance/guardian.py`, `src/orchestrator/engine.py`
 - **What**: Add `GovernanceGuardian.count_tokens(text)` public method. Replace `self._governance._budget_manager.count_tokens(...)` calls in engine.py
@@ -49,7 +49,7 @@ These block any real deployment. Ordered by dependency.
 - **GUIDE2 ref**: §2.3
 
 ### P0-4: Count tokens once per dispatch (not 3×)
-- **Status**: `[ ]`
+- **Status**: `[x]`
 - **Effort**: 1 hour
 - **Files**: `src/orchestrator/engine.py`
 - **What**: In `_dispatch()`, compute token count once and pass through budget check, governance check, and post-dispatch recording
@@ -109,7 +109,7 @@ These block any real deployment. Ordered by dependency.
 - **GUIDE2 ref**: §2.11
 
 ### P1-9: Add ConversationContext history limit
-- **Status**: `[ ]`
+- **Status**: `[x]`
 - **Effort**: 30 min
 - **Files**: `src/orchestrator/context.py`
 - **What**: Add `max_history` parameter to `add_user_message()`. Trim `self.messages` when it exceeds the limit.
@@ -118,7 +118,7 @@ These block any real deployment. Ordered by dependency.
 - **GUIDE2 ref**: §2.8
 
 ### P1-10: Move `ContextWindowExceededError` import to top of engine.py
-- **Status**: `[ ]`
+- **Status**: `[x]`
 - **Effort**: 5 min
 - **Files**: `src/orchestrator/engine.py`
 - **What**: Move the `from src.governance.guardian import ContextWindowExceededError` from inside `_dispatch()` to the top-level imports
@@ -218,7 +218,12 @@ Track completed items here with date and commit hash.
 
 | Date | Item | Commit | Notes |
 |------|------|--------|-------|
-| — | — | — | No items completed yet |
+| 2026-02-23 | P0-1 | (staged) | Added tiktoken>=0.7.0 to pyproject.toml |
+| 2026-02-23 | P0-2 | (staged) | process() delegates to _process_after_routing() |
+| 2026-02-23 | P0-3 | (staged) | GovernanceGuardian.count_tokens() public method |
+| 2026-02-23 | P0-4 | (staged) | Single token count in _dispatch() |
+| 2026-02-23 | P1-9 | (staged) | max_history=200 on ConversationContext |
+| 2026-02-23 | P1-10 | (staged) | ContextWindowExceededError import at module top |
 
 ---
 

@@ -13,6 +13,16 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - `CHANGELOG.md` — project changelog (this file)
 - `TODO.md` — prioritised backlog derived from GUIDE2 §13
 - `SOURCE_OF_TRUTH.md` — canonical ownership map for agent identities, budgets, routing, and prompts
+- `tiktoken>=0.7.0` dependency for accurate token counting (P0-1)
+- `GovernanceGuardian.count_tokens()` public method — eliminates encapsulation leak (P0-3)
+- `ConversationContext.max_history` parameter (default 200) — trims unbounded message list (P1-9)
+- 5 new tests: history limit trimming (user + agent messages), `GovernanceGuardian.count_tokens()` (with/without budget manager, empty string)
+
+### Changed
+- `process()` now delegates to `_process_after_routing()` — eliminates ~30 lines of duplicate pipeline code (P0-2)
+- `_dispatch()` counts input tokens once and reuses the count for budget check, governance check, and post-dispatch recording (P0-4)
+- `_dispatch()`: `ContextWindowExceededError` import moved to module top-level (P1-10)
+- `_dispatch()`: governance token counting uses `self._governance.count_tokens()` instead of reaching through `self._governance._budget_manager` (P0-3)
 
 ---
 

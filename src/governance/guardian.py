@@ -167,6 +167,15 @@ class GovernanceGuardian:
 
     # ── Context Window Enforcement ──────────────────────────────────────
 
+    def count_tokens(self, text: str) -> int:
+        """Count tokens in *text* using the budget manager or a char estimate.
+
+        Public facade so callers never reach through ``_budget_manager``.
+        """
+        if self._budget_manager:
+            return self._budget_manager.count_tokens(text)
+        return max(1, len(text) // 4)
+
     def check_context_window(
         self,
         agent_id: str,

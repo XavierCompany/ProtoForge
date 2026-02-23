@@ -109,3 +109,20 @@ class TestConversationContext:
             ctx.add_user_message(f"message {i}")
         history = ctx.get_history_for_agent(last_n=10)
         assert len(history) == 10
+
+    def test_history_limit_trims_messages(self) -> None:
+        """ConversationContext should trim messages when max_history is exceeded."""
+        ctx = ConversationContext(max_history=10)
+        for i in range(20):
+            ctx.add_user_message(f"user {i}")
+        assert len(ctx.messages) == 10
+        # Oldest messages should have been dropped; newest retained
+        assert ctx.messages[0].content == "user 10"
+        assert ctx.messages[-1].content == "user 19"
+
+    def test_history_limit_trims_agent_messages(self) -> None:
+        ctx = ConversationContext(max_history=5)
+        for i in range(10):
+            ctx.add_agent_message("bot", f"reply {i}")
+        assert len(ctx.messages) == 5
+        assert ctx.messages[0].content == "reply 5"

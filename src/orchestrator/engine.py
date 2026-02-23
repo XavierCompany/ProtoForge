@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from src.config import get_settings
+from src.governance.guardian import ContextWindowExceededError
 from src.orchestrator.context import AgentResult, ConversationContext
 from src.orchestrator.router import AgentType, IntentRouter, RoutingDecision
 
@@ -132,12 +133,7 @@ class OrchestratorEngine:
         Flow:
         1. Add message to conversation context
         2. Route intent (keyword + optional LLM) to identify target sub-agents
-        3. ALWAYS execute Plan Agent first as top-level coordinator
-        4. **Plan HITL** — human reviews plan suggestions
-        5. Sub-Plan Agent plans prerequisite resources
-        6. **Sub-Plan HITL** — human reviews resource plan
-        7. Fan out to identified sub-agents in parallel
-        8. Aggregate Plan + Sub-Plan + sub-agent results
+        3. Delegate to ``_process_after_routing`` for Plan → Sub-Plan → fan-out → aggregate
         """
         self._context.add_user_message(user_message)
 
@@ -145,7 +141,7 @@ class OrchestratorEngine:
         if self._governance:
             self._governance.reset_run()
 
-        # Step 1: Route to identify which sub-agents are relevant
+        # Route to identify which sub-agents are relevant
         routing = self._router.route_by_keywords(user_message)
         logger.info(
             "intent_routed",
@@ -154,47 +150,7 @@ class OrchestratorEngine:
             reasoning=routing.reasoning,
         )
 
-        # Step 2: If confidence is low, try LLM-based routing
-        if routing.confidence < 0.5:
-            llm_routing = await self._route_with_llm(user_message)
-            if llm_routing and llm_routing.confidence > routing.confidence:
-                routing = llm_routing
-                logger.info(
-                    "llm_routing_override",
-                    primary=routing.primary_agent,
-                    confidence=routing.confidence,
-                )
-
-        # Step 3: ALWAYS run Plan Agent first as top-level coordinator
-        plan_result = await self._dispatch(AgentType.PLAN, user_message, routing)
-
-        # Store plan output in working memory so sub-agents can reference it
-        self._context.set_memory("plan_output", plan_result.content)
-        self._context.set_memory("plan_artifacts", plan_result.artifacts)
-
-        # Step 4: Plan HITL + Sub-Plan Agent + Sub-Plan HITL
-        sub_plan_result = await self._run_sub_plan_pipeline(
-            user_message,
-            plan_result,
-            routing,
-        )
-
-        # Step 5: Determine sub-agents to invoke (from routing, excluding PLAN/SUB_PLAN)
-        sub_agents = self._resolve_sub_agents(routing)
-        logger.info(
-            "plan_first_dispatch",
-            plan_agent="plan",
-            sub_plan_ran=sub_plan_result is not None,
-            sub_agents=sub_agents,
-        )
-
-        # Step 6: Fan out to sub-agents in parallel
-        sub_results: list[AgentResult] = []
-        if sub_agents:
-            sub_results = await self._fan_out(sub_agents, user_message, routing)
-
-        # Step 7: Aggregate Plan + Sub-Plan + sub-agent results
-        return self._aggregate(plan_result, sub_results, sub_plan_result)
+        return await self._process_after_routing(user_message, routing)
 
     # ── WorkIQ-enriched routing ─────────────────────────────────────────
 
@@ -454,8 +410,6 @@ class OrchestratorEngine:
         - Pre-dispatch: allocate per-agent budget, truncate input, context window check
         - Post-dispatch: token usage recording
         """
-        from src.governance.guardian import ContextWindowExceededError
-
         agent = self._agents.get(str(agent_id))
         if not agent:
             logger.warning("agent_not_found", agent_id=str(agent_id))
@@ -496,15 +450,16 @@ class OrchestratorEngine:
                 )
 
         # ── Pre-dispatch governance check ───────────────────────────────
-        estimated_tokens = 0
+        # Count input tokens ONCE and reuse throughout budget + governance
+        payload = effective_message + (agent.system_prompt or "")
         if self._governance:
-            # Estimate input size from the message + system prompt
-            payload = effective_message + (agent.system_prompt or "")
-            if self._governance._budget_manager:
-                estimated_tokens = self._governance._budget_manager.count_tokens(payload)
-            else:
-                estimated_tokens = max(1, len(payload) // 4)
+            estimated_tokens = self._governance.count_tokens(payload)
+        elif self._budget_manager:
+            estimated_tokens = self._budget_manager.count_tokens(payload)
+        else:
+            estimated_tokens = max(1, len(payload) // 4)
 
+        if self._governance:
             try:
                 alert = self._governance.check_context_window(str(agent_id), estimated_tokens)
             except ContextWindowExceededError as exc:
@@ -537,19 +492,14 @@ class OrchestratorEngine:
 
             # ── Post-dispatch: record per-agent budget usage ────────────
             if self._budget_manager:
-                input_tokens = self._budget_manager.count_tokens(effective_message)
+                self._budget_manager.record_usage(str(agent_id), estimated_tokens, direction="input")
                 output_tokens = self._budget_manager.count_tokens(result.content)
-                self._budget_manager.record_usage(str(agent_id), input_tokens, direction="input")
                 self._budget_manager.record_usage(str(agent_id), output_tokens, direction="output")
 
             # ── Post-dispatch governance recording ──────────────────────
             if self._governance:
-                if self._governance._budget_manager:
-                    output_tokens = self._governance._budget_manager.count_tokens(result.content)
-                else:
-                    output_tokens = max(1, len(result.content) // 4)
-                total_tokens = estimated_tokens + output_tokens
-                self._governance.record_agent_usage(str(agent_id), total_tokens)
+                output_tokens = self._governance.count_tokens(result.content)
+                self._governance.record_agent_usage(str(agent_id), estimated_tokens + output_tokens)
 
             logger.info(
                 "agent_completed",
