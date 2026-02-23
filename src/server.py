@@ -52,22 +52,30 @@ logger = structlog.get_logger(__name__)
 
 
 class ChatRequest(BaseModel):
+    """Inbound chat message from a user — the primary API input."""
+
     message: str
     session_id: str | None = None
 
 
 class ChatResponse(BaseModel):
+    """Orchestrator response containing the aggregated agent output."""
+
     response: str
     session_id: str
     routing: dict[str, Any] = {}
 
 
 class WorkflowRunRequest(BaseModel):
+    """Request to execute a named workflow from the forge/ ecosystem."""
+
     workflow_name: str
     params: dict[str, Any] = {}
 
 
 class MCPRequestBody(BaseModel):
+    """JSON-RPC 2.0 envelope for MCP protocol messages."""
+
     jsonrpc: str = "2.0"
     method: str
     params: dict[str, Any] = {}
@@ -75,15 +83,21 @@ class MCPRequestBody(BaseModel):
 
 
 class WorkIQQueryRequest(BaseModel):
+    """Request to query Microsoft Work IQ for organisational context."""
+
     question: str
 
 
 class WorkIQSelectRequest(BaseModel):
+    """Human selection of WorkIQ results to include in the pipeline."""
+
     request_id: str
     selected_indices: list[int]
 
 
 class WorkIQAcceptHintsRequest(BaseModel):
+    """Human acceptance of WorkIQ routing hints for agent dispatch."""
+
     request_id: str
     accepted_indices: list[int]
 

@@ -10,6 +10,8 @@ from typing import Any
 
 
 class MessageRole(StrEnum):
+    """Role of a message in the conversation history."""
+
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
@@ -18,6 +20,8 @@ class MessageRole(StrEnum):
 
 @dataclass
 class Message:
+    """Single message in the conversation, tagged with role and optional agent ID."""
+
     role: MessageRole
     content: str
     agent_id: str | None = None
@@ -52,16 +56,19 @@ class ConversationContext:
     max_history: int = 200
 
     def add_user_message(self, content: str) -> None:
+        """Append a user message and trim history to ``max_history``."""
         self.messages.append(Message(role=MessageRole.USER, content=content))
         if len(self.messages) > self.max_history:
             self.messages = self.messages[-self.max_history :]
 
     def add_agent_message(self, agent_id: str, content: str) -> None:
+        """Append an assistant message tagged with the originating agent."""
         self.messages.append(Message(role=MessageRole.ASSISTANT, content=content, agent_id=agent_id))
         if len(self.messages) > self.max_history:
             self.messages = self.messages[-self.max_history :]
 
     def add_result(self, result: AgentResult) -> None:
+        """Record an agent result and mirror it as a conversation message."""
         self.agent_results.append(result)
         self.add_agent_message(result.agent_id, result.content)
 
@@ -71,7 +78,9 @@ class ConversationContext:
         return [{"role": m.role.value, "content": m.content} for m in recent]
 
     def set_memory(self, key: str, value: Any) -> None:
+        """Store a value in working memory (persists for the session)."""
         self.working_memory[key] = value
 
     def get_memory(self, key: str, default: Any = None) -> Any:
+        """Retrieve a value from working memory, with optional default."""
         return self.working_memory.get(key, default)

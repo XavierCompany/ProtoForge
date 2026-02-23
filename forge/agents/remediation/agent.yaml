@@ -1,3 +1,9 @@
+# ─────────────────────────────────────────────────────────────
+# Remediation Agent — Fixes, Patches & Rollback Strategies
+# Generates code fixes, patches, workarounds, and resolution
+# strategies with actionable rollback plans.
+# Specialist agent — dispatched by Plan Agent for fix requests.
+# ─────────────────────────────────────────────────────────────
 id: remediation
 name: Remediation Agent
 type: specialist

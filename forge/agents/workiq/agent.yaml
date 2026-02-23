@@ -1,3 +1,9 @@
+# ─────────────────────────────────────────────────────────────
+# Work IQ Agent — Microsoft M365 Organisational Context
+# Bridges Microsoft Work IQ (M365 Copilot) into the orchestrator.
+# Queries people, calendar, emails, documents, and Teams messages
+# with human-in-the-loop selection before agent dispatch.
+# ─────────────────────────────────────────────────────────────
 id: workiq
 name: Work IQ Agent
 type: specialist

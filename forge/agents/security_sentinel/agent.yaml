@@ -1,3 +1,10 @@
+# ─────────────────────────────────────────────────────────────
+# Security Sentinel Agent — Vulnerability & Compliance Scanning
+# Scans code, configs, and dependencies for vulnerabilities,
+# CVEs, and compliance violations. Maps findings to OWASP, CWE,
+# and CVSS frameworks.
+# Specialist agent — dispatched by Plan Agent for security audits.
+# ─────────────────────────────────────────────────────────────
 id: security_sentinel
 name: Security Sentinel Agent
 type: specialist

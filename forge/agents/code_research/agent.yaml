@@ -1,3 +1,9 @@
+# ─────────────────────────────────────────────────────────────
+# Code Research Agent — Codebase Navigation & Analysis
+# Navigates codebases, searches functions, traces execution
+# flows, and identifies dependencies across files and modules.
+# Specialist agent — dispatched by Plan Agent for code queries.
+# ─────────────────────────────────────────────────────────────
 id: code_research
 name: Code Research Agent
 type: specialist

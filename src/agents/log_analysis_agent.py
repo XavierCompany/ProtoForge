@@ -42,6 +42,13 @@ Be precise. Quote exact log lines. Identify patterns statistically when possible
 
 
 class LogAnalysisAgent(BaseAgent):
+    """Log parsing, error analysis, stack-trace extraction, and crash investigation.
+
+    Includes ``_detect_patterns()`` for fast regex-based pattern detection
+    (e.g. OOM, stack overflow, timeout, connection refused) before handing
+    off to the LLM for deeper analysis.
+    """
+
     def __init__(
         self,
         agent_id: str = "log_analysis",
@@ -63,6 +70,7 @@ class LogAnalysisAgent(BaseAgent):
         context: ConversationContext,
         _params: dict[str, Any] | None = None,
     ) -> AgentResult:
+        """Parse logs, detect error patterns, and return root-cause analysis."""
         logger.info("log_analysis_agent_executing", message_length=len(message))
 
         # Quick pattern detection for common log signatures

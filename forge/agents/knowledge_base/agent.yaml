@@ -1,3 +1,9 @@
+# ─────────────────────────────────────────────────────────────
+# Knowledge Base Agent — Documentation & RAG Retrieval
+# Searches documentation, wikis, FAQs, and internal knowledge
+# bases for sourced, cited answers and how-to guides.
+# Specialist agent — dispatched by Plan Agent for doc queries.
+# ─────────────────────────────────────────────────────────────
 id: knowledge_base
 name: Knowledge Base Agent
 type: specialist

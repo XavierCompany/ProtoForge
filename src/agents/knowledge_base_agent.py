@@ -39,6 +39,13 @@ Be comprehensive but concise. Cite sources. Distinguish between facts and infere
 
 
 class KnowledgeBaseAgent(BaseAgent):
+    """Documentation retrieval, RAG, how-to guides, and knowledge queries.
+
+    Maintains a list of knowledge sources (files, URLs, indices) that can be
+    registered at runtime via ``add_knowledge_source()``.  The ``execute()``
+    method builds an LLM prompt enriched with source metadata.
+    """
+
     def __init__(
         self,
         agent_id: str = "knowledge_base",
@@ -66,6 +73,7 @@ class KnowledgeBaseAgent(BaseAgent):
         context: ConversationContext,
         _params: dict[str, Any] | None = None,
     ) -> AgentResult:
+        """Search knowledge sources and return cited, sourced answers."""
         logger.info(
             "knowledge_base_agent_executing",
             message_length=len(message),

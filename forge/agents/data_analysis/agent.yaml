@@ -1,3 +1,9 @@
+# ─────────────────────────────────────────────────────────────
+# Data Analysis Agent — Metrics, Trends & Visualizations
+# Analyzes datasets, computes metrics, detects trends and
+# anomalies, and generates visualization specifications.
+# Specialist agent — dispatched by Plan Agent for data queries.
+# ─────────────────────────────────────────────────────────────
 id: data_analysis
 name: Data Analysis Agent
 type: specialist

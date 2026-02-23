@@ -1,4 +1,29 @@
-"""Shared test fixtures and configuration for the ProtoForge test suite."""
+"""Shared test fixtures and configuration for the ProtoForge test suite.
+
+Fixture Architecture
+--------------------
+All pytest fixtures live here so every ``test_*.py`` module can share the
+same agent instances and pre-wired engine configurations.
+
+Agent fixtures (standalone):
+    plan_agent          — PlanAgent instance (coordinator)
+    sub_plan_agent      — SubPlanAgent instance (resource decomposer)
+    github_tracker_agent — GitHubTrackerAgent instance (commit/issue docs)
+    log_analysis_agent  — LogAnalysisAgent instance (log parsing)
+    knowledge_base_agent — KnowledgeBaseAgent instance (doc retrieval)
+
+Engine fixtures (composed):
+    base_engine         — 3-agent engine (plan + log_analysis + knowledge_base)
+                          No HITL gate — used for simple pipeline tests.
+    engine_with_sub_plan — 4-agent engine (plan + sub_plan + log_analysis +
+                          knowledge_base) with PlanSelector HITL gate
+                          (0.5 s timeout) — used for HITL pipeline tests.
+
+How to extend:
+    Add new agent fixtures here and register them in the engine fixtures
+    if they should participate in standard pipeline tests.  Keep the fixture
+    scope at function-level (the default) to guarantee test isolation.
+"""
 
 from __future__ import annotations
 

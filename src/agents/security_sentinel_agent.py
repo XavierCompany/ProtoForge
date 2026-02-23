@@ -41,6 +41,13 @@ Be thorough but avoid false positives. Prioritize by actual risk, not theoretica
 
 
 class SecuritySentinelAgent(BaseAgent):
+    """Vulnerability scanning, CVE lookup, OWASP/CWE mapping, and compliance audits.
+
+    Includes ``_classify_security_concern()`` for fast regex-based
+    categorisation of security keywords (e.g. SQL injection, XSS, CSRF)
+    before handing off to the LLM for detailed analysis.
+    """
+
     def __init__(
         self,
         agent_id: str = "security_sentinel",
@@ -62,6 +69,7 @@ class SecuritySentinelAgent(BaseAgent):
         context: ConversationContext,
         _params: dict[str, Any] | None = None,
     ) -> AgentResult:
+        """Scan for vulnerabilities and return severity-ranked findings."""
         logger.info("security_sentinel_executing", message_length=len(message))
 
         self._build_messages(message, context)

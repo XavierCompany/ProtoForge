@@ -39,6 +39,13 @@ Always provide code diffs. Explain WHY the fix works. Consider edge cases."""
 
 
 class RemediationAgent(BaseAgent):
+    """Fix suggestions, code patches, workarounds, and rollback strategies.
+
+    Checks for prior results from ``log_analysis`` and ``code_research``
+    agents in the conversation context before generating remediation plans,
+    so fixes are informed by earlier diagnostic output.
+    """
+
     def __init__(
         self,
         agent_id: str = "remediation",
@@ -60,6 +67,7 @@ class RemediationAgent(BaseAgent):
         context: ConversationContext,
         _params: dict[str, Any] | None = None,
     ) -> AgentResult:
+        """Generate a remediation plan with code patches and rollback strategy."""
         logger.info("remediation_agent_executing", message_length=len(message))
 
         # Check if there's prior analysis from log_analysis or code_research

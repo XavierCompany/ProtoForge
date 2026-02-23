@@ -10,11 +10,15 @@ from pydantic_settings import BaseSettings
 
 
 class AuthMethod(StrEnum):
+    """Supported authentication methods for LLM providers."""
+
     AZURE_DEFAULT = "azure_default"
     API_KEY = "api_key"
 
 
 class LLMProvider(StrEnum):
+    """Supported LLM providers — each maps to a config section in LLMConfig."""
+
     AZURE_AI_FOUNDRY = "azure_ai_foundry"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"

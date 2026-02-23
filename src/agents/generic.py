@@ -42,6 +42,12 @@ class GenericAgent(BaseAgent):
         context: ConversationContext,
         _params: dict[str, Any] | None = None,
     ) -> AgentResult:
+        """Build LLM messages from manifest and return agent result.
+
+        Currently returns a placeholder. When an LLM backend is wired in,
+        updating this single method gives all manifest-driven agents real
+        LLM capabilities.
+        """
         logger.info(
             "generic_agent_executing",
             agent_id=self.agent_id,
