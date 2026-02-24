@@ -55,7 +55,7 @@ CHANGELOG / TODO structure.
    ```powershell
    .venv\Scripts\python.exe -m pytest -q --tb=short
    ```
-   *Current: 378 tests passing in ≈ 10 s (verified).*
+   *Current: 421 tests passing (408 mocked + 13 live).*
 
 2. Keep commits atomic — one logical change per commit.
 

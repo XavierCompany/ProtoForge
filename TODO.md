@@ -1,8 +1,8 @@
 # TODO — ProtoForge Backlog
 
 > **TL;DR for LLMs**: Prioritised backlog (240+ lines).
-> P0: 5 items (4 done, 1 remaining — LLM wiring).
-> P1: 5 items (2 done, 3 remaining). P2: 5 items. P3: 5 items.
+> P0: 5 items (**5 done**).
+> P1: 5 items (2 done, 3 remaining). P2: 5 items. P3: 5 items (1 done).
 >
 > This is doc **5 of 10** in the reading order.
 > See [ARCHITECTURE.md](ARCHITECTURE.md) for system overview.
@@ -76,7 +76,7 @@ These block any real deployment. Ordered by dependency.
   - `[ ]` Implement streaming option (deferred to P1)
   - `[x]` Add timeout / retry for API calls (graceful `None` on any error)
   - `[x]` Update tests with mocked LLM responses (30 tests in `test_llm.py`)
-- **Verify**: 408 tests passing, `ruff check` + `ruff format` clean
+- **Verify**: 421 tests passing (408 mocked + 13 live), `ruff check` + `ruff format` clean
 - **GUIDE2 ref**: §2.1
 
 ---
@@ -200,12 +200,14 @@ These block any real deployment. Ordered by dependency.
 - **Depends on**: P0-5 (LLM calls available)
 - **GUIDE2 ref**: §2.1 (stub list)
 
-### P3-19: Integration tests with real LLM
-- **Status**: `[ ]`
+### P3-19: Integration tests with real LLM — ✅ DONE
+- **Status**: `[x]`
 - **Effort**: 2 days
-- **Files**: new `tests/integration/`
-- **What**: End-to-end tests that call a real LLM (gated by env var `RUN_INTEGRATION_TESTS=1`). Validate that the full pipeline produces coherent answers.
-- **Depends on**: P0-5
+- **Files**: `tests/test_llm_live.py` (new)
+- **What**: 13 end-to-end tests that call real Azure OpenAI (gated by `@pytest.mark.live` + `AZURE_AI_FOUNDRY_ENDPOINT` env var). Validates: simple chat, multi-turn, agent `_call_llm()`, `DefaultAzureCredential` token acquisition, pipeline routing, error resilience.
+- **Azure resource**: `protoforge-openai` in `protoforge-rg` (eastus2), model `gpt-4o-mini`, `DefaultAzureCredential` auth.
+- **Run**: `pytest tests/test_llm_live.py -m live -v` (requires `az login`)
+- **Depends on**: P0-5 ✔
 - **GUIDE2 ref**: §13
 
 ### P3-20: Agent health dashboards (Grafana / AppInsights)
@@ -230,7 +232,9 @@ Track completed items here with date and commit hash.
 | 2026-02-23 | P1-9 | `4d5128c` | max_history=200 on ConversationContext |
 | 2026-02-23 | P1-10 | `4d5128c` | ContextWindowExceededError import at module top |
 | 2026-02-23 | Lifecycle HITL | — | Agent disable/remove with HITL confirmation, 30 new tests (363 total) |
+| 2026-02-24 | P0-5 | `218eb33` | LLM wiring — all agents call `_call_llm()`, 30 mocked tests (408 total) |
+| 2026-02-24 | P3-19 | — | 13 live integration tests with real Azure OpenAI (`gpt-4o-mini`), `DefaultAzureCredential` (421 total) |
 
 ---
 
-*Last updated: 2026-02-23 — ProtoForge v0.1.1*
+*Last updated: 2026-02-24 — ProtoForge v0.1.1*

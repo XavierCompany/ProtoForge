@@ -38,7 +38,7 @@
 Before tuning anything, understand what the code *actually does* today vs.
 what the docs describe.
 
-### What works end-to-end (verified by 378 tests)
+### What works end-to-end (verified by 421 tests)
 
 | Layer | Status | Notes |
 |-------|--------|-------|
@@ -55,16 +55,17 @@ what the docs describe.
 
 | Layer | Status | Impact |
 |-------|--------|--------|
-| **LLM inference** | **Stub** | Every `execute()` returns a placeholder string |
-| **LLM-based routing** | **Stub** | `get_llm_routing_prompt()` generates a prompt, but no LLM call is wired |
+| **LLM inference** | **Working** | All agents call `_call_llm()` → Azure AI Foundry (`gpt-4o-mini`) via `DefaultAzureCredential`. Graceful fallback to placeholder when unconfigured. 13 live integration tests in `test_llm_live.py`. |
+| **LLM-based routing** | **Working** | `OrchestratorEngine._route_with_llm()` sends JSON intent-classification prompt, returns `RoutingDecision`. |
 | **Summarize truncation strategy** | **Stub** | Falls back to `priority` truncation |
 | **Token counting (tiktoken)** | **Available** | `tiktoken>=0.7.0` in `pyproject.toml`; falls back to `len(text) // 4` only if uninstalled |
 | **`protoforge serve`** | **Broken** | Exit code 1 — likely missing env vars |
 
-**Key takeaway**: The orchestration *data-flow* is complete and tested. The
-*intelligence* (LLM calls) is entirely placeholder. All tuning below affects
-the data-flow envelope — when LLM integration lands, these settings become
-critical.
+**Key takeaway**: The orchestration data-flow AND LLM intelligence are both
+complete and tested. All agents call `_call_llm()` for real inference when
+configured (Azure AI Foundry via `DefaultAzureCredential`), with graceful
+fallback to placeholder responses when no endpoint is set. 421 tests total
+(408 mocked + 13 live). Tuning settings below are now active.
 
 ---
 
@@ -81,7 +82,7 @@ which delegates to the singleton `LLMClient` in `src/llm/client.py`.
 - **Graceful degradation**: When no `AZURE_AI_FOUNDRY_ENDPOINT` is set, `_call_llm()` returns `None` and agents fall back to their existing placeholder responses. All 378 original tests pass without any LLM mock.
 - **Pattern**: Each agent enriches the prompt with domain context (detected patterns, prior results, available sub-agents) before calling `_call_llm()`. LLM response → higher confidence score; fallback → lower confidence.
 - **Engine routing**: `OrchestratorEngine._route_with_llm()` sends a JSON intent-classification prompt and parses the structured response into a `RoutingDecision`.
-- **Tests**: 30 new tests in `tests/test_llm.py` covering all providers, degradation paths, agent LLM paths, fallback paths, and engine LLM routing. Total: 408 tests.
+- **Tests**: 30 mocked tests in `tests/test_llm.py` + 13 live integration tests in `tests/test_llm_live.py`. Total: 421 tests.
 - **Config**: `src/config.py` — `LLMConfig` with `azure_endpoint`, `azure_model`, `auth_method` (AZURE_DEFAULT / API_KEY), `active_provider` auto-detection.
 
 **Files added/changed:**

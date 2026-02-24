@@ -185,7 +185,7 @@ Set environment variables:
 ```env
 DEFAULT_LLM_PROVIDER=azure_ai_foundry
 AZURE_AI_FOUNDRY_ENDPOINT=https://your-resource.services.ai.azure.com
-AZURE_AI_FOUNDRY_MODEL=gpt-5.3-codex
+AZURE_AI_FOUNDRY_MODEL=gpt-4o-mini
 ```
 
 Integration pattern for your agent's `execute()`:

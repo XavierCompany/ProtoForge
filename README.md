@@ -16,7 +16,7 @@
 | **Understand the architecture** | [ARCHITECTURE.md](ARCHITECTURE.md) | ~255 lines |
 | **Know what is canonical** | [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md) | ~195 lines |
 | **See the backlog / priorities** | [TODO.md](TODO.md) | ~240 lines |
-| **Read the change history** | [CHANGELOG.md](CHANGELOG.md) | ~140 lines |
+| **Read the change history** | [CHANGELOG.md](CHANGELOG.md) | ~180 lines |
 | **Maintain or tune the system** | [GUIDE2.md](GUIDE2.md) | ~910 lines |
 | **Get the full onboarding + API ref** | [README.md](README.md) *(this file)* | ~820 lines |
 | **Deep-dive every subsystem** | [GUIDE.md](GUIDE.md) | ~2760 lines |
@@ -423,7 +423,7 @@ Works with any LLM provider:
 | Provider | Models | Notes |
 |----------|--------|-------|
 | **Anthropic** | `claude-opus-4.6` (default), `claude-sonnet-4.6` | **Recommended** — highest quality reasoning |
-| **Azure AI Foundry** | `gpt-5.3-codex` | Best quality/cost/throughput on Azure |
+| **Azure AI Foundry** | `gpt-4o-mini` (deployed) | `DefaultAzureCredential` (`az login`) — 13 live tests passing |
 | **OpenAI** | `codex-5.3`, `gpt-4o` | Direct OpenAI API access |
 | **Google** | `gemini-pro-3.1` (default), `gemini-pro-3.0` | Google AI Studio / Vertex AI |
 
@@ -439,6 +439,12 @@ pip install -e ".[dev]"
 # 2. Configure
 cp .env.example .env
 # Edit .env with your credentials
+
+# 2b. Azure AI Foundry (recommended) — requires Azure CLI
+az login
+# Set AZURE_AI_FOUNDRY_ENDPOINT in .env (e.g. https://your-resource.openai.azure.com/)
+# Set AZURE_AI_FOUNDRY_MODEL (e.g. gpt-4o-mini)
+# Set AUTH_METHOD=azure_default
 
 # 3. Run the server
 protoforge serve
@@ -688,8 +694,14 @@ workiq --version
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (378 tests)
+# Run tests (421 tests, 12 files)
 pytest
+
+# Run live integration tests (requires az login + Azure endpoint)
+pytest -m live -v
+
+# Run only mocked tests (no Azure required)
+pytest -m "not live"
 
 # Run with coverage
 pytest --cov=src
@@ -753,6 +765,9 @@ ProtoForge/
 │   │   ├── loader.py           #   ForgeLoader — discovers forge/ tree
 │   │   ├── context_budget.py   #   ContextBudgetManager — token budgets
 │   │   └── contributions.py    #   ContributionManager — CRUD + audit
+│   ├── llm/                    # ★ LLM client (Azure AI Foundry + OpenAI)
+│   │   ├── __init__.py         #   Exports LLMClient, get_llm_client
+│   │   └── client.py           #   Async LLM client, singleton, multi-provider
 │   ├── governance/             # ★ Always-on governance enforcement
 │   │   ├── guardian.py         #   GovernanceGuardian — 3-pillar enforcement
 │   │   └── selector.py         #   GovernanceSelector — HITL gates for violations
@@ -772,16 +787,18 @@ ProtoForge/
 │       ├── catalog.py          #   AgentCatalog — registration, search, metrics
 │       └── workflows.py        #   Workflow bundling & execution
 └── tests/
+    ├── test_copilot_customization.py  # 15 tests — budget math, identity, model enforcement
     ├── test_forge.py           # 34 tests — loader, context budget, contributions
-    ├── test_router.py          # 22 tests — keywords, enriched routing, hints
-    ├── test_orchestrator.py    # 14 tests — engine, fan-out, aggregation
-    ├── test_mcp.py             #  7 tests — protocol, server, skills
-    ├── test_registry.py        #  9 tests — catalog, workflows
-    ├── test_sub_plan.py        # 30 tests — sub-plan agent, plan selector, pipeline
-    ├── test_workiq.py          # 52 tests — client, selector, agent, enrichment
     ├── test_github_tracker.py  # 82 tests — GitHub Tracker agent, all operations
     ├── test_governance.py      # 113 tests — guardian, selector, enforcement hooks
-    └── test_copilot_customization.py  # 11 tests — budget math, identity, model enforcement
+    ├── test_llm.py             # 30 tests — LLM client, all providers, degradation, agent paths
+    ├── test_llm_live.py        # 13 tests — live Azure OpenAI integration (requires az login)
+    ├── test_mcp.py             #  7 tests — protocol, server, skills
+    ├── test_orchestrator.py    # 14 tests — engine, fan-out, aggregation
+    ├── test_registry.py        #  9 tests — catalog, workflows
+    ├── test_router.py          # 22 tests — keywords, enriched routing, hints
+    ├── test_sub_plan.py        # 30 tests — sub-plan agent, plan selector, pipeline
+    └── test_workiq.py          # 52 tests — client, selector, agent, enrichment
 ```
 
 ## Developer Guide
@@ -816,7 +833,7 @@ If you’re picking up this codebase for the first time, here’s where to start
 | Global budget cap / warning | `forge/_context_window.yaml` → `governance.context_window` |
 | HITL gate behaviour | `src/orchestrator/plan_selector.py`, `src/workiq/selector.py` |
 | Governance rules | `src/governance/guardian.py` — `GovernanceGuardian` |
-| LLM wiring (stub today) | `src/agents/generic.py` — `GenericAgent.execute()` |
+| LLM wiring (all agents) | `src/llm/client.py` — `LLMClient`, `src/agents/base.py` — `_call_llm()` |
 
 ### How to change / add sub-agents
 

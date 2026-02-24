@@ -94,6 +94,7 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers --tb=short"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "live: marks tests that hit real Azure endpoints (deselect with '-m \"not live\"')",
 ]
 
 # ── Mypy ────────────────────────────────────────────────────────────────────

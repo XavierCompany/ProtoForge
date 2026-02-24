@@ -1,6 +1,6 @@
 # Changelog
 
-> **TL;DR for LLMs**: Version history (140+ lines). Current version: **0.1.1**.
+> **TL;DR for LLMs**: Version history (180+ lines). Current version: **0.1.1**.
 > Two releases: v0.1.1 (lifecycle HITL + P0 fixes) and v0.1.0 (initial release).
 >
 > This is doc **6 of 10** in the reading order.
@@ -16,10 +16,29 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 ## [Unreleased]
 
 ### Added
+- **LLM Intelligence (P0-5)** — all agents now call `_call_llm()` via `BaseAgent`, delegating to singleton `LLMClient` in `src/llm/client.py`. Supports Azure AI Foundry (`DefaultAzureCredential`), API key auth, and direct OpenAI. Graceful degradation — returns `None` when unconfigured.
+- **`src/llm/` package** — `LLMClient` (async, singleton, multi-provider), `get_llm_client()` factory
+- **`_call_llm()` in `BaseAgent`** — all 8 specialist agents + PlanAgent + SubPlanAgent enriched with domain context before LLM call
+- **`OrchestratorEngine._route_with_llm()`** — JSON intent-classification prompt → `RoutingDecision` dataclass
+- **30 mocked LLM tests** in `tests/test_llm.py` — covers all providers, degradation paths, agent LLM paths, engine routing
+- **13 live integration tests** in `tests/test_llm_live.py` — end-to-end tests hitting real Azure OpenAI (`gpt-4o-mini` via `DefaultAzureCredential`). Gated by `@pytest.mark.live` marker. Run: `pytest -m live`
+- **`live` pytest marker** in `pyproject.toml` — deselect with `-m "not live"`
+- **Azure OpenAI resource** — `protoforge-openai` in `protoforge-rg` (eastus2), model `gpt-4o-mini` (2024-07-18), `Cognitive Services OpenAI User` RBAC assigned
+- **`.env.example`** updated with realistic Azure endpoint/model/API version
 - **BUILDING_AGENTS.md** — practical tutorial for building a new agent with Azure AI Foundry, covering Plan Agent conversation, LLM wiring, and full pipeline walkthrough (~350 lines)
 - **Document Map** in README.md — human-friendly navigation table with recommended reading orders for humans vs LLMs
 
 ### Changed (documentation validation phase 3)
+- **`config.py`**: `azure_model` default `gpt-5.3-codex` → `gpt-4o-mini`, `azure_api_version` default `2026-01-01` → `2024-10-21` (matches deployed resource)
+- **GUIDE2.md §1**: LLM inference and LLM-based routing changed from "Stub" to "Working"
+- **GUIDE2.md §1**: Test count updated from 378 to 421 (12 test files)
+- **TODO.md**: TL;DR updated — "P0: 5 items (4 done, 1 remaining)" → "P0: 5 items (**5 done**)"
+- **TODO.md**: P3-19 (Integration tests with real LLM) marked `[x]` with live test details
+- **README.md**: Model table updated — Azure shows `gpt-4o-mini` (deployed), added `az login` to Quick Start
+- **README.md**: Test counts updated to 421 across 12 files, added `test_llm.py` (30) and `test_llm_live.py` (13)
+- **README.md**: "Next Engineer" table — LLM wiring changed from "stub today" to working reference
+- **ARCHITECTURE.md**: Added `src/llm/` to module dependency graph, updated test count 378 → 421 (12 files)
+- **ARCHITECTURE.md**: Added `LLMClient`/`get_llm_client` to Public APIs, expanded `LLMConfig` description
 - **BUILDING_AGENTS.md**: Rewritten from ~635 lines to ~195 lines — minimal, focused 8-step tutorial
 - **GUIDE2.md**: Fixed "9 of 9" → "9 of 10" in reading order header
 - **GUIDE2.md**: Fixed §2.5 bootstrap() size "120-line" → "~180-line" (actual: lines 80–258)
@@ -45,6 +64,7 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - Model validation tests rewritten to check against `ALLOWED_MODELS` set (not exact string match)
 
 ### Fixed
+- **`test_copilot_customization.py`**: `test_config_default_provider_is_anthropic` now isolated from `.env` via `monkeypatch` + `LLMConfig(_env_file=None)` — was failing when `.env` sets `DEFAULT_LLM_PROVIDER=azure_ai_foundry`
 - **Documentation accuracy audit** — comprehensive pass to fix stale numbers, phantom files, and contradictions across all 9 docs
 - **README.md**: Removed phantom `code_research_agent.py` and `data_analysis_agent.py` from project structure (these agents use `GenericAgent`, no dedicated files exist)
 - **README.md**: Fixed endpoint count 26 → 35, test counts per file (governance 68 → 113, workiq 37 → 52, orchestrator 19 → 14, mcp 14 → 7, registry 10 → 9, sub_plan 29 → 30)

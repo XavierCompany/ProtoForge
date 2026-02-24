@@ -64,7 +64,7 @@ forge/
   shared/              # Shared prompts and workflows
 tests/
   conftest.py          # Shared fixtures (engine, agents, guardian, router)
-  test_*.py            # 378 tests — one file per domain
+  test_*.py            # 421 tests — one file per domain
 ```
 
 ## Key Abstractions
@@ -90,7 +90,7 @@ tests/
 - **HITL pattern**: prepare review → expose via HTTP → wait with timeout → resolve
   - Timeout default: 120s → auto-resolve (fail-closed for lifecycle, fail-open for plans)
 - **Token math constraint**: `plan(32K) + sub-plan(20K) + 3×specialist(≤25K) ≤ 128K`
-- **Tests**: pytest + pytest-asyncio, fixtures in `conftest.py`, 378 tests
+- **Tests**: pytest + pytest-asyncio, fixtures in `conftest.py`, 421 tests
 - **Lint**: ruff (check + format), mypy for type checking
 - **Async**: All agent `execute()` methods are `async def`
 

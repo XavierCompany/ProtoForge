@@ -42,7 +42,7 @@ User → FastAPI /chat → IntentRouter (keyword + LLM)
 - **structlog** for structured logging — `logger = structlog.get_logger(__name__)`
 - **Async**: All agent `execute()` methods are `async def`
 - **Token math**: `plan(32K) + sub-plan(20K) + 3×specialist(≤25K) ≤ 128K`
-- **Tests**: pytest + pytest-asyncio, 378 tests, fixtures in `tests/conftest.py`
+- **Tests**: pytest + pytest-asyncio, 421 tests, fixtures in `tests/conftest.py`
 - **Lint**: ruff (check + format), mypy for type checking
 
 ## Documentation — Read ALL in order

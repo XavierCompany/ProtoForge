@@ -294,11 +294,17 @@ class TestModelPolicy:
     first-class alternatives.  See ADR-002 in GUIDE.md.
     """
 
-    def test_config_default_provider_is_anthropic(self) -> None:
+    def test_config_default_provider_is_anthropic(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """config.py must default to Anthropic (Claude Opus 4.6) when no keys set."""
         from src.config import LLMConfig, LLMProvider
 
-        cfg = LLMConfig()
+        # Isolate from .env — test the true coded defaults
+        monkeypatch.delenv("DEFAULT_LLM_PROVIDER", raising=False)
+        monkeypatch.delenv("AZURE_AI_FOUNDRY_ENDPOINT", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        cfg = LLMConfig(_env_file=None)
         assert cfg.active_provider == LLMProvider.ANTHROPIC
 
     def test_config_anthropic_model_is_opus(self) -> None:

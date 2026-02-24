@@ -26,7 +26,7 @@ forge/_context_window.yaml — Token budget config
 - Pydantic v2 settings, dataclasses for domain, structlog logging
 - All execute() are async def
 - Token math: plan(32K) + sub-plan(20K) + 3×specialist(≤25K) ≤ 128K
-- 378 tests: pytest + pytest-asyncio
+- 421 tests: pytest + pytest-asyncio
 
 # Documentation — Read ALL: copilot-instructions.md → ARCHITECTURE.md →
 # SOURCE_OF_TRUTH.md → MAINTENANCE.md → TODO.md → CHANGELOG.md →

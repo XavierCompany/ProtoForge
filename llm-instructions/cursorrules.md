@@ -43,7 +43,7 @@ forge/agents/*/agent.yaml — Per-agent manifests
 - structlog for logging
 - All agent execute() methods are async def
 - Token math: plan(32K) + sub-plan(20K) + 3×specialist(≤25K) ≤ 128K
-- Tests: pytest + pytest-asyncio, 378 tests
+- Tests: pytest + pytest-asyncio, 421 tests
 
 # Documentation — Read ALL
 

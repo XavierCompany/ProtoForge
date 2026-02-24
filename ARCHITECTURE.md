@@ -67,10 +67,16 @@ Never import upward (e.g., agents must not import from orchestrator).
 - `PlanSelector` — Plan HITL gate: `prepare_review()`, `resolve()`
 
 ### `src/agents/`
-- `BaseAgent` (ABC) — `execute(context) → AgentResult`, `from_manifest()`
+- `BaseAgent` (ABC) — `execute(context) → AgentResult`, `from_manifest()`, `_call_llm(messages)`
 - 10 implementations: plan, sub_plan, log_analysis, code_research, remediation,
   knowledge_base, data_analysis, security_sentinel, github_tracker, workiq
 - `code_research` and `data_analysis` have no dedicated Python class — they use `GenericAgent.from_manifest()`
+
+### `src/llm/`
+- `LLMClient` — async multi-provider LLM client: `chat(messages) → str | None`
+- `get_llm_client()` — singleton factory (lazy init)
+- Providers: Azure AI Foundry (`DefaultAzureCredential` or API key), OpenAI, Anthropic, Google
+- Graceful degradation: returns `None` on any error or when unconfigured
 
 ### `src/governance/`
 - `GovernanceGuardian` — `check_budget()`, `enforce_hard_cap()`, `audit_manifest()`
@@ -173,7 +179,7 @@ Budget math: `32K + 20K + 3×25K = 127K ≤ 128K` (4K headroom for aggregation)
 
 All config lives in `src/config.py` as Pydantic `BaseSettings`:
 
-- `LLMConfig` — provider selection (Azure/OpenAI/Anthropic/Google), API keys, models
+- `LLMConfig` — provider selection (Azure/OpenAI/Anthropic/Google), endpoints, API keys, models, auth method (`DefaultAzureCredential` or API key), `active_provider` auto-detection
 - `ServerConfig` — host, port for FastAPI
 - `MCPConfig` — port, skills directory for MCP server
 - `ForgeConfig` — path to forge/ directory
@@ -185,9 +191,10 @@ Settings are loaded from `.env` file. Access via `get_settings()` singleton.
 
 ## 8. Testing
 
-- **378 tests** across 10 test files, all async (`pytest-asyncio`).
+- **421 tests** across 12 test files, all async (`pytest-asyncio`).
 - Fixtures in `tests/conftest.py` — pre-built engine, agents, guardian, router.
 - Test files map 1:1 to source domains (test_orchestrator, test_governance, etc.)
+- Live integration tests: `pytest -m live` (13 tests, requires `az login` + Azure endpoint)
 - CI: GitHub Actions, Python 3.11 + 3.12 matrix, ruff lint + format + pytest.
 
 ---
