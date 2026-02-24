@@ -98,7 +98,7 @@ class GovernanceSelector:
     (fail-open: accepts the suggestion by default).
     """
 
-    def __init__(self, timeout: float = 120.0) -> None:
+    def __init__(self, timeout: float = 30.0) -> None:
         self._timeout = timeout
 
         # Context window reviews

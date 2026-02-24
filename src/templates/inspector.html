@@ -492,10 +492,19 @@
                     indicator.textContent = '';
                     document.getElementById('send-btn').disabled = false;
                 } else {
-                    // Still processing
+                    // Still processing — show phase + elapsed + pending reviews
                     const elapsed = Math.round(data.elapsed_seconds || 0);
                     const pending = data.pending_reviews?.length || 0;
-                    indicator.textContent = `[${elapsed}s elapsed${pending > 0 ? ` | ${pending} review(s) pending` : ''}]`;
+                    const phase = data.pipeline_phase || 'starting';
+                    const phaseLabels = {
+                        'routing': 'Routing intent...',
+                        'plan_agent': 'Plan Agent thinking...',
+                        'plan_review': 'Awaiting plan review...',
+                        'executing_agents': 'Running specialist agents...',
+                        'complete': 'Finalizing...',
+                    };
+                    const phaseText = phaseLabels[phase] || phase;
+                    indicator.textContent = `[${elapsed}s | ${phaseText}${pending > 0 ? ` | ${pending} review(s) pending - check below!` : ''}]`;
 
                     // When HITL reviews appear, refresh the review panel and alert the user
                     if (pending > 0) {

@@ -43,6 +43,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 import uuid
 from pathlib import Path
@@ -339,6 +340,11 @@ def create_app(
 
         elapsed = time.time() - task["created_at"]
 
+        # Get current pipeline phase from the orchestrator's latest context
+        phase = None
+        with contextlib.suppress(Exception):
+            phase = orchestrator.context.get_memory("pipeline_phase")
+
         return JSONResponse(
             content={
                 "task_id": task_id,
@@ -348,6 +354,7 @@ def create_app(
                 "session_id": task["session_id"],
                 "error": task["error"],
                 "pending_reviews": pending,
+                "pipeline_phase": phase if task["status"] == "processing" else None,
             }
         )
 

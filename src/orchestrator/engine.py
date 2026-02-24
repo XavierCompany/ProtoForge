@@ -270,6 +270,8 @@ class OrchestratorEngine:
         """
         ctx = ConversationContext()
         ctx.add_user_message(user_message)
+        ctx.set_memory("pipeline_phase", "routing")
+        self._context = ctx  # expose active context for status polling
 
         # Reset governance counters for this new orchestration run
         if self._governance:
@@ -285,7 +287,6 @@ class OrchestratorEngine:
         )
 
         result = await self._process_after_routing(user_message, routing, ctx)
-        self._context = ctx  # update "last known" for diagnostics
         return result, ctx
 
     # ── WorkIQ-enriched routing ─────────────────────────────────────────
@@ -413,11 +414,13 @@ class OrchestratorEngine:
                 )
 
         # ALWAYS run Plan Agent first as top-level coordinator
+        ctx.set_memory("pipeline_phase", "plan_agent")
         plan_result = await self._dispatch(AgentType.PLAN, user_message, routing, ctx)
         ctx.set_memory("plan_output", plan_result.content)
         ctx.set_memory("plan_artifacts", plan_result.artifacts)
 
         # Plan HITL + Sub-Plan Agent + Sub-Plan HITL
+        ctx.set_memory("pipeline_phase", "plan_review")
         sub_plan_result = await self._run_sub_plan_pipeline(
             user_message,
             plan_result,
@@ -439,11 +442,13 @@ class OrchestratorEngine:
         )
 
         # Fan out to sub-agents in parallel
+        ctx.set_memory("pipeline_phase", "executing_agents")
         sub_results: list[AgentResult] = []
         if sub_agents:
             sub_results = await self._fan_out(sub_agents, user_message, routing, ctx)
 
         # Aggregate Plan + Sub-Plan + sub-agent results
+        ctx.set_memory("pipeline_phase", "complete")
         return self._aggregate(plan_result, sub_results, sub_plan_result)
 
     def _resolve_sub_agents(self, routing: RoutingDecision) -> list[str]:

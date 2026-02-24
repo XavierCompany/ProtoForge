@@ -96,7 +96,7 @@ class PlanSelector:
     resolves with *all* items accepted (fail-open).
     """
 
-    def __init__(self, timeout: float = 120.0) -> None:
+    def __init__(self, timeout: float = 30.0) -> None:
         self._timeout = timeout
 
         # Phase A - Plan Agent HITL

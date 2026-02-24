@@ -87,7 +87,7 @@ class WorkIQSelector:
     automatically (fail-open).
     """
 
-    def __init__(self, timeout: float = 120.0) -> None:
+    def __init__(self, timeout: float = 30.0) -> None:
         self._timeout = timeout
         # Phase 1: content section selection
         self._pending: dict[str, SelectionRequest] = {}
