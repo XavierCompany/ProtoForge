@@ -31,7 +31,7 @@
         #messages { max-height: 300px; overflow-y: auto; padding: 8px; }
         .msg { padding: 8px 12px; margin: 4px 0; border-radius: 6px; font-size: 14px; word-break: break-word; }
         .msg-user { background: #1f2937; }
-        .msg-agent { background: #0d2137; border-left: 3px solid #58a6ff; }
+        .msg-agent { background: #0d2137; border-left: 3px solid #58a6ff; white-space: pre-wrap; }
         .msg-system { background: #1c1c1c; border-left: 3px solid #d29922; color: #d29922; font-size: 13px; }
         #agents-list, #skills-list { max-height: 250px; overflow-y: auto; }
         .item { padding: 8px; border-bottom: 1px solid #21262d; font-size: 13px; }
@@ -123,7 +123,7 @@
         const HITL_TIMEOUT_S = 120;
 
         // ── Helpers ──────────────────────────────────────────────
-        function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+        function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
 
         function scrollToReviews() {
             document.getElementById('reviews-card').scrollIntoView({ behavior: 'smooth' });
@@ -138,7 +138,7 @@
                 el.innerHTML = `
                     <div class="stat"><span class="stat-label">Status</span><span class="badge badge-active">${esc(data.status)}</span></div>
                     <div class="stat"><span class="stat-label">Provider</span><span class="stat-value">${esc(data.orchestrator.provider)}</span></div>
-                    <div class="stat"><span class="stat-label">Session</span><span class="stat-value">${esc(data.orchestrator.session_id.slice(0,8))}...</span></div>
+                    <div class="stat"><span class="stat-label">Session</span><span class="stat-value">${esc((data.orchestrator.session_id || 'N/A').slice(0,8))}...</span></div>
                     <div class="stat"><span class="stat-label">Messages</span><span class="stat-value">${data.orchestrator.message_count}</span></div>
                     <div class="stat"><span class="stat-label">MCP Tools</span><span class="stat-value">${data.mcp.tools_count}</span></div>
                     <div class="stat"><span class="stat-label">Installed Skills</span><span class="stat-value">${data.catalog.installed_skills}</span></div>
@@ -441,7 +441,7 @@
                 });
                 const data = await res.json();
                 activeChatTaskId = data.task_id;
-                document.getElementById('chat-status-indicator').textContent = `[Task: ${data.task_id.slice(0,8)}... processing]`;
+                document.getElementById('chat-status-indicator').textContent = `[Task: ${(data.task_id || '').slice(0,8)}... processing]`;
                 startChatPolling();
             } catch(e) {
                 document.getElementById('chat-processing')?.remove();
@@ -468,8 +468,9 @@
                     activeChatTaskId = null;
                     document.getElementById('chat-processing')?.remove();
                     const messagesEl = document.getElementById('messages');
-                    const response = data.response || '(empty response)';
-                    messagesEl.innerHTML += `<div class="msg msg-agent">&#129302; ${esc(response).replace(/\n/g, '<br>')}</div>`;
+                    const raw = data.response;
+                    const response = (typeof raw === 'string' && raw) ? raw : '(empty response)';
+                    messagesEl.innerHTML += `<div class="msg msg-agent">&#129302; ${esc(response)}</div>`;
                     messagesEl.scrollTop = messagesEl.scrollHeight;
                     indicator.textContent = '';
                     document.getElementById('send-btn').disabled = false;
@@ -489,8 +490,19 @@
                     const elapsed = Math.round(data.elapsed_seconds || 0);
                     const pending = data.pending_reviews?.length || 0;
                     indicator.textContent = `[${elapsed}s elapsed${pending > 0 ? ` | ${pending} review(s) pending` : ''}]`;
+
+                    // When HITL reviews appear, refresh the review panel and alert the user
+                    if (pending > 0) {
+                        loadReviews();
+                        scrollToReviews();
+                        const badge = document.getElementById('notif-count');
+                        badge.classList.add('active');
+                        badge.style.animation = 'none';
+                        badge.offsetHeight; // trigger reflow
+                        badge.style.animation = 'pulse 0.6s ease-in-out 3';
+                    }
                 }
-            } catch(e) { /* silent */ }
+            } catch(e) { console.warn('chat_poll_error', e); }
         }
 
         // ── Init ─────────────────────────────────────────────────

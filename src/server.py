@@ -286,6 +286,11 @@ def create_app(
                 _chat_tasks[tid]["status"] = "completed"
                 _chat_tasks[tid]["response"] = result
                 _chat_tasks[tid]["session_id"] = ctx.session_id
+            except asyncio.CancelledError:
+                _chat_tasks[tid]["status"] = "error"
+                _chat_tasks[tid]["error"] = "Request cancelled"
+                logger.info("chat_task_cancelled", task_id=tid)
+                raise
             except Exception as exc:
                 _chat_tasks[tid]["status"] = "error"
                 _chat_tasks[tid]["error"] = str(exc)
@@ -346,11 +351,15 @@ def create_app(
             }
         )
 
-    @app.post("/chat/enriched", response_model=ChatResponse)
-    async def chat_enriched(request: ChatRequest) -> ChatResponse:
-        """Send a message through the WorkIQ-enriched pipeline.
+    @app.post("/chat/enriched", response_model=ChatAsyncResponse)
+    async def chat_enriched(request: ChatRequest) -> ChatAsyncResponse:
+        """Send a message through the WorkIQ-enriched pipeline (non-blocking).
 
-        This triggers the full enrichment flow:
+        Returns immediately with a ``task_id``.  Poll
+        ``GET /chat/status/{task_id}`` for progress, pending HITL
+        reviews, and the final response.
+
+        Enrichment flow:
         1. Query Work IQ for organisational context
         2. HITL Phase 1 — user selects relevant content sections
         3. Extract routing keywords from selected content
@@ -359,10 +368,40 @@ def create_app(
 
         If WorkIQ is not configured, falls back to standard routing.
         """
-        response, ctx = await orchestrator.process_with_enrichment(request.message)
-        return ChatResponse(
-            response=response,
-            session_id=ctx.session_id,
+        task_id = str(uuid.uuid4())
+        _chat_tasks[task_id] = {
+            "status": "processing",
+            "created_at": time.time(),
+            "message": request.message,
+            "response": None,
+            "session_id": request.session_id,
+            "error": None,
+        }
+
+        async def _run_enriched(tid: str, msg: str) -> None:
+            try:
+                result, ctx = await orchestrator.process_with_enrichment(msg)
+                _chat_tasks[tid]["status"] = "completed"
+                _chat_tasks[tid]["response"] = result
+                _chat_tasks[tid]["session_id"] = ctx.session_id
+            except Exception as exc:
+                _chat_tasks[tid]["status"] = "error"
+                _chat_tasks[tid]["error"] = str(exc)
+                logger.error("enriched_chat_task_failed", task_id=tid, error=str(exc))
+            finally:
+                _chat_tasks[tid].pop("_task_ref", None)
+                task = asyncio.create_task(_cleanup_chat_task(tid))
+                _chat_cleanup_tasks.add(task)
+                task.add_done_callback(_chat_cleanup_tasks.discard)
+
+        _chat_tasks[task_id]["_task_ref"] = asyncio.create_task(
+            _run_enriched(task_id, request.message),
+        )
+
+        return ChatAsyncResponse(
+            task_id=task_id,
+            status="processing",
+            session_id=request.session_id,
         )
 
     # ── MCP Endpoint ────────────────────────────────────────────
