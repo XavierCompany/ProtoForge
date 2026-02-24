@@ -452,7 +452,7 @@ def create_app(
             )
 
         # Ask orchestrator to process via the workiq agent
-        response = await orchestrator.process(request.question)
+        response, _ctx = await orchestrator.process(request.question)
         pending = workiq_selector.pending_requests()
 
         return JSONResponse(
@@ -1028,6 +1028,9 @@ def create_app(
         keep this module focused on route definitions).
         """
         html_path = Path(__file__).parent / "templates" / "inspector.html"
-        return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+        return HTMLResponse(
+            content=html_path.read_text(encoding="utf-8"),
+            headers={"Cache-Control": "no-store"},
+        )
 
     return app
