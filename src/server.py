@@ -3,7 +3,7 @@
 Endpoints:
 - POST /chat                   — Send message to orchestrator (non-blocking, returns task_id)
 - GET  /chat/status/{task_id}  — Poll for chat task result + pending reviews
-- POST /chat/enriched          — Send message with WorkIQ enrichment pipeline
+- POST /chat/enriched          — Send message with WorkIQ enrichment (non-blocking, returns task_id)
 - POST /mcp                    — MCP JSON-RPC endpoint
 - GET  /agents                 — List registered agents
 - GET  /skills                 — List available skills
