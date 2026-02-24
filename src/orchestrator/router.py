@@ -239,6 +239,15 @@ class IntentRouter:
         if removed is not None:
             logger.info("routing_patterns_removed", agent=agent_id, count=len(removed))
 
+    def get_patterns(self, agent_id: str) -> list[re.Pattern[str]]:
+        """Return the compiled routing patterns for *agent_id* (or empty list)."""
+        return list(self._compiled_patterns.get(agent_id, []))
+
+    def restore_patterns(self, agent_id: str, compiled: list[re.Pattern[str]]) -> None:
+        """Restore previously saved compiled patterns for *agent_id*."""
+        self._compiled_patterns[agent_id] = compiled
+        logger.info("routing_patterns_restored", agent=agent_id, count=len(compiled))
+
     @property
     def known_agent_ids(self) -> list[str]:
         """All agent IDs that have at least one routing pattern."""

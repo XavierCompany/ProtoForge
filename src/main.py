@@ -198,7 +198,8 @@ def bootstrap() -> tuple:
     async def handle_tool_call(tool_name: str, arguments: dict, _agent_type: str | None) -> str:
         # Build a message from the tool call
         msg = f"[Tool: {tool_name}] {' '.join(f'{k}={v}' for k, v in arguments.items())}"
-        return await orchestrator.process(msg)
+        result, _ctx = await orchestrator.process(msg)
+        return result
 
     mcp_server.set_call_handler(handle_tool_call)
 
@@ -295,7 +296,7 @@ def chat() -> None:
                 typer.echo("[reset] Session reset\n")
                 continue
 
-            response = await orchestrator.process(message)
+            response, _ctx = await orchestrator.process(message)
             typer.echo(f"\nProtoForge: {response}\n")
 
     asyncio.run(chat_loop())

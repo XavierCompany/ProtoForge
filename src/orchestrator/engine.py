@@ -96,6 +96,8 @@ class OrchestratorEngine:
         # Budget enforcement layer
         self._budget_manager = budget_manager
         self._forge_registry = forge_registry
+        # Saved routing patterns for disabled agents (restore on enable)
+        self._disabled_patterns: dict[str, list] = {}
         # Fan-out cap from context config (default 3)
         self._max_parallel_agents: int = 3
         if forge_registry and forge_registry.context_config:
@@ -153,6 +155,7 @@ class OrchestratorEngine:
                 self._governance_selector.cleanup_lifecycle_review(req_id)
 
         self._disabled_agents.add(agent_id)
+        self._disabled_patterns[agent_id] = self._router.get_patterns(agent_id)
         self._router.deregister_patterns(agent_id)
         if self._budget_manager:
             self._budget_manager.deallocate(agent_id)
@@ -173,6 +176,9 @@ class OrchestratorEngine:
             return {"ok": False, "error": f"Agent '{agent_id}' is not disabled"}
 
         self._disabled_agents.discard(agent_id)
+        saved = self._disabled_patterns.pop(agent_id, [])
+        if saved:
+            self._router.restore_patterns(agent_id, saved)
         logger.info("agent_enabled", agent_id=agent_id)
         return {
             "ok": True,
@@ -421,6 +427,10 @@ class OrchestratorEngine:
 
         # Determine sub-agents to invoke (from routing, excluding PLAN/SUB_PLAN)
         sub_agents = self._resolve_sub_agents(routing)
+        # Filter by Plan HITL accepted agents if available
+        plan_accepted = ctx.get_memory("plan_accepted_agents")
+        if plan_accepted is not None:
+            sub_agents = [a for a in sub_agents if a in plan_accepted]
         logger.info(
             "plan_first_dispatch",
             plan_agent="plan",

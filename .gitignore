@@ -40,3 +40,9 @@ registry_data/
 # Logs
 *.log
 logs/
+
+# Temp output files
+*_results.txt
+*_output.txt
+*_output2.txt
+tmp_*.json

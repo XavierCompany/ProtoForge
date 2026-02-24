@@ -128,6 +128,7 @@ class WorkIQSelector:
         if len(options) <= 1:
             req.selected_indices = list(range(len(options)))
             req.resolved = True
+            self._pending[request_id] = req
         else:
             self._pending[request_id] = req
             self._events[request_id] = asyncio.Event()
@@ -246,6 +247,7 @@ class WorkIQSelector:
             # Auto-accept when 0 or 1 hint — no point asking
             req.accepted_indices = list(range(len(hints)))
             req.resolved = True
+            self._pending_hints[request_id] = req
         else:
             self._pending_hints[request_id] = req
             self._hint_events[request_id] = asyncio.Event()

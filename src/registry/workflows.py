@@ -194,7 +194,7 @@ class WorkflowEngine:
                 )
 
                 try:
-                    result = await self._orchestrator.process(prompt)
+                    result, _ctx = await self._orchestrator.process(prompt)
                     results[step.name] = {
                         "content": result,
                         "status": "completed",
