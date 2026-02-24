@@ -41,6 +41,9 @@ src/
   governance/
     guardian.py        # Context window cap + skill cap enforcement + HITL
     selector.py        # Agent lifecycle HITL (disable/enable/unregister)
+  llm/
+    client.py          # LLMClient — Azure AI Foundry + OpenAI (DefaultAzureCredential)
+    __init__.py        # Re-exports get_llm_client()
   orchestrator/
     engine.py          # Core pipeline: route→plan→sub-plan→fan-out→aggregate
     router.py          # IntentRouter — keyword patterns + LLM classification

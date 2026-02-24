@@ -171,6 +171,8 @@ Quick reference for where each category of files lives.
 | Architecture guide | `GUIDE.md` | ✓ Reference (may lag behind code) |
 | Maintenance guide | `GUIDE2.md` | ✓ Reference (may lag behind code) |
 | LLM architecture ref | `ARCHITECTURE.md` | ✓ Compact architecture (~250 lines, LLM-optimised) |
+| Agent building guide | `BUILDING_AGENTS.md` | ✓ Canonical "add a new agent" tutorial (~255 lines) |
+| LLM client | `src/llm/client.py` | ✓ Canonical — Azure AI Foundry + OpenAI singleton |
 | LLM instructions | `.github/copilot-instructions.md` | ✓ LLM first-read file (~140 lines) |
 
 ---

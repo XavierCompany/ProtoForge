@@ -43,6 +43,9 @@ jobs:
       - name: Pytest
         run: pytest --tb=short -q --strict-markers
 
+      - name: Doc drift check
+        run: python scripts/check_drift.py
+
       # mypy is opt-in until all Any annotations are resolved
       # - name: Mypy
       #   run: mypy src/

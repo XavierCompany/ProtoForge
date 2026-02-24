@@ -841,7 +841,7 @@ If you’re picking up this codebase for the first time, here’s where to start
 2. **Register routing**: Add keyword pattern to `_BUILTIN_KEYWORD_ROUTES` in `router.py`, add `AgentType` enum member
 3. **Register in bootstrap**: Add entry to `_SPECIALISED_CLASSES` in `main.py` (or use `GenericAgent` for YAML-only agents)
 4. **Add tests**: Create `tests/test_<id>.py`
-5. **Full walkthrough**: See [GUIDE.md §11](GUIDE.md) and [GUIDE2.md §4](GUIDE2.md)
+5. **Full walkthrough**: See [BUILDING_AGENTS.md](BUILDING_AGENTS.md) — the canonical step-by-step tutorial
 
 ### How to add a pre-router enrichment source
 

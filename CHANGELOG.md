@@ -29,6 +29,20 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - **Document Map** in README.md — human-friendly navigation table with recommended reading orders for humans vs LLMs
 - **`_mock_llm` autouse fixture** in `tests/conftest.py` — patches `BaseAgent._call_llm` → `None` for all non-live tests, preventing real Azure API calls during unit tests. Excludes `@pytest.mark.live` tests and `test_llm.py` (which manages its own mocks). Fixes async test hang in `test_sub_plan.py` and `test_orchestrator.py`.
 
+### Changed (documentation consolidation — drift-proof)
+- **GUIDE.md §11**: Replaced ~245 lines of duplicated "Adding a Brand-New Agent" tutorial with cross-reference to `BUILDING_AGENTS.md` (the canonical source)
+- **GUIDE2.md §4**: Replaced ~138 lines of duplicated "Adding a New Subagent" tutorial with cross-reference to `BUILDING_AGENTS.md`
+- **MAINTENANCE.md §5.1**: Replaced 18-line add-agent checklist with cross-reference to `BUILDING_AGENTS.md`
+- **README.md**: Updated "How to change / add sub-agents" links from GUIDE.md/GUIDE2.md → BUILDING_AGENTS.md
+- **copilot-instructions.md**: Added `src/llm/` (LLMClient, get_llm_client) to directory map
+- **MAINTENANCE.md §1**: Added BUILDING_AGENTS.md row to document hierarchy table
+- **MAINTENANCE.md §4.2**: Added `src/llm/client.py` (236 lines) to source module table
+- **SOURCE_OF_TRUTH.md §8**: Added BUILDING_AGENTS.md and `src/llm/` rows to file registry
+
+### Added
+- **`scripts/check_drift.py`** — CI drift detection script. Validates: test count matches docs, agent count matches docs, endpoint count matches docs, doc numbering consistency ("of 10"), `src/llm/` present in directory map.
+- **`.github/workflows/ci.yml`** — drift check step added after pytest
+
 ### Changed (documentation validation phase 3)
 - **`config.py`**: `azure_model` default `gpt-5.3-codex` → `gpt-5.2-chat`, `azure_api_version` default `2026-01-01` → `2024-10-21` (matches deployed resource)
 - **GUIDE2.md §1**: LLM inference and LLM-based routing changed from "Stub" to "Working"

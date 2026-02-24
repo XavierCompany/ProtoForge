@@ -31,6 +31,7 @@ read deeper docs only when the task requires it.
 | `README.md`          | Onboarding, quick-start, project overview        | Dependency changes, CLI changes, new endpoints       |
 | `CHANGELOG.md`       | Version history (Keep a Changelog format)        | Every commit to `master`                             |
 | `TODO.md`            | Prioritised backlog (P0→P3)                      | When items are completed or new work is identified   |
+| `BUILDING_AGENTS.md` | Canonical "add a new agent" tutorial (~255 lines)| When agent creation steps or LLM wiring changes      |
 | `MAINTENANCE.md`     | This file — maintenance & versioning protocol    | When the maintenance process itself changes           |
 
 **Rule**: touch source → touch the doc that owns that layer.  `SOURCE_OF_TRUTH.md` §9
@@ -150,6 +151,7 @@ _process_after_routing()              ← src/orchestrator/engine.py L248
 | `src/server.py`                 |   896 | FastAPI app: 35 HTTP endpoints + inspector dashboard |
 | `src/mcp/`                      |     — | MCP protocol, skill server, skill loader             |
 | `src/workiq/`                   |     — | WorkIQ CLI client + HITL selector                    |
+| `src/llm/client.py`             |   236 | `LLMClient`: Azure AI Foundry + OpenAI, `get_llm_client()` singleton |
 | `src/registry/`                 |     — | `AgentCatalog`, `WorkflowEngine`                     |
 
 ### 4.3 Agents (10 total)
@@ -239,22 +241,10 @@ tags: [...]
 
 ### 5.1 Add a New Agent
 
-1. **Create forge manifest**: `forge/agents/<agent_id>/agent.yaml`
-   - Populate all fields (see §4.5 for schema).
-   - Create `prompts/system.md`, `skills/<name>.yaml`, `instructions/<name>.md`.
-2. **Add to `AgentType` enum**: `src/orchestrator/router.py` — add new member.
-3. **Add routing keywords**: Add entry in `_BUILTIN_KEYWORD_ROUTES` dict
-   (`src/orchestrator/router.py` lines 26–96).
-4. **Optional — specialised class**: If the agent needs custom Python logic,
-   create `src/agents/<agent_id>_agent.py` subclassing `BaseAgent`.
-   Add to `_SPECIALISED_CLASSES` in `src/main.py`.
-   If no custom logic needed, `GenericAgent` handles it automatically.
-5. **Add to `_default_agents`**: In `src/main.py` `bootstrap()`, add a fallback
-   entry so the agent exists even without a forge manifest.
-6. **Update `forge/_registry.yaml`**: Add the agent to the `agents:` section.
-7. **Write tests**: Add `tests/test_<agent_id>.py`.
-8. **Update docs**: `SOURCE_OF_TRUTH.md` §3, `GUIDE.md` (new §), `README.md`
-   agent table, `CHANGELOG.md`.
+> **Canonical source → [BUILDING_AGENTS.md](BUILDING_AGENTS.md)**
+>
+> Full 8-step tutorial covering forge manifest, routing, optional Python
+> class, tests, budget verification, and LLM wiring.
 
 ### 5.2 Add a New Enrichment Source (Pre-Router)
 
@@ -468,6 +458,16 @@ DO.md` line 7 | ✅ |
 | 56 | GUIDE2.md P0: 5/5 done (was 4/5) | GUIDE2.md L922 | ✅ |
 | 57 | ARCHITECTURE.md 10-file reading list, ~6 270 lines | ARCHITECTURE.md L221 | ✅ |
 | 58 | copilot-instructions.md line counts (3 fixes) | L3, L127, L131 | ✅ |
+| 59 | copilot-instructions.md missing `src/llm/` in directory map | L44–46 | ✅ |
+| 60 | MAINTENANCE.md §1 missing BUILDING_AGENTS.md row | L33 | ✅ |
+| 61 | MAINTENANCE.md §4.2 missing `src/llm/` row | L153 | ✅ |
+| 62 | SOURCE_OF_TRUTH.md §8 missing BUILDING_AGENTS.md + `src/llm/` | L175–176 | ✅ |
+| 63 | GUIDE.md §11 duplicate add-agent → cross-ref BUILDING_AGENTS.md | L1348 | ✅ |
+| 64 | GUIDE2.md §4 duplicate add-agent → cross-ref BUILDING_AGENTS.md | L345 | ✅ |
+| 65 | MAINTENANCE.md §5.1 duplicate add-agent → cross-ref BUILDING_AGENTS.md | L242 | ✅ |
+| 66 | README.md add-agent links → BUILDING_AGENTS.md | L844 | ✅ |
+| 67 | `scripts/check_drift.py` — CI drift detection script | new file | ✅ |
+| 68 | `.github/workflows/ci.yml` — drift check step added | L47 | ✅ |
 
 ---
 
