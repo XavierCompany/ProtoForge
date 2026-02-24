@@ -1,7 +1,8 @@
 """HTTP Server — FastAPI app exposing the orchestrator and MCP server.
 
 Endpoints:
-- POST /chat                   — Send message to orchestrator
+- POST /chat                   — Send message to orchestrator (non-blocking, returns task_id)
+- GET  /chat/status/{task_id}  — Poll for chat task result + pending reviews
 - POST /chat/enriched          — Send message with WorkIQ enrichment pipeline
 - POST /mcp                    — MCP JSON-RPC endpoint
 - GET  /agents                 — List registered agents
@@ -34,12 +35,16 @@ Endpoints:
 - DELETE /agents/{agent_id} — Request agent removal (triggers HITL review)
 - GET  /agents/enabled — List currently enabled agents
 - GET  /agents/disabled — List currently disabled agents
+- GET  /reviews/pending        — Unified view of ALL pending HITL reviews
 - GET  /health                 — Health check
 - GET  /inspector              — Agent Inspector dashboard
 """
 
 from __future__ import annotations
 
+import asyncio
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +70,21 @@ class ChatResponse(BaseModel):
     response: str
     session_id: str
     routing: dict[str, Any] = {}
+
+
+class ChatAsyncResponse(BaseModel):
+    """Non-blocking chat response — references a background task."""
+
+    task_id: str
+    status: str = "processing"  # processing | completed | error
+    message: str = "Request is being processed. Poll GET /chat/status/{task_id} for updates."
+    response: str | None = None
+    session_id: str | None = None
+    pending_reviews: list[dict[str, Any]] = []
+
+
+# Background chat task tracking
+_chat_tasks: dict[str, dict[str, Any]] = {}
 
 
 class WorkflowRunRequest(BaseModel):
@@ -193,17 +213,19 @@ def create_app(
     """Create the FastAPI application with all routes wired up.
 
     Route groups (in definition order):
-        Lines ~190-210   POST /chat, /chat/enriched      — Core chat pipeline
-        Lines ~215-235   POST /mcp                        — MCP JSON-RPC
-        Lines ~240-280   GET  /agents, /skills            — Agent catalog
-        Lines ~285-305   GET+POST /workflows              — Workflow engine
-        Lines ~310-410   /workiq/*                         — WorkIQ 2-phase HITL (5 routes)
-        Lines ~415-470   /plan/*, /sub-plan/*              — Plan & Sub-Plan HITL (4 routes)
-        Lines ~475-615   /github/*                         — GitHub Tracker (3 routes)
-        Lines ~620-810   /governance/*                     — Governance HITL (8 routes)
-        Lines ~815-845   /agents/{id}/disable|enable|remove — Lifecycle (3 routes)
-        Lines ~850-870   GET /health                       — Health check
-        Lines ~875-885   GET /inspector                    — HTML dashboard
+        Lines ~200-260   POST /chat (non-blocking), GET /chat/status/{task_id}
+        Lines ~265-285   POST /chat/enriched             — Enriched pipeline
+        Lines ~290-310   POST /mcp                        — MCP JSON-RPC
+        Lines ~315-355   GET  /agents, /skills            — Agent catalog
+        Lines ~360-380   GET+POST /workflows              — Workflow engine
+        Lines ~385-485   /workiq/*                         — WorkIQ 2-phase HITL (5 routes)
+        Lines ~490-545   /plan/*, /sub-plan/*              — Plan & Sub-Plan HITL (4 routes)
+        Lines ~550-690   /github/*                         — GitHub Tracker (3 routes)
+        Lines ~695-885   /governance/*                     — Governance HITL (8 routes)
+        Lines ~890-920   /agents/{id}/disable|enable|remove — Lifecycle (3 routes)
+        Lines ~925-960   GET /reviews/pending              — Unified HITL reviews
+        Lines ~965-985   GET /health                       — Health check
+        Lines ~990-1000  GET /inspector                    — HTML dashboard
 
     Parameters:
         orchestrator: OrchestratorEngine instance (typed Any to avoid circular import)
@@ -229,15 +251,86 @@ def create_app(
         allow_headers=["*"],
     )
 
-    # ── Chat Endpoint ───────────────────────────────────────────
+    # ── Chat Endpoint (Non-blocking) ─────────────────────────────
 
-    @app.post("/chat", response_model=ChatResponse)
-    async def chat(request: ChatRequest) -> ChatResponse:
-        """Send a message to the orchestrator."""
-        response = await orchestrator.process(request.message)
-        return ChatResponse(
-            response=response,
-            session_id=orchestrator.context.session_id,
+    @app.post("/chat", response_model=ChatAsyncResponse)
+    async def chat(request: ChatRequest) -> ChatAsyncResponse:
+        """Send a message to the orchestrator (non-blocking).
+
+        Returns immediately with a ``task_id``. Poll
+        ``GET /chat/status/{task_id}`` for progress and results.
+        The response includes any pending HITL reviews that must
+        be resolved before the pipeline can complete.
+        """
+        task_id = str(uuid.uuid4())
+        _chat_tasks[task_id] = {
+            "status": "processing",
+            "created_at": time.time(),
+            "message": request.message,
+            "response": None,
+            "session_id": request.session_id,
+            "error": None,
+        }
+
+        async def _run_chat(tid: str, msg: str) -> None:
+            try:
+                result = await orchestrator.process(msg)
+                _chat_tasks[tid]["status"] = "completed"
+                _chat_tasks[tid]["response"] = result
+                _chat_tasks[tid]["session_id"] = orchestrator.context.session_id
+            except Exception as exc:
+                _chat_tasks[tid]["status"] = "error"
+                _chat_tasks[tid]["error"] = str(exc)
+                logger.error("chat_task_failed", task_id=tid, error=str(exc))
+
+        _chat_tasks[task_id]["_task_ref"] = asyncio.create_task(
+            _run_chat(task_id, request.message),
+        )
+
+        return ChatAsyncResponse(
+            task_id=task_id,
+            status="processing",
+            session_id=request.session_id,
+        )
+
+    @app.get("/chat/status/{task_id}")
+    async def chat_status(task_id: str) -> JSONResponse:
+        """Poll for the result of a non-blocking chat request.
+
+        Returns the current status of the background task, any
+        pending HITL reviews, and the final response when complete.
+        """
+        task = _chat_tasks.get(task_id)
+        if task is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No chat task with id {task_id}"},
+            )
+
+        # Gather pending reviews across all HITL gates
+        pending: list[dict[str, Any]] = []
+        if plan_selector is not None:
+            pending.extend({"type": "plan", **r} for r in plan_selector.pending_plan_reviews())
+            pending.extend({"type": "sub_plan", **r} for r in plan_selector.pending_resource_reviews())
+        if governance_selector is not None:
+            pending.extend({"type": "governance_context", **r} for r in governance_selector.pending_context_reviews())
+            pending.extend({"type": "governance_skill", **r} for r in governance_selector.pending_skill_reviews())
+            pending.extend(
+                {"type": "governance_lifecycle", **r} for r in governance_selector.pending_lifecycle_reviews()
+            )
+
+        elapsed = time.time() - task["created_at"]
+
+        return JSONResponse(
+            content={
+                "task_id": task_id,
+                "status": task["status"],
+                "elapsed_seconds": round(elapsed, 1),
+                "response": task["response"],
+                "session_id": task["session_id"],
+                "error": task["error"],
+                "pending_reviews": pending,
+            }
         )
 
     @app.post("/chat/enriched", response_model=ChatResponse)
@@ -866,6 +959,37 @@ def create_app(
     async def list_disabled_agents() -> JSONResponse:
         """List agents currently disabled (not routed to)."""
         return JSONResponse(content={"disabled_agents": orchestrator.list_disabled_agents()})
+
+    # ── Unified Reviews Endpoint ────────────────────────────────
+
+    @app.get("/reviews/pending")
+    async def reviews_pending() -> JSONResponse:
+        """Unified view of ALL pending HITL reviews across every gate.
+
+        The Inspector polls this endpoint to show the notification
+        badge and populate the HITL review panel.
+        """
+        reviews: list[dict[str, Any]] = []
+
+        # Plan & Sub-Plan HITL
+        if plan_selector is not None:
+            reviews.extend({"type": "plan", **r} for r in plan_selector.pending_plan_reviews())
+            reviews.extend({"type": "sub_plan", **r} for r in plan_selector.pending_resource_reviews())
+
+        # WorkIQ HITL
+        if workiq_selector is not None:
+            reviews.extend({"type": "workiq", **r} for r in workiq_selector.pending_requests())
+            reviews.extend({"type": "workiq_hints", **r} for r in workiq_selector.pending_routing_hint_requests())
+
+        # Governance HITL
+        if governance_selector is not None:
+            reviews.extend({"type": "governance_context", **r} for r in governance_selector.pending_context_reviews())
+            reviews.extend({"type": "governance_skill", **r} for r in governance_selector.pending_skill_reviews())
+            reviews.extend(
+                {"type": "governance_lifecycle", **r} for r in governance_selector.pending_lifecycle_reviews()
+            )
+
+        return JSONResponse(content={"pending": reviews, "count": len(reviews)})
 
     # ── Health & Status ─────────────────────────────────────────
 
