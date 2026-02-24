@@ -118,6 +118,7 @@ class PlanSelector:
         plan_artifacts: dict[str, Any] | None = None,
     ) -> PlanReviewRequest:
         """Build a HITL request from the Plan Agent's output."""
+        self.sweep_resolved()
         suggestions: list[PlanSuggestion] = []
         for idx, agent_id in enumerate(recommended_agents):
             keywords = [agent_id]
@@ -165,6 +166,9 @@ class PlanSelector:
         req = self._plan_pending.get(request_id)
         if not req:
             logger.warning("plan_review_not_found", request_id=request_id)
+            return False
+        if req.resolved:
+            logger.info("plan_review_already_resolved", request_id=request_id)
             return False
 
         valid = [i for i in accepted_indices if 0 <= i < len(req.suggestions)]
@@ -232,6 +236,21 @@ class PlanSelector:
         self._plan_pending.pop(request_id, None)
         self._plan_events.pop(request_id, None)
 
+    def sweep_resolved(self) -> int:
+        """Remove all resolved entries to prevent memory leaks."""
+        removed = 0
+        for rid in [k for k, v in self._plan_pending.items() if v.resolved]:
+            self._plan_pending.pop(rid, None)
+            self._plan_events.pop(rid, None)
+            removed += 1
+        for rid in [k for k, v in self._resource_pending.items() if v.resolved]:
+            self._resource_pending.pop(rid, None)
+            self._resource_events.pop(rid, None)
+            removed += 1
+        if removed:
+            logger.debug("plan_selector_swept", removed=removed)
+        return removed
+
     # ── Phase B: Sub-Plan Agent resource review ─────────────────────────
 
     def prepare_resource_review(
@@ -243,6 +262,7 @@ class PlanSelector:
         user_brief: str = "",
     ) -> ResourceReviewRequest:
         """Build a HITL request from the Sub-Plan Agent's resource plan."""
+        self.sweep_resolved()
         items: list[ResourceItem] = []
         for idx, res in enumerate(resources):
             items.append(
@@ -290,6 +310,9 @@ class PlanSelector:
         req = self._resource_pending.get(request_id)
         if not req:
             logger.warning("resource_review_not_found", request_id=request_id)
+            return False
+        if req.resolved:
+            logger.info("resource_review_already_resolved", request_id=request_id)
             return False
 
         valid = [i for i in accepted_indices if 0 <= i < len(req.resources)]

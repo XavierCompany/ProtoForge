@@ -104,6 +104,7 @@ class WorkIQSelector:
         Each logical section of the Work IQ response becomes one selectable
         option.  If there is only one section the request is auto-resolved.
         """
+        self.sweep_resolved()
         options: list[SelectionOption] = []
         for idx, section in enumerate(result.sections):
             preview = section[:120] + ("…" if len(section) > 120 else "")
@@ -144,6 +145,9 @@ class WorkIQSelector:
         req = self._pending.get(request_id)
         if not req:
             logger.warning("workiq_selection_not_found", request_id=request_id)
+            return False
+        if req.resolved:
+            logger.info("workiq_selection_already_resolved", request_id=request_id)
             return False
 
         valid = [i for i in indices if 0 <= i < len(req.options)]
@@ -232,6 +236,7 @@ class WorkIQSelector:
         applied to the WorkIQ selected content.  The user reviews which
         keywords should genuinely influence routing.
         """
+        self.sweep_resolved()
         req = RoutingHintRequest(
             request_id=request_id,
             hints=hints,
@@ -258,6 +263,9 @@ class WorkIQSelector:
         req = self._pending_hints.get(request_id)
         if not req:
             logger.warning("routing_hints_not_found", request_id=request_id)
+            return False
+        if req.resolved:
+            logger.info("routing_hints_already_resolved", request_id=request_id)
             return False
 
         valid = [i for i in accepted_indices if 0 <= i < len(req.hints)]
@@ -325,3 +333,18 @@ class WorkIQSelector:
         """Remove a completed routing-hint request."""
         self._pending_hints.pop(request_id, None)
         self._hint_events.pop(request_id, None)
+
+    def sweep_resolved(self) -> int:
+        """Remove all resolved entries to prevent memory leaks."""
+        removed = 0
+        for rid in [k for k, v in self._pending.items() if v.resolved]:
+            self._pending.pop(rid, None)
+            self._events.pop(rid, None)
+            removed += 1
+        for rid in [k for k, v in self._pending_hints.items() if v.resolved]:
+            self._pending_hints.pop(rid, None)
+            self._hint_events.pop(rid, None)
+            removed += 1
+        if removed:
+            logger.debug("workiq_selector_swept", removed=removed)
+        return removed

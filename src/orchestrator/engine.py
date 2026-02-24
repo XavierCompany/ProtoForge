@@ -139,16 +139,18 @@ class OrchestratorEngine:
                 agent_id,
                 enabled_after,
             )
-            review = await self._governance_selector.wait_for_lifecycle_review(req_id)
-            self._governance_selector.cleanup_lifecycle_review(req_id)
+            try:
+                review = await self._governance_selector.wait_for_lifecycle_review(req_id)
 
-            if not review.accepted:
-                logger.info("disable_agent_rejected", agent_id=agent_id)
-                return {
-                    "ok": False,
-                    "error": "Disable rejected by human reviewer",
-                    "request_id": req_id,
-                }
+                if not review.accepted:
+                    logger.info("disable_agent_rejected", agent_id=agent_id)
+                    return {
+                        "ok": False,
+                        "error": "Disable rejected by human reviewer",
+                        "request_id": req_id,
+                    }
+            finally:
+                self._governance_selector.cleanup_lifecycle_review(req_id)
 
         self._disabled_agents.add(agent_id)
         self._router.deregister_patterns(agent_id)
@@ -201,16 +203,18 @@ class OrchestratorEngine:
                 agent_id,
                 enabled_after,
             )
-            review = await self._governance_selector.wait_for_lifecycle_review(req_id)
-            self._governance_selector.cleanup_lifecycle_review(req_id)
+            try:
+                review = await self._governance_selector.wait_for_lifecycle_review(req_id)
 
-            if not review.accepted:
-                logger.info("remove_agent_rejected", agent_id=agent_id)
-                return {
-                    "ok": False,
-                    "error": "Remove rejected by human reviewer",
-                    "request_id": req_id,
-                }
+                if not review.accepted:
+                    logger.info("remove_agent_rejected", agent_id=agent_id)
+                    return {
+                        "ok": False,
+                        "error": "Remove rejected by human reviewer",
+                        "request_id": req_id,
+                    }
+            finally:
+                self._governance_selector.cleanup_lifecycle_review(req_id)
 
         self._agents.pop(agent_id, None)
         self._disabled_agents.discard(agent_id)
@@ -316,69 +320,69 @@ class OrchestratorEngine:
         content_req_id = str(uuid.uuid4())
         content_req = self._workiq_selector.prepare(workiq_result, content_req_id)
 
-        if not content_req.resolved:
-            ctx.set_memory("workiq_content_pending", content_req_id)
-            content_req = await self._workiq_selector.wait_for_selection(content_req_id)
+        try:
+            if not content_req.resolved:
+                ctx.set_memory("workiq_content_pending", content_req_id)
+                content_req = await self._workiq_selector.wait_for_selection(content_req_id)
 
-        selected_text = self._workiq_selector.selected_content(content_req_id)
-        ctx.set_memory("workiq_selected_content", selected_text)
+            selected_text = self._workiq_selector.selected_content(content_req_id)
+            ctx.set_memory("workiq_selected_content", selected_text)
 
-        if not selected_text:
-            logger.info("workiq_enrichment_empty_selection")
+            if not selected_text:
+                logger.info("workiq_enrichment_empty_selection")
+                result = await self._process_after_routing(
+                    user_message,
+                    self._router.route_by_keywords(user_message),
+                    ctx,
+                )
+                self._context = ctx
+                return result, ctx
+
+            # Phase 2 — extract routing keywords from selected content
+            hints = self._router.extract_routing_keywords(selected_text)
+
+            if not hints:
+                logger.info("workiq_no_routing_keywords")
+                result = await self._process_after_routing(
+                    user_message,
+                    self._router.route_by_keywords(user_message),
+                    ctx,
+                )
+                self._context = ctx
+                return result, ctx
+
+            # Phase 2b — HITL: user selects which keyword hints to accept
+            hint_req_id = str(uuid.uuid4())
+            hint_req = self._workiq_selector.prepare_routing_hints(hints, hint_req_id)
+
+            try:
+                if not hint_req.resolved:
+                    ctx.set_memory("workiq_hints_pending", hint_req_id)
+                    hint_req = await self._workiq_selector.wait_for_routing_hints(hint_req_id)
+
+                accepted = self._workiq_selector.accepted_routing_hints(hint_req_id)
+                ctx.set_memory(
+                    "workiq_accepted_hints",
+                    [{"agent": h.agent_id, "keyword": h.keyword} for h in accepted],
+                )
+
+                # Phase 3 — enriched routing
+                routing = self._router.route_with_context(user_message, accepted)
+                logger.info(
+                    "enriched_intent_routed",
+                    primary=routing.primary_agent,
+                    confidence=routing.confidence,
+                    reasoning=routing.reasoning,
+                    hint_count=len(accepted),
+                )
+
+                result = await self._process_after_routing(user_message, routing, ctx)
+                self._context = ctx
+                return result, ctx
+            finally:
+                self._workiq_selector.cleanup_routing_hints(hint_req_id)
+        finally:
             self._workiq_selector.cleanup(content_req_id)
-            result = await self._process_after_routing(
-                user_message,
-                self._router.route_by_keywords(user_message),
-                ctx,
-            )
-            self._context = ctx
-            return result, ctx
-
-        # Phase 2 — extract routing keywords from selected content
-        hints = self._router.extract_routing_keywords(selected_text)
-
-        if not hints:
-            logger.info("workiq_no_routing_keywords")
-            self._workiq_selector.cleanup(content_req_id)
-            result = await self._process_after_routing(
-                user_message,
-                self._router.route_by_keywords(user_message),
-                ctx,
-            )
-            self._context = ctx
-            return result, ctx
-
-        # Phase 2b — HITL: user selects which keyword hints to accept
-        hint_req_id = str(uuid.uuid4())
-        hint_req = self._workiq_selector.prepare_routing_hints(hints, hint_req_id)
-
-        if not hint_req.resolved:
-            ctx.set_memory("workiq_hints_pending", hint_req_id)
-            hint_req = await self._workiq_selector.wait_for_routing_hints(hint_req_id)
-
-        accepted = self._workiq_selector.accepted_routing_hints(hint_req_id)
-        ctx.set_memory(
-            "workiq_accepted_hints",
-            [{"agent": h.agent_id, "keyword": h.keyword} for h in accepted],
-        )
-
-        # Phase 3 — enriched routing
-        routing = self._router.route_with_context(user_message, accepted)
-        logger.info(
-            "enriched_intent_routed",
-            primary=routing.primary_agent,
-            confidence=routing.confidence,
-            reasoning=routing.reasoning,
-            hint_count=len(accepted),
-        )
-
-        # Cleanup
-        self._workiq_selector.cleanup(content_req_id)
-        self._workiq_selector.cleanup_routing_hints(hint_req_id)
-
-        result = await self._process_after_routing(user_message, routing, ctx)
-        self._context = ctx
-        return result, ctx
 
     async def _process_after_routing(
         self,
@@ -493,14 +497,16 @@ class OrchestratorEngine:
                 recommended,
                 plan_artifacts=plan_artifacts,
             )
-            if not plan_req.resolved:
-                ctx.set_memory("plan_review_pending", plan_req_id)
-                plan_req = await self._plan_selector.wait_for_plan_review(plan_req_id)
+            try:
+                if not plan_req.resolved:
+                    ctx.set_memory("plan_review_pending", plan_req_id)
+                    plan_req = await self._plan_selector.wait_for_plan_review(plan_req_id)
 
-            accepted_agents = self._plan_selector.accepted_plan_agents(plan_req_id)
-            ctx.set_memory("plan_accepted_agents", accepted_agents)
-            self._plan_selector.cleanup_plan_review(plan_req_id)
-            logger.info("plan_hitl_resolved", accepted_agents=accepted_agents)
+                accepted_agents = self._plan_selector.accepted_plan_agents(plan_req_id)
+                ctx.set_memory("plan_accepted_agents", accepted_agents)
+                logger.info("plan_hitl_resolved", accepted_agents=accepted_agents)
+            finally:
+                self._plan_selector.cleanup_plan_review(plan_req_id)
 
         # ── Sub-Plan Agent execution ────────────────────────────────────
         sub_plan_result = await self._dispatch(
@@ -524,23 +530,25 @@ class OrchestratorEngine:
                 resources,
                 user_brief=sub_plan_artifacts.get("user_brief", ""),
             )
-            if not res_req.resolved:
-                ctx.set_memory("resource_review_pending", res_req_id)
-                res_req = await self._plan_selector.wait_for_resource_review(res_req_id)
+            try:
+                if not res_req.resolved:
+                    ctx.set_memory("resource_review_pending", res_req_id)
+                    res_req = await self._plan_selector.wait_for_resource_review(res_req_id)
 
-            accepted_resources = self._plan_selector.accepted_resources(res_req_id)
-            brief = self._plan_selector.resource_brief(res_req_id)
-            ctx.set_memory(
-                "accepted_resources",
-                [{"name": r.name, "type": r.resource_type} for r in accepted_resources],
-            )
-            ctx.set_memory("resource_brief", brief)
-            self._plan_selector.cleanup_resource_review(res_req_id)
-            logger.info(
-                "sub_plan_hitl_resolved",
-                accepted_count=len(accepted_resources),
-                brief_length=len(brief),
-            )
+                accepted_resources = self._plan_selector.accepted_resources(res_req_id)
+                brief = self._plan_selector.resource_brief(res_req_id)
+                ctx.set_memory(
+                    "accepted_resources",
+                    [{"name": r.name, "type": r.resource_type} for r in accepted_resources],
+                )
+                ctx.set_memory("resource_brief", brief)
+                logger.info(
+                    "sub_plan_hitl_resolved",
+                    accepted_count=len(accepted_resources),
+                    brief_length=len(brief),
+                )
+            finally:
+                self._plan_selector.cleanup_resource_review(res_req_id)
 
         return sub_plan_result
 
@@ -706,30 +714,31 @@ class OrchestratorEngine:
             decomposition=decomposition,
         )
 
-        if not review.resolved:
-            ctx.set_memory("governance_review_pending", req_id)
-            review = await self._governance_selector.wait_for_context_review(req_id)
+        try:
+            if not review.resolved:
+                ctx.set_memory("governance_review_pending", req_id)
+                review = await self._governance_selector.wait_for_context_review(req_id)
 
-        if review.accepted:
-            logger.info(
-                "governance_decomposition_accepted",
-                alert_id=alert.alert_id,
-                agent_id=agent_id,
-            )
-            ctx.set_memory("governance_decomposition_accepted", True)
-        else:
-            logger.info(
-                "governance_decomposition_rejected",
-                alert_id=alert.alert_id,
-                agent_id=agent_id,
-            )
+            if review.accepted:
+                logger.info(
+                    "governance_decomposition_accepted",
+                    alert_id=alert.alert_id,
+                    agent_id=agent_id,
+                )
+                ctx.set_memory("governance_decomposition_accepted", True)
+            else:
+                logger.info(
+                    "governance_decomposition_rejected",
+                    alert_id=alert.alert_id,
+                    agent_id=agent_id,
+                )
 
-        # Mark alert as resolved in the guardian
-        if self._governance:
-            resolution = "accepted" if review.accepted else "rejected"
-            self._governance.resolve_alert(alert.alert_id, resolution)
-
-        self._governance_selector.cleanup_context_review(req_id)
+            # Mark alert as resolved in the guardian
+            if self._governance:
+                resolution = "accepted" if review.accepted else "rejected"
+                self._governance.resolve_alert(alert.alert_id, resolution)
+        finally:
+            self._governance_selector.cleanup_context_review(req_id)
 
     async def _fan_out(
         self,

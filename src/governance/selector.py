@@ -122,6 +122,7 @@ class GovernanceSelector:
         decomposition: ContextDecompositionSuggestion | None = None,
     ) -> ContextWindowReview:
         """Create a HITL review for a context window threshold breach."""
+        self.sweep_resolved()
         review = ContextWindowReview(
             request_id=request_id,
             alert=alert,
@@ -152,6 +153,9 @@ class GovernanceSelector:
         review = self._context_pending.get(request_id)
         if not review:
             logger.warning("context_review_not_found", request_id=request_id)
+            return False
+        if review.resolved:
+            logger.info("context_review_already_resolved", request_id=request_id)
             return False
 
         review.accepted = accepted
@@ -225,6 +229,7 @@ class GovernanceSelector:
         split_suggestion: SkillSplitSuggestion | None = None,
     ) -> SkillCapReview:
         """Create a HITL review for a skill cap violation."""
+        self.sweep_resolved()
         review = SkillCapReview(
             request_id=request_id,
             alert=alert,
@@ -258,6 +263,9 @@ class GovernanceSelector:
         review = self._skill_pending.get(request_id)
         if not review:
             logger.warning("skill_review_not_found", request_id=request_id)
+            return False
+        if review.resolved:
+            logger.info("skill_review_already_resolved", request_id=request_id)
             return False
 
         review.accepted = accepted
@@ -346,6 +354,7 @@ class GovernanceSelector:
         **after** the action completes, allowing the human to see the impact
         before confirming.
         """
+        self.sweep_resolved()
         review = AgentLifecycleReview(
             request_id=request_id,
             action=action,
@@ -378,6 +387,9 @@ class GovernanceSelector:
         review = self._lifecycle_pending.get(request_id)
         if not review:
             logger.warning("lifecycle_review_not_found", request_id=request_id)
+            return False
+        if review.resolved:
+            logger.info("lifecycle_review_already_resolved", request_id=request_id)
             return False
 
         review.accepted = accepted
@@ -439,3 +451,22 @@ class GovernanceSelector:
     def cleanup_lifecycle_review(self, request_id: str) -> None:
         self._lifecycle_pending.pop(request_id, None)
         self._lifecycle_events.pop(request_id, None)
+
+    def sweep_resolved(self) -> int:
+        """Remove all resolved entries to prevent memory leaks."""
+        removed = 0
+        for rid in [k for k, v in self._context_pending.items() if v.resolved]:
+            self._context_pending.pop(rid, None)
+            self._context_events.pop(rid, None)
+            removed += 1
+        for rid in [k for k, v in self._skill_pending.items() if v.resolved]:
+            self._skill_pending.pop(rid, None)
+            self._skill_events.pop(rid, None)
+            removed += 1
+        for rid in [k for k, v in self._lifecycle_pending.items() if v.resolved]:
+            self._lifecycle_pending.pop(rid, None)
+            self._lifecycle_events.pop(rid, None)
+            removed += 1
+        if removed:
+            logger.debug("governance_selector_swept", removed=removed)
+        return removed
