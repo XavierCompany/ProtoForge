@@ -20,7 +20,7 @@
 | **Maintain or tune the system** | [GUIDE2.md](GUIDE2.md) | ~910 lines |
 | **Get the full onboarding + API ref** | [README.md](README.md) *(this file)* | ~820 lines |
 | **Deep-dive every subsystem** | [GUIDE.md](GUIDE.md) | ~2760 lines |
-| **Build a new agent (tutorial)** | [BUILDING_AGENTS.md](BUILDING_AGENTS.md) | ~350 lines |
+| **Build a new agent (tutorial)** | [BUILDING_AGENTS.md](BUILDING_AGENTS.md) | ~255 lines |
 | **Follow update procedures** | [MAINTENANCE.md](MAINTENANCE.md) | ~455 lines |
 
 **Recommended reading order for humans:**

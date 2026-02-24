@@ -100,7 +100,7 @@ These block any real deployment. Ordered by dependency.
 - **Effort**: 2 hours
 - **Files**: `src/server.py` → `src/server/chat.py`, `governance.py`, `workiq.py`, `github.py`, `inspector.py`
 - **What**: Create a `src/server/` package with separate routers per domain. Use FastAPI `APIRouter` includes.
-- **Why**: ~750-line file is hard to navigate and causes PR merge conflicts
+- **Why**: ~900-line file is hard to navigate and causes PR merge conflicts
 - **Verify**: `pytest tests/ -v` + manual: `curl http://localhost:8080/health`
 - **GUIDE2 ref**: §2.10
 
@@ -205,7 +205,7 @@ These block any real deployment. Ordered by dependency.
 - **Effort**: 2 days
 - **Files**: `tests/test_llm_live.py` (new)
 - **What**: 13 end-to-end tests that call real Azure OpenAI (gated by `@pytest.mark.live` + `AZURE_AI_FOUNDRY_ENDPOINT` env var). Validates: simple chat, multi-turn, agent `_call_llm()`, `DefaultAzureCredential` token acquisition, pipeline routing, error resilience.
-- **Azure resource**: `protoforge-openai` in `protoforge-rg` (eastus2), model `gpt-4o-mini`, `DefaultAzureCredential` auth.
+- **Azure resource**: `protoforge-openai` in `protoforge-rg` (eastus2), model `gpt-5.2-chat`, `DefaultAzureCredential` auth.
 - **Run**: `pytest tests/test_llm_live.py -m live -v` (requires `az login`)
 - **Depends on**: P0-5 ✔
 - **GUIDE2 ref**: §13
@@ -233,7 +233,7 @@ Track completed items here with date and commit hash.
 | 2026-02-23 | P1-10 | `4d5128c` | ContextWindowExceededError import at module top |
 | 2026-02-23 | Lifecycle HITL | — | Agent disable/remove with HITL confirmation, 30 new tests (363 total) |
 | 2026-02-24 | P0-5 | `218eb33` | LLM wiring — all agents call `_call_llm()`, 30 mocked tests (408 total) |
-| 2026-02-24 | P3-19 | — | 13 live integration tests with real Azure OpenAI (`gpt-4o-mini`), `DefaultAzureCredential` (421 total) |
+| 2026-02-24 | P3-19 | — | 13 live integration tests with real Azure OpenAI (`gpt-5.2-chat`), `DefaultAzureCredential` (421 total) |
 
 ---
 

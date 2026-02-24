@@ -452,12 +452,22 @@ The following claims were verified against the actual codebase:
 | 41 | BUILDING_AGENTS.md exists (doc 10 of 10) | `BUILDING_AGENTS.md` | ✅ |
 | 42 | All 3 LLM instruction variants list 10 docs | `llm-instructions/` | ✅ |
 | 43 | GUIDE2.md reading order "9 of 10" (not "9 of 9") | `GUIDE2.md` line 7 | ✅ |
-| 44 | TODO.md reading order "5 of 10" (not "5 of 9") | `TODO.md` line 7 | ✅ |
+| 44 | TODO.md reading order "5 of 10" (not "5 of 9") | `TO
+DO.md` line 7 | ✅ |
 | 45 | GUIDE2.md §2.5 bootstrap() = ~180 lines (not 120) | `main.py` lines 80–258 | ✅ |
-| 46 | GUIDE2.md §2.10 server.py = ~750 lines (not 900) | `server.py` Measure-Object | ✅ |
+| 46 | GUIDE2.md §2.10 server.py = ~900 lines | `server.py` (896 lines) | ✅ |
 | 47 | GUIDE2.md §2.8 code matches actual `max_history` impl | `context.py` line 56 | ✅ |
 | 48 | GUIDE2.md §1 LLM routing ref = `get_llm_routing_prompt()` | `router.py` line 281 | ✅ |
-| 49 | BUILDING_AGENTS.md simplified to ~195 lines (was 635) | `BUILDING_AGENTS.md` | ✅ |
+| 49 | BUILDING_AGENTS.md = ~255 lines | `BUILDING_AGENTS.md` (254 lines) | ✅ |
+| 50 | GUIDE.md warning threshold = 110K (3 places fixed) | GUIDE.md L595, L667, L2530 | ✅ |
+| 51 | GUIDE.md reading order = "8 of 10" | GUIDE.md L8 | ✅ |
+| 52 | TODO.md server.py = ~900-line (was ~750) | TODO.md L103 | ✅ |
+| 53 | TODO.md gpt-4o-mini → gpt-5.2-chat (2 places) | TODO.md L208, L236 | ✅ |
+| 54 | SOURCE_OF_TRUTH.md P0-5 is done (removed speculative text) | SOURCE_OF_TRUTH.md L119–121 | ✅ |
+| 55 | README.md BUILDING_AGENTS ~350 → ~255 | README.md L24 | ✅ |
+| 56 | GUIDE2.md P0: 5/5 done (was 4/5) | GUIDE2.md L922 | ✅ |
+| 57 | ARCHITECTURE.md 10-file reading list, ~6 270 lines | ARCHITECTURE.md L221 | ✅ |
+| 58 | copilot-instructions.md line counts (3 fixes) | L3, L127, L131 | ✅ |
 
 ---
 

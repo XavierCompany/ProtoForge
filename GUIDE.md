@@ -5,7 +5,7 @@
 > [ARCHITECTURE.md §10](ARCHITECTURE.md#10-llm-documentation-reading-order)
 > to navigate quickly to specific topics.
 >
-> This is doc **8 of 9** in the reading order. Read
+> This is doc **8 of 10** in the reading order. Read
 > [.github/copilot-instructions.md](.github/copilot-instructions.md)
 > → [ARCHITECTURE.md](ARCHITECTURE.md) first for orientation.
 
@@ -592,7 +592,7 @@ Sub-Agent = Context Isolation
 | Need to diagnose an outage from logs | **Log Analysis Agent** | Complete task with its own goal and context |
 | Log files are 100K+ tokens | **Sub-agent** under Log Analysis | Context isolation — fresh window prevents overflow |
 | Agent needs 6 skills | **Split: agent (4) + sub-agent (2)** | Governance enforces 4-skill cap |
-| Orchestration hits 120K tokens | **Sub-agent** for remaining work | Governance HITL triggers decomposition |
+| Orchestration hits 110K tokens | **Sub-agent** for remaining work | Governance HITL triggers decomposition |
 | Reusable API call (GitHub, Jira) | **Skill** | Stateless, reusable across agents |
 | Full security audit of codebase | **Security Sentinel Agent** | Complete task with dedicated context |
 | Security audit needs to process 200 files | **Sub-agent** per file batch | Context isolation per batch |
@@ -664,7 +664,7 @@ The **Governance Guardian** (`src/governance/guardian.py`) is an always-on enfor
 │  │ Context Window    │  │ Skill Cap        │  │ Architecture     │  │
 │  │ ─────────────── │  │ ──────────────── │  │ ──────────────── │  │
 │  │ 128K hard cap     │  │ 4 skills max     │  │ Agents = tasks   │  │
-│  │ 120K warning      │  │ HITL on overflow │  │ Skills = tools   │  │
+│  │ 110K warning      │  │ HITL on overflow │  │ Skills = tools   │  │
 │  │ Pre/post dispatch │  │ Split suggestion │  │ Sub-agents =     │  │
 │  │ HITL decomposes   │  │ at manifest load │  │ context isolation │  │
 │  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘  │
@@ -2527,7 +2527,7 @@ gh copilot explain "What does this regex match: \bfix\s.*\b(?:error|exception|bu
 
 **Status:** Accepted  
 **Context:** Multi-agent orchestration can silently consume unbounded context tokens, agents can accumulate too many skills (violating single-responsibility), and the architectural boundary between agents/skills/sub-agents needs enforcement  
-**Decision:** Implement a `GovernanceGuardian` with three enforcement pillars: (1) Context window governance with a 128K hard cap and 120K warning threshold triggering HITL decomposition, (2) Skill cap enforcement limiting agents to 4 skills with HITL-reviewed split suggestions, (3) Architectural principle enforcement auditing manifests for design violations. A `GovernanceSelector` provides HITL gates (ContextWindowReview + SkillCapReview) using the same prepare → expose → wait → resolve pattern as PlanSelector and WorkIQSelector. All HITL gates fail-open after 120s  
+**Decision:** Implement a `GovernanceGuardian` with three enforcement pillars: (1) Context window governance with a 128K hard cap and 110K warning threshold triggering HITL decomposition, (2) Skill cap enforcement limiting agents to 4 skills with HITL-reviewed split suggestions, (3) Architectural principle enforcement auditing manifests for design violations. A `GovernanceSelector` provides HITL gates (ContextWindowReview + SkillCapReview) using the same prepare → expose → wait → resolve pattern as PlanSelector and WorkIQSelector. All HITL gates fail-open after 120s  
 **Consequences:** Token costs are bounded and predictable. Agents stay focused (≤ 4 skills). Sub-agent creation is guided by governance. Adds governance check overhead to every dispatch (~1ms). 7 new REST endpoints for governance monitoring and HITL resolution. Governance rules are injected into every agent's system prompt via `forge/shared/instructions/governance_rules.md`  
 
 ---

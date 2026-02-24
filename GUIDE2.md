@@ -919,7 +919,7 @@ POST /chat {"message": "...", "session_id": null}
 > the single source of truth to avoid drift.
 
 **Quick status** (updated 2026-02-23):
-- **P0**: 4/5 done (remaining: P0-5 — wire LLM calls)
+- **P0**: 5/5 done
 - **P1**: 2/5 done
 - **P2**: 0/5
 - **P3**: 0/5

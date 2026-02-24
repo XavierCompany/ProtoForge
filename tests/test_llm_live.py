@@ -17,7 +17,6 @@ require real Azure credentials and incur real API costs.
 
 from __future__ import annotations
 
-import asyncio
 import os
 
 import pytest

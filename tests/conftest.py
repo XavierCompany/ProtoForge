@@ -51,7 +51,7 @@ from src.orchestrator.plan_selector import PlanSelector
 
 
 @pytest.fixture(autouse=True)
-def _mock_llm(request: pytest.FixtureRequest) -> Any:  # noqa: ANN401
+def _mock_llm(request: pytest.FixtureRequest) -> Any:
     """Patch ``BaseAgent._call_llm`` → ``None`` for every non-live test.
 
     Tests decorated with ``@pytest.mark.live`` are excluded so they can

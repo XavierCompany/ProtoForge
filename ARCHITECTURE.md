@@ -215,7 +215,7 @@ Settings are loaded from `.env` file. Access via `get_settings()` singleton.
 ## 10. LLM Documentation Reading Order
 
 See `.github/copilot-instructions.md` "Documentation Reading Order" section for
-the canonical 9-file reading list with line counts. Total: ~5 850 lines (~60K tokens).
+the canonical 10-file reading list with line counts. Total: ~6 270 lines (~65K tokens).
 
 ### GUIDE.md Section Index (navigation aid)
 

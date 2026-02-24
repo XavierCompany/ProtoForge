@@ -78,9 +78,7 @@ class LLMClient:
             )
             # Some models only accept the default temperature (1).
             temp_kwarg: dict[str, float] = (
-                {"temperature": temperature}
-                if self._supports_temperature(resolved_model)
-                else {}
+                {"temperature": temperature} if self._supports_temperature(resolved_model) else {}
             )
             response = await self._client.chat.completions.create(
                 model=resolved_model,
