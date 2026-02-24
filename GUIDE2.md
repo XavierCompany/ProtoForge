@@ -70,19 +70,36 @@ critical.
 
 ## 2. Distinguished Engineer Critique
 
-### 2.1 — CRITICAL: No actual intelligence
+### 2.1 — CRITICAL: No actual intelligence — ✅ DONE
 
-Every agent's `execute()` method returns a hardcoded string template.
-The 378 tests validate routing, data-flow, and budget mechanics —
-they do **not** validate that ProtoForge produces useful answers.
+Every agent's `execute()` now calls `_call_llm()` (defined in `BaseAgent`)
+which delegates to the singleton `LLMClient` in `src/llm/client.py`.
 
-**Impact**: The codebase is a well-structured shell. Until LLM calls are
-wired (via Semantic Kernel, OpenAI SDK, or Azure AI Foundry), the system
-cannot answer real questions.
+**Integration summary:**
 
-**Action**: Wire `GenericAgent.execute()` to call the LLM. Every other
-agent benefits automatically because they all inherit the message-building
-pattern from `BaseAgent._build_messages()`.
+- **Provider**: Azure AI Foundry via `openai.AsyncAzureOpenAI` + `DefaultAzureCredential` (`az login`). Also supports API-key auth and direct OpenAI.
+- **Graceful degradation**: When no `AZURE_AI_FOUNDRY_ENDPOINT` is set, `_call_llm()` returns `None` and agents fall back to their existing placeholder responses. All 378 original tests pass without any LLM mock.
+- **Pattern**: Each agent enriches the prompt with domain context (detected patterns, prior results, available sub-agents) before calling `_call_llm()`. LLM response → higher confidence score; fallback → lower confidence.
+- **Engine routing**: `OrchestratorEngine._route_with_llm()` sends a JSON intent-classification prompt and parses the structured response into a `RoutingDecision`.
+- **Tests**: 30 new tests in `tests/test_llm.py` covering all providers, degradation paths, agent LLM paths, fallback paths, and engine LLM routing. Total: 408 tests.
+- **Config**: `src/config.py` — `LLMConfig` with `azure_endpoint`, `azure_model`, `auth_method` (AZURE_DEFAULT / API_KEY), `active_provider` auto-detection.
+
+**Files added/changed:**
+
+| File | Change |
+|---|---|
+| `src/llm/__init__.py` | New — exports `LLMClient`, `get_llm_client` |
+| `src/llm/client.py` | New — async LLM client, singleton, multi-provider |
+| `src/agents/base.py` | Added `_call_llm()` method |
+| `src/agents/generic.py` | Wired LLM with fallback |
+| `src/agents/plan_agent.py` | Wired LLM with sub-agent enrichment |
+| `src/agents/sub_plan_agent.py` | Wired LLM with plan-context enrichment |
+| `src/agents/knowledge_base_agent.py` | Wired LLM with knowledge-source enrichment |
+| `src/agents/log_analysis_agent.py` | Wired LLM with pattern-detection enrichment |
+| `src/agents/remediation_agent.py` | Wired LLM with prior-result enrichment |
+| `src/agents/security_sentinel_agent.py` | Wired LLM with security-category enrichment |
+| `src/orchestrator/engine.py` | Added `_route_with_llm()` |
+| `tests/test_llm.py` | New — 30 tests across 12 classes |
 
 ### 2.2 — CRITICAL: Code duplication in the pipeline — ✅ DONE (commit `4d5128c`)
 

@@ -32,6 +32,7 @@ htmlcov/
 .coverage
 .pytest_cache/
 .mypy_cache/
+.tmp/
 
 # Registry data
 registry_data/

@@ -76,8 +76,25 @@ class LogAnalysisAgent(BaseAgent):
         # Quick pattern detection for common log signatures
         patterns_found = self._detect_patterns(message)
 
-        self._build_messages(message, context)
+        # Enrich message with pre-analysis results for LLM
+        enriched = message
+        if patterns_found:
+            patterns_text = "; ".join(patterns_found)
+            enriched += f"\n\n[Pre-analysis detected: {patterns_text}]"
 
+        messages = self._build_messages(enriched, context)
+
+        # ── Try LLM ────────────────────────────────────────────────────
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            return AgentResult(
+                agent_id=self.agent_id,
+                content=llm_response,
+                confidence=0.9 if patterns_found else 0.8,
+                artifacts={"patterns_found": patterns_found, "source": "llm"},
+            )
+
+        # ── Fallback (no LLM configured) ───────────────────────────────
         response = f"**Log Analysis Report**\n\n**Patterns Detected:** {len(patterns_found)}\n"
 
         if patterns_found:

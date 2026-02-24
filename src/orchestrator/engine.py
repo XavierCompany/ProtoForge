@@ -718,8 +718,44 @@ class OrchestratorEngine:
         """Use LLM for intent classification when keyword routing is uncertain."""
         prompt = self._router.get_llm_routing_prompt(message)
         logger.debug("llm_routing_requested", prompt_length=len(prompt))
-        # TODO: Wire up to kernel.invoke() when LLM is configured
-        return None
+
+        from src.llm.client import get_llm_client
+
+        response = await get_llm_client().chat(
+            [
+                {
+                    "role": "system",
+                    "content": "You are an intent classifier. Respond only in valid JSON.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=256,
+            temperature=0.3,
+        )
+
+        if not response:
+            return None
+
+        try:
+            import json
+
+            data = json.loads(response)
+            decision = RoutingDecision(
+                primary_agent=data["primary_agent"],
+                secondary_agents=data.get("secondary_agents", []),
+                confidence=float(data.get("confidence", 0.7)),
+                reasoning=data.get("reasoning", "LLM classification"),
+                extracted_params=data.get("extracted_params", {}),
+            )
+            logger.info(
+                "llm_routing_ok",
+                primary=decision.primary_agent,
+                confidence=decision.confidence,
+            )
+            return decision
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            logger.warning("llm_routing_parse_failed", error=str(exc))
+            return None
 
     def _aggregate(
         self,

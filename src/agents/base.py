@@ -118,5 +118,27 @@ class BaseAgent(ABC):
         messages.append({"role": "user", "content": message})
         return messages
 
+    async def _call_llm(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+    ) -> str | None:
+        """Call the LLM backend and return the response text.
+
+        Returns ``None`` when the LLM is not configured, authentication
+        fails, or the API call errors out — allowing callers to fall back
+        to their heuristic / placeholder logic.  This keeps all existing
+        tests passing when no Azure endpoint is set.
+        """
+        from src.llm.client import get_llm_client
+
+        return await get_llm_client().chat(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} id={self._agent_id}>"

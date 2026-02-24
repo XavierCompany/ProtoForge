@@ -80,8 +80,25 @@ class KnowledgeBaseAgent(BaseAgent):
             sources=len(self._knowledge_sources),
         )
 
-        self._build_messages(message, context)
+        # Enrich with available knowledge source metadata
+        enriched = message
+        if self._knowledge_sources:
+            sources_text = ", ".join(self._knowledge_sources[:20])
+            enriched += f"\n\n[Available knowledge sources: {sources_text}]"
 
+        messages = self._build_messages(enriched, context)
+
+        # ── Try LLM ────────────────────────────────────────────────────
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            return AgentResult(
+                agent_id=self.agent_id,
+                content=llm_response,
+                confidence=0.85,
+                artifacts={"sources_searched": len(self._knowledge_sources), "source": "llm"},
+            )
+
+        # ── Fallback (no LLM configured) ───────────────────────────────
         response = (
             f"**Knowledge Base Response**\n\n"
             f"Query: {message[:100]}{'...' if len(message) > 100 else ''}\n\n"

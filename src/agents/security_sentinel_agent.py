@@ -72,11 +72,27 @@ class SecuritySentinelAgent(BaseAgent):
         """Scan for vulnerabilities and return severity-ranked findings."""
         logger.info("security_sentinel_executing", message_length=len(message))
 
-        self._build_messages(message, context)
-
         # Quick security keyword classification
         categories = self._classify_security_concern(message)
 
+        # Enrich message with pre-classification for LLM
+        enriched = message
+        if categories:
+            enriched += f"\n\n[Pre-classification detected concern categories: {', '.join(categories)}]"
+
+        messages = self._build_messages(enriched, context)
+
+        # ── Try LLM ────────────────────────────────────────────────────
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            return AgentResult(
+                agent_id=self.agent_id,
+                content=llm_response,
+                confidence=0.9 if categories else 0.8,
+                artifacts={"security_categories": categories, "source": "llm"},
+            )
+
+        # ── Fallback (no LLM configured) ───────────────────────────────
         response = (
             f"**Security Sentinel Report**\n\n"
             f"**Concern Categories:** {', '.join(categories) if categories else 'General security assessment'}\n\n"

@@ -44,9 +44,9 @@ class GenericAgent(BaseAgent):
     ) -> AgentResult:
         """Build LLM messages from manifest and return agent result.
 
-        Currently returns a placeholder. When an LLM backend is wired in,
-        updating this single method gives all manifest-driven agents real
-        LLM capabilities.
+        Sends the message to the configured LLM backend (Azure AI Foundry
+        via DefaultAzureCredential).  Falls back to a placeholder when no
+        LLM is configured, keeping tests and offline usage working.
         """
         logger.info(
             "generic_agent_executing",
@@ -54,9 +54,19 @@ class GenericAgent(BaseAgent):
             message_length=len(message),
         )
 
-        self._build_messages(message, context)
+        messages = self._build_messages(message, context)
 
-        # TODO: Replace with LLM call via Microsoft Agent Framework
+        # ── Try LLM ────────────────────────────────────────────────────
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            return AgentResult(
+                agent_id=self.agent_id,
+                content=llm_response,
+                confidence=0.85,
+                artifacts={"source": "llm"},
+            )
+
+        # ── Fallback (no LLM configured) ───────────────────────────────
         response = (
             f"**{self.description}**\n\n"
             f"Query: {message[:120]}{'…' if len(message) > 120 else ''}\n\n"

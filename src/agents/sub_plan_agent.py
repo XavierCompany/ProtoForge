@@ -85,8 +85,6 @@ class SubPlanAgent(BaseAgent):
             has_plan_output=bool(context.get_memory("plan_output")),
         )
 
-        self._build_messages(message, context)
-
         # Read the Plan Agent's output from working memory
         plan_output: str = context.get_memory("plan_output", "")
         plan_artifacts: dict = context.get_memory("plan_artifacts", {})
@@ -96,7 +94,41 @@ class SubPlanAgent(BaseAgent):
         # Identify resources each recommended agent might need
         resources = self._identify_resources(message, recommended_agents, plan_output)
 
-        # Build the resource-plan response
+        # Enrich the message with plan context for LLM
+        enriched = message
+        if plan_output:
+            enriched += f"\n\n[Plan Agent output:\n{plan_output[:1000]}]"
+        if recommended_agents:
+            enriched += f"\n\n[Recommended sub-agents: {', '.join(recommended_agents)}]"
+        if resources:
+            res_summary = "; ".join(f"{r['name']} ({r['type']})" for r in resources)
+            enriched += f"\n\n[Heuristic resource detection found: {res_summary}]"
+        if user_brief:
+            enriched += f"\n\n[Human brief: {user_brief}]"
+        enriched += (
+            "\n\n[Identify the minimum prerequisite resources needed. "
+            "For each resource specify: name, type, purpose, effort, dependencies.]"
+        )
+
+        messages = self._build_messages(enriched, context)
+
+        # ── Try LLM ────────────────────────────────────────────────────
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            return AgentResult(
+                agent_id=self.agent_id,
+                content=llm_response,
+                confidence=0.85,
+                artifacts={
+                    "resource_count": len(resources),
+                    "resources": resources,
+                    "recommended_sub_agents": recommended_agents,
+                    "user_brief": user_brief,
+                    "source": "llm",
+                },
+            )
+
+        # ── Fallback (no LLM configured) ───────────────────────────────
         resource_lines = []
         for idx, res in enumerate(resources, 1):
             deps = ", ".join(res["dependencies"]) if res["dependencies"] else "none"

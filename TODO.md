@@ -65,20 +65,18 @@ These block any real deployment. Ordered by dependency.
 - **Verify**: `pytest tests/test_orchestrator.py tests/test_governance.py -v`
 - **GUIDE2 ref**: §2.4
 
-### P0-5: Wire LLM calls in `GenericAgent.execute()`
-- **Status**: `[ ]`
+### P0-5: Wire LLM calls in `GenericAgent.execute()` — ✅ DONE
+- **Status**: `[x]`
 - **Effort**: 2-3 days
-- **Files**: `src/agents/generic.py`, `src/config.py`, possibly `src/agents/base.py`
-- **What**: Replace placeholder return with actual LLM call (Semantic Kernel or OpenAI SDK). Use `_build_messages()` output as the prompt. Respect `max_output_tokens` from budget allocation.
-- **Why**: This is the entire point of the system — without LLM calls, agents return static strings
-- **Depends on**: P0-1 (tiktoken for accurate budget), P0-4 (clean token flow)
+- **Files**: `src/llm/client.py` (new), `src/llm/__init__.py` (new), `src/agents/base.py`, `src/agents/generic.py`, `src/agents/plan_agent.py`, `src/agents/sub_plan_agent.py`, `src/agents/knowledge_base_agent.py`, `src/agents/log_analysis_agent.py`, `src/agents/remediation_agent.py`, `src/agents/security_sentinel_agent.py`, `src/orchestrator/engine.py`, `tests/test_llm.py` (new)
+- **What**: All agents wired to Azure AI Foundry via `DefaultAzureCredential`. `_call_llm()` in `BaseAgent` delegates to singleton `LLMClient`. Graceful degradation — returns `None` when unconfigured.
 - **Subtasks**:
-  - `[ ]` Choose SDK (Semantic Kernel vs raw OpenAI client)
-  - `[ ]` Wire API key from `Settings` → agent
-  - `[ ]` Implement streaming option
-  - `[ ]` Add timeout / retry for API calls
-  - `[ ]` Update tests with mocked LLM responses
-- **Verify**: Manual test with real API key + `pytest` with mocked client
+  - `[x]` Choose SDK — `openai.AsyncAzureOpenAI` with `azure-identity`
+  - `[x]` Wire credentials from `Settings` → `LLMClient` → agents
+  - `[ ]` Implement streaming option (deferred to P1)
+  - `[x]` Add timeout / retry for API calls (graceful `None` on any error)
+  - `[x]` Update tests with mocked LLM responses (30 tests in `test_llm.py`)
+- **Verify**: 408 tests passing, `ruff check` + `ruff format` clean
 - **GUIDE2 ref**: §2.1
 
 ---

@@ -73,8 +73,25 @@ class RemediationAgent(BaseAgent):
         # Check if there's prior analysis from log_analysis or code_research
         prior_results = [r for r in context.agent_results if r.agent_id in ("log_analysis", "code_research")]
 
-        self._build_messages(message, context)
+        # Enrich message with prior diagnostic context for LLM
+        enriched = message
+        if prior_results:
+            for pr in prior_results:
+                enriched += f"\n\n[Prior {pr.agent_id} analysis:\n{pr.content[:800]}]"
 
+        messages = self._build_messages(enriched, context)
+
+        # ── Try LLM ────────────────────────────────────────────────────
+        llm_response = await self._call_llm(messages)
+        if llm_response:
+            return AgentResult(
+                agent_id=self.agent_id,
+                content=llm_response,
+                confidence=0.9 if prior_results else 0.8,
+                artifacts={"prior_context_used": len(prior_results), "source": "llm"},
+            )
+
+        # ── Fallback (no LLM configured) ───────────────────────────────
         response = f"**Remediation Plan**\n\n**Issue:** {message[:100]}{'...' if len(message) > 100 else ''}\n"
 
         if prior_results:
