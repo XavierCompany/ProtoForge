@@ -85,6 +85,7 @@ class ChatAsyncResponse(BaseModel):
 
 # Background chat task tracking
 _chat_tasks: dict[str, dict[str, Any]] = {}
+_chat_cleanup_tasks: set[asyncio.Task[None]] = set()  # prevent GC of cleanup tasks
 _CHAT_TASK_TTL: float = 300.0  # seconds to keep completed tasks before eviction
 
 
@@ -291,7 +292,9 @@ def create_app(
                 logger.error("chat_task_failed", task_id=tid, error=str(exc))
             finally:
                 _chat_tasks[tid].pop("_task_ref", None)  # release Task ref for GC
-                asyncio.create_task(_cleanup_chat_task(tid))
+                task = asyncio.create_task(_cleanup_chat_task(tid))
+                _chat_cleanup_tasks.add(task)
+                task.add_done_callback(_chat_cleanup_tasks.discard)
 
         _chat_tasks[task_id]["_task_ref"] = asyncio.create_task(
             _run_chat(task_id, request.message),
