@@ -21,17 +21,31 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - **`_call_llm()` in `BaseAgent`** — all 8 specialist agents + PlanAgent + SubPlanAgent enriched with domain context before LLM call
 - **`OrchestratorEngine._route_with_llm()`** — JSON intent-classification prompt → `RoutingDecision` dataclass
 - **30 mocked LLM tests** in `tests/test_llm.py` — covers all providers, degradation paths, agent LLM paths, engine routing
-- **13 live integration tests** in `tests/test_llm_live.py` — end-to-end tests hitting real Azure OpenAI (`gpt-4o-mini` via `DefaultAzureCredential`). Gated by `@pytest.mark.live` marker. Run: `pytest -m live`
+- **13 live integration tests** in `tests/test_llm_live.py` — end-to-end tests hitting real Azure OpenAI (`gpt-5.2-chat` via `DefaultAzureCredential`). Gated by `@pytest.mark.live` marker. Run: `pytest -m live`
 - **`live` pytest marker** in `pyproject.toml` — deselect with `-m "not live"`
-- **Azure OpenAI resource** — `protoforge-openai` in `protoforge-rg` (eastus2), model `gpt-4o-mini` (2024-07-18), `Cognitive Services OpenAI User` RBAC assigned
+- **Azure OpenAI resource** — `protoforge-openai` in `protoforge-rg` (eastus2), models `gpt-5.2-chat` (2025-12-11, GlobalStandard) + `gpt-4o-mini` (2024-07-18), `Cognitive Services OpenAI User` RBAC assigned
 - **`.env.example`** updated with realistic Azure endpoint/model/API version
 - **BUILDING_AGENTS.md** — practical tutorial for building a new agent with Azure AI Foundry, covering Plan Agent conversation, LLM wiring, and full pipeline walkthrough (~350 lines)
 - **Document Map** in README.md — human-friendly navigation table with recommended reading orders for humans vs LLMs
+- **`_mock_llm` autouse fixture** in `tests/conftest.py` — patches `BaseAgent._call_llm` → `None` for all non-live tests, preventing real Azure API calls during unit tests. Excludes `@pytest.mark.live` tests and `test_llm.py` (which manages its own mocks). Fixes async test hang in `test_sub_plan.py` and `test_orchestrator.py`.
 
 ### Changed (documentation validation phase 3)
-- **`config.py`**: `azure_model` default `gpt-5.3-codex` → `gpt-4o-mini`, `azure_api_version` default `2026-01-01` → `2024-10-21` (matches deployed resource)
+- **`config.py`**: `azure_model` default `gpt-5.3-codex` → `gpt-5.2-chat`, `azure_api_version` default `2026-01-01` → `2024-10-21` (matches deployed resource)
 - **GUIDE2.md §1**: LLM inference and LLM-based routing changed from "Stub" to "Working"
 - **GUIDE2.md §1**: Test count updated from 378 to 421 (12 test files)
+- **GUIDE2.md §2.10**: server.py size "~750 lines" → "~900 lines" (actual: 896)
+
+### Changed (model upgrade — gpt-4o-mini → gpt-5.2-chat)
+- **Azure model deployment**: `gpt-5.2-chat` (version 2025-12-11, GlobalStandard) deployed to `protoforge-openai`
+- **`LLMClient.chat()` compatibility** — added `_uses_max_completion_tokens()` and `_supports_temperature()` helpers. gpt-5.x/o1/o3 models use `max_completion_tokens` (not `max_tokens`) and do not accept custom `temperature` values. Older models unchanged.
+- **Live test token budget** — bumped `max_tokens` from 8–32 to 256 in live tests to accommodate reasoning model chain-of-thought overhead
+- **`config.py`**: `azure_model` default updated to `gpt-5.2-chat`
+- **`.env.example`**: Model example updated to `gpt-5.2-chat`
+- **README.md**: Model compatibility table — Azure shows `gpt-5.2-chat` (deployed)
+- **GUIDE2.md §1**: LLM inference table references `gpt-5.2-chat`
+- **BUILDING_AGENTS.md**: Model example updated to `gpt-5.2-chat`
+- **MAINTENANCE.md**: Fixed reading order "4 of 9" → "4 of 10", §4.2 line counts updated (`base.py` 122→144, `engine.py` 763→799, `plan_selector.py` 378→374, `generic.py` 71→81), validation log #18/#27/#37 corrected
+- **SOURCE_OF_TRUTH.md**: Fixed reading order "3 of 9" → "3 of 10"
 - **TODO.md**: TL;DR updated — "P0: 5 items (4 done, 1 remaining)" → "P0: 5 items (**5 done**)"
 - **TODO.md**: P3-19 (Integration tests with real LLM) marked `[x]` with live test details
 - **README.md**: Model table updated — Azure shows `gpt-4o-mini` (deployed), added `az login` to Quick Start

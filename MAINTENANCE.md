@@ -4,7 +4,7 @@
 > Covers: document hierarchy, update protocol, versioning, architecture layers
 > (verified module map with line counts), common maintenance tasks, anti-drift rules.
 >
-> This is doc **4 of 9** in the reading order. Read
+> This is doc **4 of 10** in the reading order. Read
 > [ARCHITECTURE.md](ARCHITECTURE.md) first for orientation.
 > **See also**: [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md) for canonical ownership.
 
@@ -17,7 +17,7 @@
 
 ## 1. Document Hierarchy — What Lives Where
 
-ProtoForge uses nine documentation files with progressive disclosure.
+ProtoForge uses ten documentation files with progressive disclosure.
 LLMs should start with `copilot-instructions.md` → `ARCHITECTURE.md`, then
 read deeper docs only when the task requires it.
 
@@ -134,12 +134,12 @@ _process_after_routing()              ← src/orchestrator/engine.py L248
 
 | Module                           | Lines | Purpose                                            |
 |----------------------------------|------:|-----------------------------------------------------|
-| `src/orchestrator/engine.py`     |   763 | Core pipeline: process → dispatch → fan-out → aggregate |
+| `src/orchestrator/engine.py`     |   799 | Core pipeline: process → dispatch → fan-out → aggregate |
 | `src/orchestrator/router.py`     |   413 | Keyword + LLM routing, WorkIQ-enriched routing      |
 | `src/orchestrator/context.py`    |    86 | `ConversationContext`, `AgentResult`, `Message`      |
-| `src/orchestrator/plan_selector.py` | 378 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B)       |
-| `src/agents/base.py`            |   122 | `BaseAgent` ABC, `from_manifest()`, `_build_messages()` |
-| `src/agents/generic.py`         |    71 | `GenericAgent` — manifest-driven, placeholder execute |
+| `src/orchestrator/plan_selector.py` | 374 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B)       |
+| `src/agents/base.py`            |   144 | `BaseAgent` ABC, `from_manifest()`, `_build_messages()`, `_call_llm()` |
+| `src/agents/generic.py`         |    81 | `GenericAgent` — manifest-driven, LLM-powered with heuristic fallback |
 | `src/governance/guardian.py`     |   477 | `GovernanceGuardian`: context window + skill cap + architectural audit |
 | `src/governance/selector.py`    |   441 | HITL gate for governance alerts + agent lifecycle    |
 | `src/forge/loader.py`           |   276 | `ForgeLoader`: walks `forge/`, builds `ForgeRegistry` |
@@ -426,7 +426,7 @@ The following claims were verified against the actual codebase:
 | 15 | `ConversationContext.max_history = 200` | `context.py` L54 | ✅ |
 | 16 | `BaseAgent.from_manifest()` reads system prompt from manifest | `base.py` L58–70 | ✅ |
 | 17 | `_build_messages()` = system + history(10) + user | `base.py` L109–113 | ✅ |
-| 18 | `GenericAgent.execute()` is placeholder (TODO: LLM) | `generic.py` L59 | ✅ |
+| 18 | `GenericAgent.execute()` calls `_call_llm()` with heuristic fallback | `generic.py` L59 | ✅ |
 | 19 | Budget: allocate → fits_budget → truncate pipeline | `context_budget.py` | ✅ |
 | 20 | tiktoken in `pyproject.toml` dependencies | `pyproject.toml` L28 | ✅ |
 | 21 | Version `0.1.1` | `pyproject.toml` L3 | ✅ |
@@ -435,7 +435,7 @@ The following claims were verified against the actual codebase:
 | 24 | ForgeLoader instantiated twice in `bootstrap()` | `main.py` ~L87, ~L110 | ✅ |
 | 25 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B) | `plan_selector.py`, `engine.py` L322–400 | ✅ |
 | 26 | GovernanceSelector: ContextWindowReview + SkillCapReview | `selector.py` L41–59 | ✅ |
-| 27 | 378 tests passing | `pytest --tb=no` output | ✅ |
+| 27 | 421 tests passing (408 mocked + 13 live) | `pytest --tb=no` output | ✅ |
 | 28 | Plan budget = 32K, Sub-Plan = 20K, Specialist = 22K | agent.yaml files | ✅ |
 | 29 | Worst-case = 126K (with 8K reserve) ≤ 128K cap | Calculated from YAML | ✅ |
 | 30 | `AgentLifecycleReview` dataclass in `GovernanceSelector` | `selector.py` | ✅ |
@@ -445,7 +445,7 @@ The following claims were verified against the actual codebase:
 | 34 | `deregister_patterns()` removes routing on disable/remove | `router.py` | ✅ |
 | 35 | `deallocate()` releases budget on disable/remove | `context_budget.py` | ✅ |
 | 36 | 7 new lifecycle HTTP endpoints | `server.py` | ✅ |
-| 37 | 378 tests passing (30 new lifecycle tests) | `pytest --tb=no` output | ✅ |
+| 37 | 421 tests passing (30 LLM mocked + 13 live + 378 others) | `pytest --tb=no` output | ✅ |
 | 38 | Governance endpoint paths match `server.py` decorators | `server.py`, README, GUIDE | ✅ |
 | 39 | `sub_plan` entry present in `forge/_registry.yaml` | `_registry.yaml` | ✅ |
 | 40 | Warning threshold = 110K in all docs (not 120K) | GUIDE.md, `_context_window.yaml` | ✅ |

@@ -4,7 +4,7 @@
 > Answers: “where is X defined, and what copies must I update?”
 > Covers: agent identity, token budgets, routing, prompts, config, governance, tests.
 >
-> This is doc **3 of 9** in the reading order. Read
+> This is doc **3 of 10** in the reading order. Read
 > [ARCHITECTURE.md](ARCHITECTURE.md) first for orientation.
 
 > **Purpose**: When the same concept is defined in multiple places, this file

@@ -33,7 +33,7 @@ class LLMConfig(BaseSettings):
 
     # Azure AI Foundry (recommended for quality/cost/throughput)
     azure_endpoint: str | None = Field(None, alias="AZURE_AI_FOUNDRY_ENDPOINT")
-    azure_model: str = Field("gpt-4o-mini", alias="AZURE_AI_FOUNDRY_MODEL")
+    azure_model: str = Field("gpt-5.2-chat", alias="AZURE_AI_FOUNDRY_MODEL")
     azure_api_version: str = Field("2024-10-21", alias="AZURE_AI_FOUNDRY_API_VERSION")
 
     # OpenAI (GPT-4o for general, Codex 5.3 for code-heavy tasks)

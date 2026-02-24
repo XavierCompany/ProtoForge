@@ -423,7 +423,7 @@ Works with any LLM provider:
 | Provider | Models | Notes |
 |----------|--------|-------|
 | **Anthropic** | `claude-opus-4.6` (default), `claude-sonnet-4.6` | **Recommended** — highest quality reasoning |
-| **Azure AI Foundry** | `gpt-4o-mini` (deployed) | `DefaultAzureCredential` (`az login`) — 13 live tests passing |
+| **Azure AI Foundry** | `gpt-5.2-chat` (deployed) | `DefaultAzureCredential` (`az login`) — 13 live tests passing |
 | **OpenAI** | `codex-5.3`, `gpt-4o` | Direct OpenAI API access |
 | **Google** | `gemini-pro-3.1` (default), `gemini-pro-3.0` | Google AI Studio / Vertex AI |
 
@@ -443,7 +443,7 @@ cp .env.example .env
 # 2b. Azure AI Foundry (recommended) — requires Azure CLI
 az login
 # Set AZURE_AI_FOUNDRY_ENDPOINT in .env (e.g. https://your-resource.openai.azure.com/)
-# Set AZURE_AI_FOUNDRY_MODEL (e.g. gpt-4o-mini)
+# Set AZURE_AI_FOUNDRY_MODEL (e.g. gpt-5.2-chat)
 # Set AUTH_METHOD=azure_default
 
 # 3. Run the server

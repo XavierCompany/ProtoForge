@@ -55,7 +55,7 @@ what the docs describe.
 
 | Layer | Status | Impact |
 |-------|--------|--------|
-| **LLM inference** | **Working** | All agents call `_call_llm()` → Azure AI Foundry (`gpt-4o-mini`) via `DefaultAzureCredential`. Graceful fallback to placeholder when unconfigured. 13 live integration tests in `test_llm_live.py`. |
+| **LLM inference** | **Working** | All agents call `_call_llm()` → Azure AI Foundry (`gpt-5.2-chat`) via `DefaultAzureCredential`. Graceful fallback to placeholder when unconfigured. 13 live integration tests in `test_llm_live.py`. |
 | **LLM-based routing** | **Working** | `OrchestratorEngine._route_with_llm()` sends JSON intent-classification prompt, returns `RoutingDecision`. |
 | **Summarize truncation strategy** | **Stub** | Falls back to `priority` truncation |
 | **Token counting (tiktoken)** | **Available** | `tiktoken>=0.7.0` in `pyproject.toml`; falls back to `len(text) // 4` only if uninstalled |
@@ -209,7 +209,7 @@ class SelectorProtocol(Protocol):
     def cleanup(self, request_id: str) -> None: ...
 ```
 
-### 2.10 — MEDIUM: server.py is ~750 lines
+### 2.10 — MEDIUM: server.py is ~900 lines
 
 A single file handles 35 HTTP endpoints. This is hard to navigate and
 makes conflict resolution during PRs painful.

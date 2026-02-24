@@ -69,11 +69,24 @@ class LLMClient:
         resolved_model = model or self._resolve_model(settings)
 
         try:
+            # Newer models (gpt-5*, o1*, o3*) require max_completion_tokens
+            # instead of the deprecated max_tokens parameter.
+            token_kwarg = (
+                {"max_completion_tokens": max_tokens}
+                if self._uses_max_completion_tokens(resolved_model)
+                else {"max_tokens": max_tokens}
+            )
+            # Some models only accept the default temperature (1).
+            temp_kwarg: dict[str, float] = (
+                {"temperature": temperature}
+                if self._supports_temperature(resolved_model)
+                else {}
+            )
             response = await self._client.chat.completions.create(
                 model=resolved_model,
                 messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
+                **token_kwarg,
+                **temp_kwarg,
             )
             content: str | None = response.choices[0].message.content
             logger.debug(
@@ -177,6 +190,26 @@ class LLMClient:
 
         self._client = AsyncOpenAI(api_key=llm.openai_api_key)
         logger.info("llm_openai_ready", model=llm.openai_model)
+
+    @staticmethod
+    def _uses_max_completion_tokens(model: str) -> bool:
+        """Return True for models that require ``max_completion_tokens``.
+
+        Newer OpenAI models (gpt-5.x, o1, o3, etc.) reject the legacy
+        ``max_tokens`` parameter and require ``max_completion_tokens``.
+        """
+        m = model.lower()
+        return m.startswith(("gpt-5", "o1", "o3"))
+
+    @staticmethod
+    def _supports_temperature(model: str) -> bool:
+        """Return True if the model accepts a custom ``temperature`` value.
+
+        Some newer models (gpt-5.x, o1, o3) only support the default
+        temperature (1) and reject any other value.
+        """
+        m = model.lower()
+        return not m.startswith(("gpt-5", "o1", "o3"))
 
     @staticmethod
     def _resolve_model(settings: Any) -> str:

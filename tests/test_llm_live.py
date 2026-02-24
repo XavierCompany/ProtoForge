@@ -5,7 +5,7 @@ Prerequisites
 1. ``az login`` — signed in to Azure CLI.
 2. ``Cognitive Services OpenAI User`` RBAC on the target resource.
 3. ``AZURE_AI_FOUNDRY_ENDPOINT`` set in ``.env`` (or env var).
-4. A model deployed (defaults to ``gpt-4o-mini``).
+4. A model deployed (defaults to ``gpt-5.2-chat``).
 
 Run with::
 
@@ -65,7 +65,7 @@ class TestLiveClientChat:
         client = LLMClient()
         result = await client.chat(
             messages=[{"role": "user", "content": "Reply with exactly: HELLO"}],
-            max_tokens=32,
+            max_tokens=256,
             temperature=0.0,
         )
         assert result is not None, "LLMClient.chat() returned None — auth or endpoint issue"
@@ -82,7 +82,7 @@ class TestLiveClientChat:
         # Trigger init via chat
         await client.chat(
             messages=[{"role": "user", "content": "Say OK"}],
-            max_tokens=8,
+            max_tokens=256,
         )
         assert client.available is True, "Client should be available after successful call"
 
@@ -95,7 +95,7 @@ class TestLiveClientChat:
             {"role": "system", "content": "You are a calculator. Only reply with numbers."},
             {"role": "user", "content": "What is 2 + 2?"},
         ]
-        result = await client.chat(messages=messages, max_tokens=16, temperature=0.0)
+        result = await client.chat(messages=messages, max_tokens=256, temperature=0.0)
         assert result is not None
         assert "4" in result, f"Expected '4' in calculator response, got: {result!r}"
 
