@@ -263,10 +263,10 @@ def serve(
     """Start the ProtoForge HTTP server."""
     app, *_ = bootstrap()
 
-    typer.echo(f"\n🚀 ProtoForge starting on http://{host}:{port}")
-    typer.echo(f"📊 Agent Inspector: http://{host}:{port}/inspector")
-    typer.echo(f"🔧 MCP endpoint:   http://{host}:{port}/mcp")
-    typer.echo(f"💬 Chat endpoint:   http://{host}:{port}/chat\n")
+    typer.echo(f"\n>> ProtoForge starting on http://{host}:{port}")
+    typer.echo(f"   Agent Inspector: http://{host}:{port}/inspector")
+    typer.echo(f"   MCP endpoint:    http://{host}:{port}/mcp")
+    typer.echo(f"   Chat endpoint:   http://{host}:{port}/chat\n")
 
     uvicorn.run(app, host=host, port=port, reload=reload)
 
@@ -276,7 +276,7 @@ def chat() -> None:
     """Interactive chat mode with the orchestrator."""
     _, orchestrator, *_ = bootstrap()
 
-    typer.echo("\n💬 ProtoForge Interactive Chat")
+    typer.echo("\n>> ProtoForge Interactive Chat")
     typer.echo("Type 'quit' to exit, 'reset' to start a new session\n")
 
     async def chat_loop() -> None:
@@ -292,7 +292,7 @@ def chat() -> None:
                 break
             if message.lower() == "reset":
                 orchestrator.reset_context()
-                typer.echo("🔄 Session reset\n")
+                typer.echo("[reset] Session reset\n")
                 continue
 
             response = await orchestrator.process(message)
