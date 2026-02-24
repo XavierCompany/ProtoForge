@@ -85,6 +85,13 @@ class ChatAsyncResponse(BaseModel):
 
 # Background chat task tracking
 _chat_tasks: dict[str, dict[str, Any]] = {}
+_CHAT_TASK_TTL: float = 300.0  # seconds to keep completed tasks before eviction
+
+
+async def _cleanup_chat_task(tid: str) -> None:
+    """Remove a completed/errored chat task after TTL grace period."""
+    await asyncio.sleep(_CHAT_TASK_TTL)
+    _chat_tasks.pop(tid, None)
 
 
 class WorkflowRunRequest(BaseModel):
@@ -274,14 +281,17 @@ def create_app(
 
         async def _run_chat(tid: str, msg: str) -> None:
             try:
-                result = await orchestrator.process(msg)
+                result, ctx = await orchestrator.process(msg)
                 _chat_tasks[tid]["status"] = "completed"
                 _chat_tasks[tid]["response"] = result
-                _chat_tasks[tid]["session_id"] = orchestrator.context.session_id
+                _chat_tasks[tid]["session_id"] = ctx.session_id
             except Exception as exc:
                 _chat_tasks[tid]["status"] = "error"
                 _chat_tasks[tid]["error"] = str(exc)
                 logger.error("chat_task_failed", task_id=tid, error=str(exc))
+            finally:
+                _chat_tasks[tid].pop("_task_ref", None)  # release Task ref for GC
+                asyncio.create_task(_cleanup_chat_task(tid))
 
         _chat_tasks[task_id]["_task_ref"] = asyncio.create_task(
             _run_chat(task_id, request.message),
@@ -346,10 +356,10 @@ def create_app(
 
         If WorkIQ is not configured, falls back to standard routing.
         """
-        response = await orchestrator.process_with_enrichment(request.message)
+        response, ctx = await orchestrator.process_with_enrichment(request.message)
         return ChatResponse(
             response=response,
-            session_id=orchestrator.context.session_id,
+            session_id=ctx.session_id,
         )
 
     # ── MCP Endpoint ────────────────────────────────────────────

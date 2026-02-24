@@ -248,15 +248,18 @@ class OrchestratorEngine:
         if self._governance:
             self._governance.reset_run()
 
-    async def process(self, user_message: str) -> str:
+    async def process(self, user_message: str) -> tuple[str, ConversationContext]:
         """Process a user message through the Plan-first orchestration pipeline.
 
         Flow:
         1. Add message to conversation context
         2. Route intent (keyword + optional LLM) to identify target sub-agents
         3. Delegate to ``_process_after_routing`` for Plan → Sub-Plan → fan-out → aggregate
+
+        Returns a tuple of (response_str, context) where context is per-request.
         """
-        self._context.add_user_message(user_message)
+        ctx = ConversationContext()
+        ctx.add_user_message(user_message)
 
         # Reset governance counters for this new orchestration run
         if self._governance:
@@ -271,52 +274,65 @@ class OrchestratorEngine:
             reasoning=routing.reasoning,
         )
 
-        return await self._process_after_routing(user_message, routing)
+        result = await self._process_after_routing(user_message, routing, ctx)
+        self._context = ctx  # update "last known" for diagnostics
+        return result, ctx
 
     # ── WorkIQ-enriched routing ─────────────────────────────────────────
 
-    async def process_with_enrichment(self, user_message: str) -> str:
+    async def process_with_enrichment(self, user_message: str) -> tuple[str, ConversationContext]:
         """Full pipeline: WorkIQ → HITL content → HITL keywords → enriched routing.
 
         This is the preferred entry-point when WorkIQ enrichment is desired.
         If the WorkIQ client is not configured or the query fails, the method
         falls back to the standard :meth:`process` pipeline transparently.
 
-        Returns the same aggregated response string as :meth:`process`.
+        Returns a tuple of (response_str, context) where context is per-request.
         """
         if not self._workiq_client or not self._workiq_selector:
             logger.debug("workiq_enrichment_skipped", reason="not configured")
             return await self.process(user_message)
 
-        self._context.add_user_message(user_message)
+        ctx = ConversationContext()
+        ctx.add_user_message(user_message)
+
+        # Reset governance counters for this new orchestration run
+        if self._governance:
+            self._governance.reset_run()
 
         # Phase 0 — query Work IQ for organisational context
         workiq_result = await self._workiq_client.ask(user_message)
         if not workiq_result.ok:
             logger.warning("workiq_enrichment_failed", error=workiq_result.error)
-            return await self._process_after_routing(
+            result = await self._process_after_routing(
                 user_message,
                 self._router.route_by_keywords(user_message),
+                ctx,
             )
+            self._context = ctx
+            return result, ctx
 
         # Phase 1 — HITL: user selects relevant content sections
         content_req_id = str(uuid.uuid4())
         content_req = self._workiq_selector.prepare(workiq_result, content_req_id)
 
         if not content_req.resolved:
-            self._context.set_memory("workiq_content_pending", content_req_id)
+            ctx.set_memory("workiq_content_pending", content_req_id)
             content_req = await self._workiq_selector.wait_for_selection(content_req_id)
 
         selected_text = self._workiq_selector.selected_content(content_req_id)
-        self._context.set_memory("workiq_selected_content", selected_text)
+        ctx.set_memory("workiq_selected_content", selected_text)
 
         if not selected_text:
             logger.info("workiq_enrichment_empty_selection")
             self._workiq_selector.cleanup(content_req_id)
-            return await self._process_after_routing(
+            result = await self._process_after_routing(
                 user_message,
                 self._router.route_by_keywords(user_message),
+                ctx,
             )
+            self._context = ctx
+            return result, ctx
 
         # Phase 2 — extract routing keywords from selected content
         hints = self._router.extract_routing_keywords(selected_text)
@@ -324,21 +340,24 @@ class OrchestratorEngine:
         if not hints:
             logger.info("workiq_no_routing_keywords")
             self._workiq_selector.cleanup(content_req_id)
-            return await self._process_after_routing(
+            result = await self._process_after_routing(
                 user_message,
                 self._router.route_by_keywords(user_message),
+                ctx,
             )
+            self._context = ctx
+            return result, ctx
 
         # Phase 2b — HITL: user selects which keyword hints to accept
         hint_req_id = str(uuid.uuid4())
         hint_req = self._workiq_selector.prepare_routing_hints(hints, hint_req_id)
 
         if not hint_req.resolved:
-            self._context.set_memory("workiq_hints_pending", hint_req_id)
+            ctx.set_memory("workiq_hints_pending", hint_req_id)
             hint_req = await self._workiq_selector.wait_for_routing_hints(hint_req_id)
 
         accepted = self._workiq_selector.accepted_routing_hints(hint_req_id)
-        self._context.set_memory(
+        ctx.set_memory(
             "workiq_accepted_hints",
             [{"agent": h.agent_id, "keyword": h.keyword} for h in accepted],
         )
@@ -357,12 +376,15 @@ class OrchestratorEngine:
         self._workiq_selector.cleanup(content_req_id)
         self._workiq_selector.cleanup_routing_hints(hint_req_id)
 
-        return await self._process_after_routing(user_message, routing)
+        result = await self._process_after_routing(user_message, routing, ctx)
+        self._context = ctx
+        return result, ctx
 
     async def _process_after_routing(
         self,
         user_message: str,
         routing: RoutingDecision,
+        ctx: ConversationContext,
     ) -> str:
         """Continue the pipeline from an already-resolved routing decision.
 
@@ -381,15 +403,16 @@ class OrchestratorEngine:
                 )
 
         # ALWAYS run Plan Agent first as top-level coordinator
-        plan_result = await self._dispatch(AgentType.PLAN, user_message, routing)
-        self._context.set_memory("plan_output", plan_result.content)
-        self._context.set_memory("plan_artifacts", plan_result.artifacts)
+        plan_result = await self._dispatch(AgentType.PLAN, user_message, routing, ctx)
+        ctx.set_memory("plan_output", plan_result.content)
+        ctx.set_memory("plan_artifacts", plan_result.artifacts)
 
         # Plan HITL + Sub-Plan Agent + Sub-Plan HITL
         sub_plan_result = await self._run_sub_plan_pipeline(
             user_message,
             plan_result,
             routing,
+            ctx,
         )
 
         # Determine sub-agents to invoke (from routing, excluding PLAN/SUB_PLAN)
@@ -404,7 +427,7 @@ class OrchestratorEngine:
         # Fan out to sub-agents in parallel
         sub_results: list[AgentResult] = []
         if sub_agents:
-            sub_results = await self._fan_out(sub_agents, user_message, routing)
+            sub_results = await self._fan_out(sub_agents, user_message, routing, ctx)
 
         # Aggregate Plan + Sub-Plan + sub-agent results
         return self._aggregate(plan_result, sub_results, sub_plan_result)
@@ -445,6 +468,7 @@ class OrchestratorEngine:
         user_message: str,
         plan_result: AgentResult,
         routing: RoutingDecision,
+        ctx: ConversationContext,
     ) -> AgentResult | None:
         """Run Plan HITL → Sub-Plan Agent → Sub-Plan HITL.
 
@@ -470,11 +494,11 @@ class OrchestratorEngine:
                 plan_artifacts=plan_artifacts,
             )
             if not plan_req.resolved:
-                self._context.set_memory("plan_review_pending", plan_req_id)
+                ctx.set_memory("plan_review_pending", plan_req_id)
                 plan_req = await self._plan_selector.wait_for_plan_review(plan_req_id)
 
             accepted_agents = self._plan_selector.accepted_plan_agents(plan_req_id)
-            self._context.set_memory("plan_accepted_agents", accepted_agents)
+            ctx.set_memory("plan_accepted_agents", accepted_agents)
             self._plan_selector.cleanup_plan_review(plan_req_id)
             logger.info("plan_hitl_resolved", accepted_agents=accepted_agents)
 
@@ -483,9 +507,10 @@ class OrchestratorEngine:
             AgentType.SUB_PLAN,
             user_message,
             routing,
+            ctx,
         )
-        self._context.set_memory("sub_plan_output", sub_plan_result.content)
-        self._context.set_memory("sub_plan_artifacts", sub_plan_result.artifacts)
+        ctx.set_memory("sub_plan_output", sub_plan_result.content)
+        ctx.set_memory("sub_plan_artifacts", sub_plan_result.artifacts)
 
         # ── Phase B: Sub-Plan HITL ──────────────────────────────────────
         sub_plan_artifacts = sub_plan_result.artifacts or {}
@@ -500,16 +525,16 @@ class OrchestratorEngine:
                 user_brief=sub_plan_artifacts.get("user_brief", ""),
             )
             if not res_req.resolved:
-                self._context.set_memory("resource_review_pending", res_req_id)
+                ctx.set_memory("resource_review_pending", res_req_id)
                 res_req = await self._plan_selector.wait_for_resource_review(res_req_id)
 
             accepted_resources = self._plan_selector.accepted_resources(res_req_id)
             brief = self._plan_selector.resource_brief(res_req_id)
-            self._context.set_memory(
+            ctx.set_memory(
                 "accepted_resources",
                 [{"name": r.name, "type": r.resource_type} for r in accepted_resources],
             )
-            self._context.set_memory("resource_brief", brief)
+            ctx.set_memory("resource_brief", brief)
             self._plan_selector.cleanup_resource_review(res_req_id)
             logger.info(
                 "sub_plan_hitl_resolved",
@@ -524,6 +549,7 @@ class OrchestratorEngine:
         agent_id: str,
         message: str,
         routing: RoutingDecision,
+        ctx: ConversationContext,
     ) -> AgentResult:
         """Dispatch to a single agent by ID.
 
@@ -600,7 +626,7 @@ class OrchestratorEngine:
                     alert_id=exc.alert.alert_id,
                 )
                 if self._governance_selector:
-                    await self._handle_governance_alert(exc.alert, str(agent_id))
+                    await self._handle_governance_alert(exc.alert, str(agent_id), ctx)
                 return AgentResult(
                     agent_id=str(agent_id),
                     content=(
@@ -612,13 +638,13 @@ class OrchestratorEngine:
             else:
                 if alert:
                     # Warning threshold — trigger HITL but continue
-                    await self._handle_governance_alert(alert, str(agent_id))
+                    await self._handle_governance_alert(alert, str(agent_id), ctx)
 
         start = time.perf_counter()
         try:
-            result = await agent.execute(effective_message, self._context, routing.extracted_params)
+            result = await agent.execute(effective_message, ctx, routing.extracted_params)
             result.duration_ms = (time.perf_counter() - start) * 1000
-            self._context.add_result(result)
+            ctx.add_result(result)
 
             # ── Post-dispatch: record per-agent budget usage ────────────
             if self._budget_manager:
@@ -652,6 +678,7 @@ class OrchestratorEngine:
         self,
         alert: Any,
         agent_id: str,
+        ctx: ConversationContext,
     ) -> None:
         """Trigger HITL for a governance alert (context window or skill cap).
 
@@ -680,7 +707,7 @@ class OrchestratorEngine:
         )
 
         if not review.resolved:
-            self._context.set_memory("governance_review_pending", req_id)
+            ctx.set_memory("governance_review_pending", req_id)
             review = await self._governance_selector.wait_for_context_review(req_id)
 
         if review.accepted:
@@ -689,7 +716,7 @@ class OrchestratorEngine:
                 alert_id=alert.alert_id,
                 agent_id=agent_id,
             )
-            self._context.set_memory("governance_decomposition_accepted", True)
+            ctx.set_memory("governance_decomposition_accepted", True)
         else:
             logger.info(
                 "governance_decomposition_rejected",
@@ -709,9 +736,10 @@ class OrchestratorEngine:
         agent_ids: list[str],
         message: str,
         routing: RoutingDecision,
+        ctx: ConversationContext,
     ) -> list[AgentResult]:
         """Execute multiple secondary agents in parallel."""
-        tasks = [self._dispatch(aid, message, routing) for aid in agent_ids]
+        tasks = [self._dispatch(aid, message, routing, ctx) for aid in agent_ids]
         return list(await asyncio.gather(*tasks, return_exceptions=False))
 
     async def _route_with_llm(self, message: str) -> RoutingDecision | None:

@@ -28,6 +28,7 @@ from src.governance.guardian import (
 from src.governance.selector import (
     GovernanceSelector,
 )
+from src.orchestrator.context import ConversationContext
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -773,7 +774,8 @@ class TestEngineGovernanceIntegration:
             confidence=0.9,
             reasoning="test",
         )
-        await engine._dispatch("log_analysis", "test message", routing)
+        ctx = ConversationContext()
+        await engine._dispatch("log_analysis", "test message", routing, ctx)
         assert guardian.cumulative_tokens > 0
 
     @pytest.mark.asyncio
@@ -792,7 +794,8 @@ class TestEngineGovernanceIntegration:
             confidence=0.9,
             reasoning="test",
         )
-        result = await engine._dispatch("agent_a", "x" * 100, routing)
+        ctx = ConversationContext()
+        result = await engine._dispatch("agent_a", "x" * 100, routing, ctx)
         # Should still execute (warning, not hard cap)
         assert result.content.startswith("Result from")
         # Alert should have been created
@@ -813,7 +816,8 @@ class TestEngineGovernanceIntegration:
             confidence=0.9,
             reasoning="test",
         )
-        result = await engine._dispatch("test", "hello", routing)
+        ctx = ConversationContext()
+        result = await engine._dispatch("test", "hello", routing, ctx)
         assert result.content == "Result from test"
 
     def test_reset_context_resets_governance(self):
@@ -951,7 +955,8 @@ class TestEngineAgentLifecycle:
         from src.orchestrator.router import RoutingDecision
 
         routing = RoutingDecision(primary_agent="a", confidence=0.9, reasoning="test")
-        result = await engine._dispatch("a", "hello", routing)
+        ctx = ConversationContext()
+        result = await engine._dispatch("a", "hello", routing, ctx)
         assert result.confidence == 0.0
         assert "disabled" in result.content.lower()
         agent.execute.assert_not_called()
@@ -1044,7 +1049,8 @@ class TestBudgetEnforcementInDispatch:
         from src.orchestrator.router import RoutingDecision
 
         routing = RoutingDecision(primary_agent="test_agent", confidence=0.9, reasoning="test")
-        await engine._dispatch("test_agent", "short msg", routing)
+        ctx = ConversationContext()
+        await engine._dispatch("test_agent", "short msg", routing, ctx)
 
         # Budget should have been allocated for test_agent
         assert "test_agent" in bm._budgets
@@ -1062,7 +1068,8 @@ class TestBudgetEnforcementInDispatch:
         routing = RoutingDecision(primary_agent="test_agent", confidence=0.9, reasoning="test")
         # Send a message that's way over the 100-token input budget (~400 chars at 4 chars/token)
         long_msg = "x" * 2000
-        await engine._dispatch("test_agent", long_msg, routing)
+        ctx = ConversationContext()
+        await engine._dispatch("test_agent", long_msg, routing, ctx)
 
         # The agent should have been called with a truncated message
         call_args = agent.execute.call_args
@@ -1078,7 +1085,8 @@ class TestBudgetEnforcementInDispatch:
         from src.orchestrator.router import RoutingDecision
 
         routing = RoutingDecision(primary_agent="test_agent", confidence=0.9, reasoning="test")
-        await engine._dispatch("test_agent", "hello", routing)
+        ctx = ConversationContext()
+        await engine._dispatch("test_agent", "hello", routing, ctx)
 
         # Usage should be recorded
         usage = bm._usage.get("test_agent")
@@ -1098,7 +1106,8 @@ class TestBudgetEnforcementInDispatch:
         from src.orchestrator.router import RoutingDecision
 
         routing = RoutingDecision(primary_agent="test_agent", confidence=0.9, reasoning="test")
-        result = await engine._dispatch("test_agent", "hello", routing)
+        ctx = ConversationContext()
+        result = await engine._dispatch("test_agent", "hello", routing, ctx)
 
         # Should abort with hard cap message
         assert "hard cap" in result.content.lower()

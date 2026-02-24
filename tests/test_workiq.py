@@ -489,7 +489,7 @@ class TestEnrichedEngineRouting:
 
         engine.register_agent("knowledge_base", KnowledgeBaseAgent())
 
-        result = await engine.process_with_enrichment("how to configure CORS?")
+        result, _ = await engine.process_with_enrichment("how to configure CORS?")
         assert "Plan" in result
 
     @pytest.mark.asyncio
@@ -512,7 +512,7 @@ class TestEnrichedEngineRouting:
         engine.register_agent("plan", PlanAgent())
         engine.register_agent("knowledge_base", KnowledgeBaseAgent())
 
-        result = await engine.process_with_enrichment("explain the architecture")
+        result, _ = await engine.process_with_enrichment("explain the architecture")
         assert "Plan" in result
 
     @pytest.mark.asyncio
@@ -536,7 +536,7 @@ class TestEnrichedEngineRouting:
         engine.register_agent("plan", PlanAgent())
         engine.register_agent("knowledge_base", KnowledgeBaseAgent())
 
-        result = await engine.process_with_enrichment("who is on my team?")
+        result, ctx = await engine.process_with_enrichment("who is on my team?")
         assert "Plan" in result
         # WorkIQ content should be stored in context
-        assert engine.context.get_memory("workiq_selected_content") is not None
+        assert ctx.get_memory("workiq_selected_content") is not None

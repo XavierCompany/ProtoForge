@@ -293,7 +293,7 @@ class TestEngineSubPlanPipeline:
 
     @pytest.mark.asyncio
     async def test_sub_plan_runs_before_task_agents(self, engine_with_sub_plan: OrchestratorEngine) -> None:
-        response = await engine_with_sub_plan.process("Create workspace connectors for M365 integration")
+        response, _ = await engine_with_sub_plan.process("Create workspace connectors for M365 integration")
         assert "Plan" in response
         assert "Sub-Plan" in response or "Resource Deployment" in response
 
@@ -314,14 +314,14 @@ class TestEngineSubPlanPipeline:
     @pytest.mark.asyncio
     async def test_plan_hitl_timeout_accepts_all(self, engine_with_sub_plan: OrchestratorEngine) -> None:
         """When HITL times out, all plan suggestions should be accepted (fail-open)."""
-        response = await engine_with_sub_plan.process("Analyze error logs and fix security vulnerabilities")
+        response, _ = await engine_with_sub_plan.process("Analyze error logs and fix security vulnerabilities")
         # Both plan and sub-plan should run even on timeout
         assert "Plan" in response
 
     @pytest.mark.asyncio
     async def test_without_selector_sub_plan_still_runs(self, engine_without_selector: OrchestratorEngine) -> None:
         """Without PlanSelector, Sub-Plan Agent runs but HITL gates are skipped."""
-        response = await engine_without_selector.process("Create workspace connectors")
+        response, _ = await engine_without_selector.process("Create workspace connectors")
         assert "Plan" in response
         sub_plan = engine_without_selector.context.get_memory("sub_plan_output")
         assert sub_plan is not None
