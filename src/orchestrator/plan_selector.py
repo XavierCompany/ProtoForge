@@ -142,8 +142,8 @@ class PlanSelector:
             suggestions=suggestions,
         )
 
-        if len(suggestions) <= 1:
-            req.accepted_indices = list(range(len(suggestions)))
+        if len(suggestions) == 0:
+            req.accepted_indices = []
             req.resolved = True
         else:
             self._plan_pending[request_id] = req

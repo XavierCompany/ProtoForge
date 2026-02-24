@@ -117,14 +117,14 @@ class TestPlanSelectorPlanReview:
     def selector(self) -> PlanSelector:
         return PlanSelector(timeout=1.0)
 
-    def test_prepare_auto_resolves_single_suggestion(self, selector: PlanSelector) -> None:
+    def test_prepare_single_suggestion_enters_hitl(self, selector: PlanSelector) -> None:
         req = selector.prepare_plan_review(
             "req-1",
             "Test plan",
             ["log_analysis"],
         )
-        assert req.resolved is True
-        assert req.accepted_indices == [0]
+        assert req.resolved is False
+        assert selector.pending_plan_reviews() != []
 
     def test_prepare_creates_pending_multiple(self, selector: PlanSelector) -> None:
         req = selector.prepare_plan_review(

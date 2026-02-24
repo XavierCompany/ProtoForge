@@ -471,10 +471,16 @@
                     const raw = data.response;
                     const response = (typeof raw === 'string' && raw) ? raw : '(empty response)';
                     messagesEl.innerHTML += `<div class="msg msg-agent">&#129302; ${esc(response)}</div>`;
+                    // Show timeout notice if elapsed > 30s (HITL likely auto-accepted)
+                    const elapsed = Math.round(data.elapsed_seconds || 0);
+                    if (elapsed > 30) {
+                        messagesEl.innerHTML += `<div class="msg msg-system">&#9888; HITL reviews auto-accepted after ${elapsed}s timeout</div>`;
+                    }
                     messagesEl.scrollTop = messagesEl.scrollHeight;
                     indicator.textContent = '';
                     document.getElementById('send-btn').disabled = false;
                     loadStatus();
+                    loadReviews();
                 } else if (data.status === 'error') {
                     clearInterval(chatPollTimer);
                     chatPollTimer = null;

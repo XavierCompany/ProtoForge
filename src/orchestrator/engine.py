@@ -499,7 +499,8 @@ class OrchestratorEngine:
 
         # ── Phase A: Plan HITL ──────────────────────────────────────────
         accepted_agents = recommended  # default: accept all
-        if self._plan_selector and len(recommended) > 1:
+        plan_req_id: str | None = None
+        if self._plan_selector and len(recommended) >= 1:
             plan_req_id = str(uuid.uuid4())
             plan_req = self._plan_selector.prepare_plan_review(
                 plan_req_id,
@@ -507,16 +508,13 @@ class OrchestratorEngine:
                 recommended,
                 plan_artifacts=plan_artifacts,
             )
-            try:
-                if not plan_req.resolved:
-                    ctx.set_memory("plan_review_pending", plan_req_id)
-                    plan_req = await self._plan_selector.wait_for_plan_review(plan_req_id)
+            if not plan_req.resolved:
+                ctx.set_memory("plan_review_pending", plan_req_id)
+                plan_req = await self._plan_selector.wait_for_plan_review(plan_req_id)
 
-                accepted_agents = self._plan_selector.accepted_plan_agents(plan_req_id)
-                ctx.set_memory("plan_accepted_agents", accepted_agents)
-                logger.info("plan_hitl_resolved", accepted_agents=accepted_agents)
-            finally:
-                self._plan_selector.cleanup_plan_review(plan_req_id)
+            accepted_agents = self._plan_selector.accepted_plan_agents(plan_req_id)
+            ctx.set_memory("plan_accepted_agents", accepted_agents)
+            logger.info("plan_hitl_resolved", accepted_agents=accepted_agents)
 
         # ── Sub-Plan Agent execution ────────────────────────────────────
         sub_plan_result = await self._dispatch(
@@ -531,8 +529,9 @@ class OrchestratorEngine:
         # ── Phase B: Sub-Plan HITL ──────────────────────────────────────
         sub_plan_artifacts = sub_plan_result.artifacts or {}
         resources = sub_plan_artifacts.get("resources", [])
+        res_req_id: str | None = None
 
-        if self._plan_selector and resources:
+        if self._plan_selector:
             res_req_id = str(uuid.uuid4())
             res_req = self._plan_selector.prepare_resource_review(
                 res_req_id,
@@ -540,24 +539,28 @@ class OrchestratorEngine:
                 resources,
                 user_brief=sub_plan_artifacts.get("user_brief", ""),
             )
-            try:
-                if not res_req.resolved:
-                    ctx.set_memory("resource_review_pending", res_req_id)
-                    res_req = await self._plan_selector.wait_for_resource_review(res_req_id)
+            if not res_req.resolved:
+                ctx.set_memory("resource_review_pending", res_req_id)
+                res_req = await self._plan_selector.wait_for_resource_review(res_req_id)
 
-                accepted_resources = self._plan_selector.accepted_resources(res_req_id)
-                brief = self._plan_selector.resource_brief(res_req_id)
-                ctx.set_memory(
-                    "accepted_resources",
-                    [{"name": r.name, "type": r.resource_type} for r in accepted_resources],
-                )
-                ctx.set_memory("resource_brief", brief)
-                logger.info(
-                    "sub_plan_hitl_resolved",
-                    accepted_count=len(accepted_resources),
-                    brief_length=len(brief),
-                )
-            finally:
+            accepted_resources = self._plan_selector.accepted_resources(res_req_id)
+            brief = self._plan_selector.resource_brief(res_req_id)
+            ctx.set_memory(
+                "accepted_resources",
+                [{"name": r.name, "type": r.resource_type} for r in accepted_resources],
+            )
+            ctx.set_memory("resource_brief", brief)
+            logger.info(
+                "sub_plan_hitl_resolved",
+                accepted_count=len(accepted_resources),
+                brief_length=len(brief),
+            )
+
+        # ── Cleanup: remove reviews after both gates resolve ────────────
+        if self._plan_selector:
+            if plan_req_id:
+                self._plan_selector.cleanup_plan_review(plan_req_id)
+            if res_req_id:
                 self._plan_selector.cleanup_resource_review(res_req_id)
 
         return sub_plan_result
