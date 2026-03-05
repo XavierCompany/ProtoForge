@@ -195,6 +195,23 @@ class TestWorkIQSelector:
         assert req.resolved is True
         assert req.selected_indices == [0, 1]  # fail-open
 
+    @pytest.mark.asyncio
+    async def test_wait_for_selection_without_timeout_waits_for_resolution(self) -> None:
+        selector = WorkIQSelector(timeout=None)
+        result = WorkIQResult(query="q", sections=["A", "B"], content="A\n\nB")
+        selector.prepare(result, "req-9b")
+
+        async def resolve_after_delay():
+            await asyncio.sleep(0.05)
+            selector.resolve("req-9b", [1])
+
+        req, _ = await asyncio.gather(
+            selector.wait_for_selection("req-9b"),
+            resolve_after_delay(),
+        )
+        assert req.resolved is True
+        assert req.selected_indices == [1]
+
     def test_preview_truncated(self) -> None:
         selector = WorkIQSelector()
         long_section = "x" * 200
@@ -446,6 +463,23 @@ class TestRoutingHintSelector:
         req = await selector.wait_for_routing_hints("rh-9")
         assert req.resolved is True
         assert req.accepted_indices == [0, 1, 2]  # fail-open
+
+    @pytest.mark.asyncio
+    async def test_wait_for_routing_hints_without_timeout_waits_for_resolution(self) -> None:
+        selector = WorkIQSelector(timeout=None)
+        hints = self._make_hints(3)
+        selector.prepare_routing_hints(hints, "rh-9b")
+
+        async def resolve_after_delay():
+            await asyncio.sleep(0.05)
+            selector.resolve_routing_hints("rh-9b", [2])
+
+        req, _ = await asyncio.gather(
+            selector.wait_for_routing_hints("rh-9b"),
+            resolve_after_delay(),
+        )
+        assert req.resolved is True
+        assert req.accepted_indices == [2]
 
     @pytest.mark.asyncio
     async def test_wait_for_routing_hints_concurrent_resolve(self) -> None:

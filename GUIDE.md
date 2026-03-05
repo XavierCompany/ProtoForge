@@ -258,7 +258,7 @@ Every request in ProtoForge flows through a carefully designed pipeline with gov
 4. **Fan-out cap** — max 3 specialists per orchestration run (enforced in `_resolve_sub_agents()`), keeping worst-case at 124K tokens
 5. **Per-agent budget enforcement** — every dispatch allocates a budget via `ContextBudgetManager`, inputs are truncated before reaching the agent
 6. **HITL at every decision boundary** — humans approve plans, resources, and governance alerts
-7. **Fail-open timeouts** — all HITL gates auto-resolve after 120s to prevent pipeline stalls
+7. **Timeout semantics are gate-specific** — Plan/Sub-Plan, WorkIQ, and governance context/skill reviews fail-open on timeout; lifecycle disable/remove reviews fail-closed
 8. **Parallel fan-out** — independent task agents run concurrently after planning is complete
 9. **Context isolation** — sub-agents run in separate context windows to prevent overflow
 
@@ -745,7 +745,7 @@ selector.resolve_skill_review(
     custom_overflow=["analyze_encrypt", "check_compliance"],
 )
 # Or override (acknowledge violation, proceed with > 4 skills):
-selector.resolve_skill_review(request_id, accepted=False, overridden=True)
+selector.resolve_skill_review(request_id, accepted=False, override=True)
 ```
 
 ### REST API: Governance Endpoints
@@ -753,7 +753,7 @@ selector.resolve_skill_review(request_id, accepted=False, overridden=True)
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/governance/status` | Full governance report: cumulative tokens, utilisation %, per-agent usage, alert counts, violations |
-| GET | `/governance/alerts` | All alerts (resolved + unresolved) |
+| GET | `/governance/alerts` | Unresolved governance alerts |
 | POST | `/governance/resolve-alert` | Resolve a governance alert (`{alert_id, resolution}`) |
 | GET | `/governance/context-reviews` | Pending context window HITL reviews (includes token breakdown + decomposition suggestion) |
 | POST | `/governance/context-reviews/resolve` | Accept/reject context decomposition (`{request_id, accepted, user_note}`) |
@@ -2293,7 +2293,7 @@ gh copilot explain "What does this regex match: \bfix\s.*\b(?:error|exception|bu
 
 **Status:** Accepted  
 **Context:** Multi-agent orchestration can silently consume unbounded context tokens, agents can accumulate too many skills (violating single-responsibility), and the architectural boundary between agents/skills/sub-agents needs enforcement  
-**Decision:** Implement a `GovernanceGuardian` with three enforcement pillars: (1) Context window governance with a 128K hard cap and 110K warning threshold triggering HITL decomposition, (2) Skill cap enforcement limiting agents to 4 skills with HITL-reviewed split suggestions, (3) Architectural principle enforcement auditing manifests for design violations. A `GovernanceSelector` provides HITL gates (ContextWindowReview + SkillCapReview) using the same prepare → expose → wait → resolve pattern as PlanSelector and WorkIQSelector. All HITL gates fail-open after 120s  
+**Decision:** Implement a `GovernanceGuardian` with three enforcement pillars: (1) Context window governance with a 128K hard cap and 110K warning threshold triggering HITL decomposition, (2) Skill cap enforcement limiting agents to 4 skills with HITL-reviewed split suggestions, (3) Architectural principle enforcement auditing manifests for design violations. A `GovernanceSelector` provides HITL gates (ContextWindowReview + SkillCapReview, plus AgentLifecycleReview) using the same prepare → expose → wait → resolve pattern as PlanSelector and WorkIQSelector. Context/skill reviews fail-open on timeout; lifecycle reviews fail-closed  
 **Consequences:** Token costs are bounded and predictable. Agents stay focused (≤ 4 skills). Sub-agent creation is guided by governance. Adds governance check overhead to every dispatch (~1ms). 7 new REST endpoints for governance monitoring and HITL resolution. Governance rules are injected into every agent's system prompt via `forge/shared/instructions/governance_rules.md`  
 
 ---

@@ -202,8 +202,9 @@ class GovernanceGuardian:
                     f"{projected:,} ≥ {self._hard_cap:,} tokens. "
                     f"Task must be decomposed before proceeding."
                 ),
-                suggestion=self._build_decomposition_suggestion(agent_id, projected),
+                suggestion="",
             )
+            alert.suggestion = self._build_decomposition_suggestion(alert.alert_id, agent_id, projected)
             logger.critical(
                 "context_window_hard_cap",
                 agent_id=agent_id,
@@ -225,8 +226,9 @@ class GovernanceGuardian:
                     f"(warning at {self._warning_threshold:,}). "
                     f"Consider decomposing the task into a sub-agent."
                 ),
-                suggestion=self._build_decomposition_suggestion(agent_id, projected),
+                suggestion="",
             )
+            alert.suggestion = self._build_decomposition_suggestion(alert.alert_id, agent_id, projected)
             logger.warning(
                 "context_window_warning",
                 agent_id=agent_id,
@@ -396,6 +398,7 @@ class GovernanceGuardian:
             if alert.alert_id == alert_id and not alert.resolved:
                 alert.resolved = True
                 alert.resolution = resolution
+                self._context_suggestions.pop(alert_id, None)
                 logger.info(
                     "governance_alert_resolved",
                     alert_id=alert_id,
@@ -447,7 +450,12 @@ class GovernanceGuardian:
         self._alerts.append(alert)
         return alert
 
-    def _build_decomposition_suggestion(self, agent_id: str, projected_tokens: int) -> str:
+    def _build_decomposition_suggestion(
+        self,
+        alert_id: str,
+        agent_id: str,
+        projected_tokens: int,
+    ) -> str:
         """Build a human-readable suggestion for context decomposition."""
         usage_lines = [
             f"  - {aid}: {tok:,} tokens" for aid, tok in sorted(self._agent_token_usage.items(), key=lambda x: -x[1])
@@ -471,7 +479,6 @@ class GovernanceGuardian:
             suggestion=suggestion_text,
             recommended_split_agent=f"{agent_id}_overflow",
         )
-        alert_id = f"gov-{self._alert_counter:04d}"
         self._context_suggestions[alert_id] = decomp
 
         return suggestion_text

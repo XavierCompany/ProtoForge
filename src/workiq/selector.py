@@ -87,7 +87,7 @@ class WorkIQSelector:
     automatically (fail-open).
     """
 
-    def __init__(self, timeout: float = 30.0) -> None:
+    def __init__(self, timeout: float | None = 30.0) -> None:
         self._timeout = timeout
         # Phase 1: content section selection
         self._pending: dict[str, SelectionRequest] = {}
@@ -176,12 +176,15 @@ class WorkIQSelector:
             return req
 
         event = self._events[request_id]
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self._timeout)
-        except TimeoutError:
-            logger.warning("workiq_selection_timeout", request_id=request_id)
-            req.selected_indices = list(range(len(req.options)))
-            req.resolved = True
+        if self._timeout is not None:
+            try:
+                await asyncio.wait_for(event.wait(), timeout=self._timeout)
+            except TimeoutError:
+                logger.warning("workiq_selection_timeout", request_id=request_id)
+                req.selected_indices = list(range(len(req.options)))
+                req.resolved = True
+        else:
+            await event.wait()
 
         return req
 
@@ -295,12 +298,15 @@ class WorkIQSelector:
             return req
 
         event = self._hint_events[request_id]
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self._timeout)
-        except TimeoutError:
-            logger.warning("routing_hints_timeout", request_id=request_id)
-            req.accepted_indices = list(range(len(req.hints)))
-            req.resolved = True
+        if self._timeout is not None:
+            try:
+                await asyncio.wait_for(event.wait(), timeout=self._timeout)
+            except TimeoutError:
+                logger.warning("routing_hints_timeout", request_id=request_id)
+                req.accepted_indices = list(range(len(req.hints)))
+                req.resolved = True
+        else:
+            await event.wait()
 
         return req
 

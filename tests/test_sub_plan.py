@@ -340,6 +340,62 @@ class TestEngineSubPlanPipeline:
         assert "plan" not in resolved
         assert "log_analysis" in resolved
 
+    @pytest.mark.asyncio
+    async def test_sub_plan_pipeline_cleans_reviews_on_exception(self) -> None:
+        """Plan/resource HITL reviews should be cleaned even if the pipeline errors."""
+        from src.orchestrator.router import RoutingDecision
+
+        plan_selector = PlanSelector(timeout=0.01)
+        engine = OrchestratorEngine(plan_selector=plan_selector)
+        engine.register_agent("sub_plan", SubPlanAgent())
+
+        plan_result = AgentResult(
+            agent_id="plan",
+            content="Plan output",
+            confidence=0.9,
+            artifacts={"recommended_sub_agents": ["log_analysis"]},
+        )
+        routing = RoutingDecision(primary_agent="plan", secondary_agents=["log_analysis"])
+        ctx = ConversationContext()
+
+        async def fake_dispatch(*_args, **_kwargs) -> AgentResult:
+            return AgentResult(
+                agent_id="sub_plan",
+                content="Sub-Plan output",
+                confidence=0.9,
+                artifacts={
+                    "resources": [
+                        {
+                            "name": "Storage",
+                            "type": "azure-storage",
+                            "purpose": "Store blobs",
+                            "effort": "quick",
+                            "dependencies": [],
+                        }
+                    ],
+                    "user_brief": "Use minimum resources",
+                },
+            )
+
+        async def fail_wait(_request_id: str):
+            raise RuntimeError("resource wait failed")
+
+        engine._dispatch = fake_dispatch  # type: ignore[method-assign]
+        plan_selector.wait_for_resource_review = fail_wait  # type: ignore[method-assign]
+
+        with pytest.raises(RuntimeError, match="resource wait failed"):
+            await engine._run_sub_plan_pipeline(
+                "Create workspace connectors",
+                plan_result,
+                routing,
+                ctx,
+            )
+
+        assert plan_selector._plan_pending == {}
+        assert plan_selector._plan_events == {}
+        assert plan_selector._resource_pending == {}
+        assert plan_selector._resource_events == {}
+
 
 # ── Router: SUB_PLAN patterns ──────────────────────────────────────────────
 

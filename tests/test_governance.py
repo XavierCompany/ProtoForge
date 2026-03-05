@@ -177,6 +177,26 @@ class TestContextWindowEnforcement:
         assert alert is not None
         assert alert.level == GovernanceLevel.WARNING
 
+    def test_warning_stores_context_suggestion_by_alert_id(self):
+        g = GovernanceGuardian(config=_make_config(warning=100, hard_cap=200))
+        g.record_agent_usage("prev", 90)
+        alert = g.check_context_window("next", 15)
+        assert alert is not None
+        suggestion = g.get_context_suggestion(alert.alert_id)
+        assert suggestion is not None
+        assert suggestion.current_tokens == 105
+        assert suggestion.recommended_split_agent == "next_overflow"
+
+    def test_hard_cap_stores_context_suggestion_by_alert_id(self):
+        g = GovernanceGuardian(config=_make_config(warning=10, hard_cap=50))
+        g.record_agent_usage("prev", 49)
+        with pytest.raises(ContextWindowExceededError) as exc_info:
+            g.check_context_window("next", 2)
+        alert = exc_info.value.alert
+        suggestion = g.get_context_suggestion(alert.alert_id)
+        assert suggestion is not None
+        assert suggestion.current_tokens == 51
+
     def test_check_disabled(self):
         config = _make_config()
         config["governance"]["context_window"]["check_before_dispatch"] = False
@@ -320,6 +340,16 @@ class TestAlertLifecycle:
         ok = g.resolve_alert(alert.alert_id, "accepted")
         assert ok is True
         assert len(g.unresolved_alerts()) == 0
+
+    def test_resolve_alert_cleans_context_suggestion(self):
+        g = GovernanceGuardian(config=_make_config(warning=100, hard_cap=200))
+        g.record_agent_usage("prev", 90)
+        alert = g.check_context_window("next", 15)
+        assert alert is not None
+        assert g.get_context_suggestion(alert.alert_id) is not None
+        ok = g.resolve_alert(alert.alert_id, "accepted")
+        assert ok is True
+        assert g.get_context_suggestion(alert.alert_id) is None
 
     def test_resolve_nonexistent_alert(self):
         g = GovernanceGuardian()
@@ -668,6 +698,19 @@ class TestAgentLifecycleReviewSelector:
         review = await sel.wait_for_lifecycle_review("lc-1")
         assert review.resolved
         assert not review.accepted  # fail-CLOSED — opposite of context/skill
+
+    @pytest.mark.asyncio
+    async def test_wait_for_lifecycle_review_uses_lifecycle_timeout(self):
+        sel = GovernanceSelector(timeout=5.0, lifecycle_timeout=0.1)
+        sel.prepare_lifecycle_review(
+            "lc-override",
+            "disable",
+            "log_analysis",
+            ["plan"],
+        )
+        review = await sel.wait_for_lifecycle_review("lc-override")
+        assert review.resolved
+        assert not review.accepted
 
     @pytest.mark.asyncio
     async def test_wait_for_lifecycle_review_resolved_before(self):

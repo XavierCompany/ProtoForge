@@ -61,13 +61,15 @@ Never import upward (e.g., agents must not import from orchestrator).
 
 ### `src/orchestrator/`
 - `OrchestratorEngine` — top-level pipeline: `process()`, `process_with_enrichment()`
-- `IntentRouter` — `route()`, `route_with_context()`, keyword + LLM classification
+- `IntentRouter` — `route_by_keywords()`, `route_with_context()`, keyword + enrichment routing
 - `ConversationContext` — shared state: messages, metadata, history
-- `AgentResult` — dataclass: agent_id, content, tokens_used, metadata
-- `PlanSelector` — Plan HITL gate: `prepare_review()`, `resolve()`
+- `AgentResult` — dataclass: agent_id, content, confidence, artifacts, duration_ms
+- `PlanSelector` — Plan/Sub-Plan HITL gate:
+  `prepare_plan_review()`, `resolve_plan_review()`,
+  `prepare_resource_review()`, `resolve_resource_review()`
 
 ### `src/agents/`
-- `BaseAgent` (ABC) — `execute(context) → AgentResult`, `from_manifest()`, `_call_llm(messages)`
+- `BaseAgent` (ABC) — `execute(message, context, params) → AgentResult`, `from_manifest()`, `_call_llm(messages)`
 - 10 implementations: plan, sub_plan, log_analysis, code_research, remediation,
   knowledge_base, data_analysis, security_sentinel, github_tracker, workiq
 - `code_research` and `data_analysis` have no dedicated Python class — they use `GenericAgent.from_manifest()`
@@ -79,8 +81,9 @@ Never import upward (e.g., agents must not import from orchestrator).
 - Graceful degradation: returns `None` on any error or when unconfigured
 
 ### `src/governance/`
-- `GovernanceGuardian` — `check_budget()`, `enforce_hard_cap()`, `audit_manifest()`
-- `GovernanceSelector` — `request_disable()`, `request_unregister()`, lifecycle HITL
+- `GovernanceGuardian` — `check_context_window()`, `record_agent_usage()`, `audit_manifest()`
+- `GovernanceSelector` — context/skill/lifecycle HITL:
+  `prepare_*_review()`, `wait_for_*_review()`, `resolve_*_review()`
 - `ContextWindowExceededError` — raised at 128K hard cap
 
 ### `src/forge/`
@@ -134,16 +137,18 @@ All 5 HITL gates follow the same pattern:
 
 ```python
 # 1. Prepare review object
-review = selector.prepare_review(data)
+request_id = str(uuid.uuid4())
+review = selector.prepare_plan_review(request_id, plan_content, recommended_agents)
 
 # 2. Store pending — exposed via GET endpoint
-pending_reviews[review.id] = review
+# (selector stores pending request internally, keyed by request_id)
 
 # 3. Wait with timeout (120s default)
-result = await asyncio.wait_for(review.event.wait(), timeout=120)
+review = await selector.wait_for_plan_review(request_id)
 
 # 4. Auto-resolve on timeout
 #    - Plans/Sub-Plans: fail-OPEN (auto-accept)
+#    - WorkIQ + governance context/skill: fail-OPEN (auto-accept)
 #    - Lifecycle (disable/remove): fail-CLOSED (auto-reject)
 ```
 
@@ -171,7 +176,7 @@ Defined in `forge/_context_window.yaml`, enforced by `GovernanceGuardian`:
 | Max fan-out | 3 agents | Max concurrent specialists |
 | Token counting | tiktoken (cl100k_base) | Falls back to len/4 estimate |
 
-Budget math: `32K + 20K + 3×25K = 127K ≤ 128K` (4K headroom for aggregation)
+Budget math: `32K + 20K + 3×25K = 127K ≤ 128K` (1K headroom for aggregation)
 
 ---
 

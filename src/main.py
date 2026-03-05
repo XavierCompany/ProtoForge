@@ -97,8 +97,9 @@ def bootstrap() -> tuple:
         config=context_config,
         budget_manager=budget_manager,
     )
+    hitl_timeout = float(context_config.get("governance", {}).get("hitl", {}).get("timeout_seconds", 120))
     governance_selector = GovernanceSelector(
-        timeout=float(context_config.get("governance", {}).get("hitl", {}).get("timeout_seconds", 120)),
+        timeout=hitl_timeout,
     )
 
     # Now reload with governance attached for manifest validation
@@ -107,8 +108,8 @@ def bootstrap() -> tuple:
 
     # 1. Create orchestrator (with WorkIQ enrichment + Plan HITL + Governance)
     workiq_client = WorkIQClient()
-    workiq_selector = WorkIQSelector()
-    plan_selector = PlanSelector()
+    workiq_selector = WorkIQSelector(timeout=hitl_timeout)
+    plan_selector = PlanSelector(timeout=hitl_timeout)
     orchestrator = OrchestratorEngine(
         workiq_client=workiq_client,
         workiq_selector=workiq_selector,

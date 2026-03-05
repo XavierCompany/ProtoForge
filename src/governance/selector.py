@@ -94,12 +94,13 @@ class GovernanceSelector:
     - ``prepare_skill_review`` / ``resolve_skill_review`` / ``wait_for_skill_review``
     - ``prepare_lifecycle_review`` / ``resolve_lifecycle_review`` / ``wait_for_lifecycle_review``
 
-    If no human responds within *timeout* seconds the request auto-resolves
-    (fail-open: accepts the suggestion by default).
+    Context/skill reviews fail-open on timeout (auto-accept). Lifecycle
+    reviews fail-closed on timeout (auto-reject disable/remove actions).
     """
 
-    def __init__(self, timeout: float = 30.0) -> None:
+    def __init__(self, timeout: float | None = None, lifecycle_timeout: float | None = None) -> None:
         self._timeout = timeout
+        self._lifecycle_timeout = timeout if lifecycle_timeout is None else lifecycle_timeout
 
         # Context window reviews
         self._context_pending: dict[str, ContextWindowReview] = {}
@@ -174,7 +175,7 @@ class GovernanceSelector:
         return True
 
     async def wait_for_context_review(self, request_id: str) -> ContextWindowReview:
-        """Block until the human resolves the context review (or timeout)."""
+        """Block until the human resolves the context review."""
         review = self._context_pending.get(request_id)
         if not review:
             raise KeyError(f"No pending context review for {request_id}")
@@ -182,12 +183,15 @@ class GovernanceSelector:
             return review
 
         event = self._context_events[request_id]
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self._timeout)
-        except TimeoutError:
-            logger.warning("context_review_timeout", request_id=request_id)
-            review.accepted = True  # fail-open: accept decomposition
-            review.resolved = True
+        if self._timeout is not None:
+            try:
+                await asyncio.wait_for(event.wait(), timeout=self._timeout)
+            except TimeoutError:
+                logger.warning("context_review_timeout", request_id=request_id)
+                review.accepted = True  # fail-open: accept decomposition
+                review.resolved = True
+        else:
+            await event.wait()
 
         return review
 
@@ -422,12 +426,15 @@ class GovernanceSelector:
             return review
 
         event = self._lifecycle_events[request_id]
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self._timeout)
-        except TimeoutError:
-            logger.warning("lifecycle_review_timeout", request_id=request_id)
-            review.accepted = False  # fail-CLOSED: reject action on timeout
-            review.resolved = True
+        if self._lifecycle_timeout is not None:
+            try:
+                await asyncio.wait_for(event.wait(), timeout=self._lifecycle_timeout)
+            except TimeoutError:
+                logger.warning("lifecycle_review_timeout", request_id=request_id)
+                review.accepted = False  # fail-CLOSED: reject action on timeout
+                review.resolved = True
+        else:
+            await event.wait()
 
         return review
 
