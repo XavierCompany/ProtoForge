@@ -29,6 +29,7 @@ def register_workiq_and_plan_routes(
     orchestrator: Any,
     workiq_selector: Any | None,
     plan_selector: Any | None,
+    control_plane_dependencies: list[Any],
 ) -> None:
     """Register WorkIQ and Plan/Sub-Plan HITL endpoints."""
 
@@ -57,7 +58,7 @@ def register_workiq_and_plan_routes(
             return JSONResponse(content={"pending": []})
         return JSONResponse(content={"pending": workiq_selector.pending_requests()})
 
-    @app.post("/workiq/select")
+    @app.post("/workiq/select", dependencies=control_plane_dependencies)
     async def workiq_select(request: WorkIQSelectRequest) -> JSONResponse:
         """Resolve a pending selection — user picks which sections to use."""
         if workiq_selector is None:
@@ -90,7 +91,7 @@ def register_workiq_and_plan_routes(
             return JSONResponse(content={"pending": []})
         return JSONResponse(content={"pending": workiq_selector.pending_routing_hint_requests()})
 
-    @app.post("/workiq/accept-hints")
+    @app.post("/workiq/accept-hints", dependencies=control_plane_dependencies)
     async def workiq_accept_hints(request: WorkIQAcceptHintsRequest) -> JSONResponse:
         """Accept specific routing-keyword hints from WorkIQ content."""
         if workiq_selector is None:
@@ -123,7 +124,7 @@ def register_workiq_and_plan_routes(
             return JSONResponse(content={"pending": []})
         return JSONResponse(content={"pending": plan_selector.pending_plan_reviews()})
 
-    @app.post("/plan/accept")
+    @app.post("/plan/accept", dependencies=control_plane_dependencies)
     async def plan_accept(request: PlanAcceptRequest) -> JSONResponse:
         """Accept or reject Plan Agent suggestions."""
         if plan_selector is None:
@@ -158,7 +159,7 @@ def register_workiq_and_plan_routes(
             return JSONResponse(content={"pending": []})
         return JSONResponse(content={"pending": plan_selector.pending_resource_reviews()})
 
-    @app.post("/sub-plan/accept")
+    @app.post("/sub-plan/accept", dependencies=control_plane_dependencies)
     async def sub_plan_accept(request: SubPlanAcceptRequest) -> JSONResponse:
         """Accept or reject Sub-Plan resources and optionally set a brief."""
         if plan_selector is None:

@@ -76,7 +76,7 @@ These block any real deployment. Ordered by dependency.
   - `[ ]` Implement streaming option (deferred to P1)
   - `[x]` Add timeout / retry for API calls (graceful `None` on any error)
   - `[x]` Update tests with mocked LLM responses (30 tests in `test_llm.py`)
-- **Verify**: 444 tests passing (431 non-live + 13 live), `ruff check` + `ruff format` clean
+- **Verify**: 450 tests passing (437 non-live + 13 live), `ruff check` + `ruff format` clean
 - **GUIDE2 ref**: §2.1
 
 ---

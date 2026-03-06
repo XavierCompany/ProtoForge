@@ -16,6 +16,41 @@ from src.server_models import ChatAsyncResponse, ChatRequest
 
 logger = structlog.get_logger(__name__)
 
+_TASK_REVIEW_MEMORY_KEYS: tuple[str, ...] = (
+    "plan_review_pending",
+    "resource_review_pending",
+    "governance_review_pending",
+    "workiq_content_pending",
+    "workiq_hints_pending",
+)
+
+
+def _task_pending_review_ids(task_ctx: ConversationContext | Any) -> set[str]:
+    """Collect request IDs associated with a task-scoped orchestration context."""
+    if not isinstance(task_ctx, ConversationContext):
+        return set()
+
+    request_ids: set[str] = set()
+    for key in _TASK_REVIEW_MEMORY_KEYS:
+        value = task_ctx.get_memory(key)
+        if isinstance(value, str) and value:
+            request_ids.add(value)
+    return request_ids
+
+
+def _filter_pending_reviews(
+    pending_reviews: list[dict[str, Any]],
+    task_request_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Return only reviews that belong to the current task context."""
+    if not task_request_ids:
+        return []
+    return [
+        review
+        for review in pending_reviews
+        if isinstance(review.get("request_id"), str) and review["request_id"] in task_request_ids
+    ]
+
 
 def register_chat_routes(
     app: Any,
@@ -82,22 +117,37 @@ def register_chat_routes(
                 content={"error": f"No chat task with id {task_id}"},
             )
 
+        task_ctx = task.get("context")
+        task_request_ids = _task_pending_review_ids(task_ctx)
+
         pending: list[dict[str, Any]] = []
         if plan_selector is not None:
-            pending.extend({"type": "plan", **r} for r in plan_selector.pending_plan_reviews())
-            pending.extend({"type": "sub_plan", **r} for r in plan_selector.pending_resource_reviews())
-        if governance_selector is not None:
-            pending.extend({"type": "governance_context", **r} for r in governance_selector.pending_context_reviews())
-            pending.extend({"type": "governance_skill", **r} for r in governance_selector.pending_skill_reviews())
             pending.extend(
-                {"type": "governance_lifecycle", **r} for r in governance_selector.pending_lifecycle_reviews()
+                {"type": "plan", **r}
+                for r in _filter_pending_reviews(plan_selector.pending_plan_reviews(), task_request_ids)
+            )
+            pending.extend(
+                {"type": "sub_plan", **r}
+                for r in _filter_pending_reviews(plan_selector.pending_resource_reviews(), task_request_ids)
+            )
+        if governance_selector is not None:
+            pending.extend(
+                {"type": "governance_context", **r}
+                for r in _filter_pending_reviews(governance_selector.pending_context_reviews(), task_request_ids)
+            )
+            pending.extend(
+                {"type": "governance_skill", **r}
+                for r in _filter_pending_reviews(governance_selector.pending_skill_reviews(), task_request_ids)
+            )
+            pending.extend(
+                {"type": "governance_lifecycle", **r}
+                for r in _filter_pending_reviews(governance_selector.pending_lifecycle_reviews(), task_request_ids)
             )
 
         elapsed = time.time() - task["created_at"]
 
         phase = None
         with contextlib.suppress(Exception):
-            task_ctx = task.get("context")
             if isinstance(task_ctx, ConversationContext):
                 phase = task_ctx.get_memory("pipeline_phase")
 

@@ -196,6 +196,7 @@ def create_app(
         orchestrator=orchestrator,
         workiq_selector=workiq_selector,
         plan_selector=plan_selector,
+        control_plane_dependencies=control_plane_dependencies,
     )
 
     register_github_routes(

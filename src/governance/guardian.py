@@ -18,6 +18,7 @@ of the orchestration pipeline:
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -99,6 +100,14 @@ class ContextDecompositionSuggestion:
     recommended_split_agent: str = ""
 
 
+@dataclass
+class _RunTokenState:
+    """Mutable token accounting state bound to one orchestration run."""
+
+    cumulative_tokens: int = 0
+    agent_token_usage: dict[str, int] = field(default_factory=dict)
+
+
 # ── GovernanceGuardian ──────────────────────────────────────────────────────
 
 
@@ -144,9 +153,13 @@ class GovernanceGuardian:
         hitl = gov.get("hitl", {})
         self._timeout: float = float(hitl.get("timeout_seconds", 120))
 
-        # Cumulative token tracking for the current run
-        self._cumulative_tokens: int = 0
-        self._agent_token_usage: dict[str, int] = {}
+        # Cumulative token tracking scoped per asyncio task/run context.
+        self._run_state: ContextVar[_RunTokenState | None] = ContextVar(
+            "governance_run_state",
+            default=None,
+        )
+        # Fallback snapshot for out-of-run introspection endpoints.
+        self._latest_run_state = _RunTokenState()
 
         # Alert log
         self._alerts: list[GovernanceAlert] = []
@@ -190,7 +203,8 @@ class GovernanceGuardian:
         if not self._check_before:
             return None
 
-        projected = self._cumulative_tokens + estimated_input_tokens
+        run_state = self._get_or_create_run_state()
+        projected = run_state.cumulative_tokens + estimated_input_tokens
 
         if projected >= self._hard_cap:
             alert = self._create_alert(
@@ -204,7 +218,12 @@ class GovernanceGuardian:
                 ),
                 suggestion="",
             )
-            alert.suggestion = self._build_decomposition_suggestion(alert.alert_id, agent_id, projected)
+            alert.suggestion = self._build_decomposition_suggestion(
+                alert.alert_id,
+                agent_id,
+                projected,
+                run_state=run_state,
+            )
             logger.critical(
                 "context_window_hard_cap",
                 agent_id=agent_id,
@@ -228,7 +247,12 @@ class GovernanceGuardian:
                 ),
                 suggestion="",
             )
-            alert.suggestion = self._build_decomposition_suggestion(alert.alert_id, agent_id, projected)
+            alert.suggestion = self._build_decomposition_suggestion(
+                alert.alert_id,
+                agent_id,
+                projected,
+                run_state=run_state,
+            )
             logger.warning(
                 "context_window_warning",
                 agent_id=agent_id,
@@ -241,21 +265,24 @@ class GovernanceGuardian:
 
     def record_agent_usage(self, agent_id: str, tokens_used: int) -> None:
         """Post-dispatch: record how many tokens an agent actually consumed."""
-        self._cumulative_tokens += tokens_used
-        prev = self._agent_token_usage.get(agent_id, 0)
-        self._agent_token_usage[agent_id] = prev + tokens_used
+        run_state = self._get_or_create_run_state()
+        run_state.cumulative_tokens += tokens_used
+        prev = run_state.agent_token_usage.get(agent_id, 0)
+        run_state.agent_token_usage[agent_id] = prev + tokens_used
+        self._latest_run_state = run_state
 
         logger.debug(
             "governance_usage_recorded",
             agent_id=agent_id,
             tokens=tokens_used,
-            cumulative=self._cumulative_tokens,
+            cumulative=run_state.cumulative_tokens,
         )
 
     def reset_run(self) -> None:
         """Reset cumulative counters at the start of a new orchestration run."""
-        self._cumulative_tokens = 0
-        self._agent_token_usage.clear()
+        run_state = _RunTokenState()
+        self._run_state.set(run_state)
+        self._latest_run_state = run_state
         # Keep alerts and skill violations for HITL inspection
 
     # ── Skill Cap Enforcement ───────────────────────────────────────────
@@ -358,7 +385,7 @@ class GovernanceGuardian:
 
     @property
     def cumulative_tokens(self) -> int:
-        return self._cumulative_tokens
+        return self._state_for_read().cumulative_tokens
 
     @property
     def warning_threshold(self) -> int:
@@ -384,7 +411,7 @@ class GovernanceGuardian:
         return [a for a in self._alerts if not a.resolved]
 
     def agent_token_usage(self) -> dict[str, int]:
-        return dict(self._agent_token_usage)
+        return dict(self._state_for_read().agent_token_usage)
 
     def get_skill_violation(self, agent_id: str) -> SkillSplitSuggestion | None:
         return self._skill_violations.get(agent_id)
@@ -409,15 +436,16 @@ class GovernanceGuardian:
 
     def governance_report(self) -> dict[str, Any]:
         """Full governance status for health checks and the inspector."""
+        run_state = self._state_for_read()
         return {
-            "cumulative_tokens": self._cumulative_tokens,
+            "cumulative_tokens": run_state.cumulative_tokens,
             "hard_cap": self._hard_cap,
             "warning_threshold": self._warning_threshold,
             "utilisation_pct": round(
-                (self._cumulative_tokens / self._hard_cap * 100) if self._hard_cap else 0,
+                (run_state.cumulative_tokens / self._hard_cap * 100) if self._hard_cap else 0,
                 1,
             ),
-            "agent_usage": dict(self._agent_token_usage),
+            "agent_usage": dict(run_state.agent_token_usage),
             "max_skills_per_agent": self._max_skills,
             "total_alerts": len(self._alerts),
             "unresolved_alerts": len(self.unresolved_alerts()),
@@ -425,6 +453,19 @@ class GovernanceGuardian:
         }
 
     # ── Private helpers ─────────────────────────────────────────────────
+
+    def _get_or_create_run_state(self) -> _RunTokenState:
+        """Get task-local run state, creating one when absent."""
+        run_state = self._run_state.get()
+        if run_state is None:
+            run_state = _RunTokenState()
+            self._run_state.set(run_state)
+        return run_state
+
+    def _state_for_read(self) -> _RunTokenState:
+        """Return current task state, or latest snapshot when out-of-run."""
+        run_state = self._run_state.get()
+        return run_state if run_state is not None else self._latest_run_state
 
     def _create_alert(
         self,
@@ -455,10 +496,13 @@ class GovernanceGuardian:
         alert_id: str,
         agent_id: str,
         projected_tokens: int,
+        *,
+        run_state: _RunTokenState,
     ) -> str:
         """Build a human-readable suggestion for context decomposition."""
         usage_lines = [
-            f"  - {aid}: {tok:,} tokens" for aid, tok in sorted(self._agent_token_usage.items(), key=lambda x: -x[1])
+            f"  - {aid}: {tok:,} tokens"
+            for aid, tok in sorted(run_state.agent_token_usage.items(), key=lambda x: -x[1])
         ]
         usage_summary = "\n".join(usage_lines) if usage_lines else "  (no per-agent data yet)"
 
@@ -475,7 +519,7 @@ class GovernanceGuardian:
             current_tokens=projected_tokens,
             hard_cap=self._hard_cap,
             warning_threshold=self._warning_threshold,
-            agent_usage=dict(self._agent_token_usage),
+            agent_usage=dict(run_state.agent_token_usage),
             suggestion=suggestion_text,
             recommended_split_agent=f"{agent_id}_overflow",
         )

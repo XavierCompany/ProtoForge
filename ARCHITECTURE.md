@@ -171,6 +171,10 @@ Governance selectors share one timeout/cancellation behavior path.
 | Skill Cap | Agent > 4 skills | accept | GET+POST /governance/skill-reviews/* |
 | Lifecycle | disable/remove request | **reject** | GET+POST /governance/lifecycle-reviews/* |
 
+When `SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true`, HITL resolution endpoints
+(`POST /workiq/select`, `POST /workiq/accept-hints`, `POST /plan/accept`,
+`POST /sub-plan/accept`) require `X-API-Key` like other control-plane actions.
+
 ---
 
 ## 6. Context Window Governance
@@ -188,6 +192,9 @@ Defined in `forge/_context_window.yaml`, enforced by `GovernanceGuardian`:
 | Token counting | tiktoken (cl100k_base) | Falls back to len/4 estimate |
 
 Budget math: `32K + 20K + 3×25K = 127K ≤ 128K` (1K headroom for aggregation)
+
+Governance token counters are request-scoped (task-local run state), so
+concurrent orchestrations do not reset or overwrite each other’s usage totals.
 
 ---
 
@@ -209,7 +216,7 @@ Settings are loaded from `.env` file. Access via `get_settings()` singleton.
 
 ## 8. Testing
 
-- **444 tests** across 12 test files, all async (`pytest-asyncio`).
+- **450 tests** across 12 test files, all async (`pytest-asyncio`).
 - Fixtures in `tests/conftest.py` — pre-built engine, agents, guardian, router.
 - Test files map 1:1 to source domains (test_orchestrator, test_governance, etc.)
 - Live integration tests: `pytest -m live` (13 tests, requires `az login` + Azure endpoint)

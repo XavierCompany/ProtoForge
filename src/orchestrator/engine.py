@@ -323,6 +323,27 @@ class OrchestratorEngine:
         result = await self._process_standard_pipeline(sanitized_message, request_ctx)
         return result, request_ctx
 
+    async def process_with_routing(
+        self,
+        user_message: str,
+        routing: RoutingDecision,
+        *,
+        ctx: ConversationContext | None = None,
+    ) -> tuple[str, ConversationContext]:
+        """Process a user message with a caller-provided routing decision.
+
+        This preserves the Plan-first orchestration flow (Plan → Sub-Plan →
+        fan-out) while allowing trusted control-plane entrypoints to supply
+        deterministic routing parameters for specialist actions.
+        """
+        sanitized_message, request_ctx = self._prepare_request_context(user_message, ctx=ctx)
+        request_ctx.set_memory("pipeline_phase", "routing")
+        request_ctx.set_memory("forced_routing", True)
+        if self._governance:
+            self._governance.reset_run()
+        result = await self._process_after_routing(sanitized_message, routing, request_ctx)
+        return result, request_ctx
+
     # ── WorkIQ-enriched routing ─────────────────────────────────────────
 
     async def process_with_enrichment(

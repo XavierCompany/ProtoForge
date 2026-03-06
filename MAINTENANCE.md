@@ -56,7 +56,7 @@ CHANGELOG / TODO structure.
    ```powershell
    .venv\Scripts\python.exe -m pytest -q --tb=short
    ```
-   *Current: 444 tests passing (431 non-live + 13 live).*
+   *Current: 450 tests passing (437 non-live + 13 live).*
 
 2. Keep commits atomic — one logical change per commit.
 
@@ -275,13 +275,13 @@ Detailed protocol in `GUIDE.md` §19.  Summary:
 
 ### 5.4 Add a New HTTP Endpoint
 
-1. Add route in `src/server.py` inside `create_app()`.
-2. Define Pydantic request/response models at the top of the file.
-3. Wire to orchestrator, selector, or catalog as needed.
+1. Add the endpoint in the correct registrar under `src/server_routes/`.
+2. Add/extend request/response models in `src/server_models.py`.
+3. Wire the registrar call from `src/server.py::create_app()` if introducing a new route group.
 4. Decide whether endpoint is control-plane sensitive. If yes, include
-   `dependencies=control_plane_dependencies` so API-key protection applies.
+    `dependencies=control_plane_dependencies` so API-key protection applies.
 5. If endpoint accepts free-form user text, ensure `process()`/`process_with_enrichment()`
-   path is used so input guardrails are enforced.
+    path is used so input guardrails are enforced.
 6. Update `README.md` endpoint table.
 7. Add API test.
 
@@ -293,6 +293,8 @@ Detailed protocol in `GUIDE.md` §19.  Summary:
 - **Hard cap enforcement toggle**: `governance.context_window.enforce_hard_cap`
   - `true` = fail-closed (raises `ContextWindowExceededError`)
   - `false` = fail-open (logs warning, continues)
+- **Run-state isolation**: governance token counters are task-local by design;
+  keep them request-scoped to avoid cross-request reset collisions.
 
 ### 5.6 Disable or Remove an Agent at Runtime (HITL-Gated)
 
@@ -433,7 +435,7 @@ The following claims were verified against the actual codebase:
 | 24 | ForgeLoader instantiated twice in `bootstrap()` | `main.py` ~L87, ~L110 | ✅ |
 | 25 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B) | `plan_selector.py`, `engine.py` L322–400 | ✅ |
 | 26 | GovernanceSelector: ContextWindowReview + SkillCapReview | `selector.py` L41–59 | ✅ |
-| 27 | 444 tests passing (431 non-live + 13 live) | `pytest --tb=no` output | ✅ |
+| 27 | 450 tests passing (437 non-live + 13 live) | `pytest --tb=no` output | ✅ |
 | 28 | Plan budget = 32K, Sub-Plan = 20K, Specialist = 22K | agent.yaml files | ✅ |
 | 29 | Worst-case = 126K (with 8K reserve) ≤ 128K cap | Calculated from YAML | ✅ |
 | 30 | `AgentLifecycleReview` dataclass in `GovernanceSelector` | `selector.py` | ✅ |
@@ -443,7 +445,7 @@ The following claims were verified against the actual codebase:
 | 34 | `deregister_patterns()` removes routing on disable/remove | `router.py` | ✅ |
 | 35 | `deallocate()` releases budget on disable/remove | `context_budget.py` | ✅ |
 | 36 | 7 lifecycle HTTP endpoints remain present after modularization | `server_routes/governance.py` | ✅ |
-| 37 | 444 tests passing (30 LLM mocked + 13 live + 401 others) | `pytest --tb=no` output | ✅ |
+| 37 | 450 tests passing (30 LLM mocked + 13 live + 407 others) | `pytest --tb=no` output | ✅ |
 | 38 | Governance endpoint paths match route decorators | `server_routes/governance.py`, README, GUIDE | ✅ |
 | 39 | `sub_plan` entry present in `forge/_registry.yaml` | `_registry.yaml` | ✅ |
 | 40 | Warning threshold = 110K in all docs (not 120K) | GUIDE.md, `_context_window.yaml` | ✅ |

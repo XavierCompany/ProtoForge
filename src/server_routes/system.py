@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from anyio import to_thread
 from fastapi.responses import HTMLResponse, JSONResponse
 
 
@@ -33,7 +34,8 @@ def register_system_routes(
     async def inspector() -> HTMLResponse:
         """Agent Inspector — debugging dashboard."""
         html_path = templates_dir / "inspector.html"
+        html_content = await to_thread.run_sync(html_path.read_text, encoding="utf-8")
         return HTMLResponse(
-            content=html_path.read_text(encoding="utf-8"),
+            content=html_content,
             headers={"Cache-Control": "no-store"},
         )

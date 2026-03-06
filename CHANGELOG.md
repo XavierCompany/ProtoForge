@@ -20,11 +20,17 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - `src/orchestrator/hitl_utils.py` — shared `wait_for_resolution()` helper used by Plan, WorkIQ, and Governance selectors for consistent timeout/cancellation handling.
 - New server-side task state typing (`ChatTaskState`) and task-scoped `ConversationContext` storage for non-blocking chat status polling.
 - Regression tests for guardrails, enrichment fallback context handling, and task-scoped `/chat/status` phase isolation.
+- `OrchestratorEngine.process_with_routing(...)` — trusted routed-processing entrypoint that preserves Plan-first orchestration for control-plane actions that need deterministic routing params.
 
 ### Changed
 - `OrchestratorEngine.process()` and `process_with_enrichment()` now accept optional request-scoped contexts (`ctx`) and apply guardrails before routing and LLM interaction.
 - WorkIQ-enriched flow now records explicit pre-routing phases (`workiq_query`, `workiq_content_review`, `workiq_keyword_extract`, `workiq_hint_review`) in context memory.
 - `GET /chat/status/{task_id}` now reports `pipeline_phase` from the task’s own context instead of the engine-global context, eliminating cross-request phase leakage.
+- `GET /chat/status/{task_id}` now filters pending HITL reviews by request IDs stored in that task’s context, preventing cross-task review visibility.
+- GitHub control-plane routes now execute through Plan-first orchestration (`process_with_routing`) instead of direct `_dispatch` calls, preserving governance/HITL consistency.
+- Governance token accounting now uses task-local run state in `GovernanceGuardian`, eliminating cross-request `reset_run()` collisions under concurrency.
+- Control-plane API-key protection now covers HITL resolution endpoints: `POST /workiq/select`, `POST /workiq/accept-hints`, `POST /plan/accept`, and `POST /sub-plan/accept`.
+- `/inspector` now reads template HTML via `anyio.to_thread.run_sync(...)` to avoid synchronous file I/O in the async request handler.
 - HTTP routes were modularized from monolithic `src/server.py` into `src/server_routes/*`, with shared contracts in `src/server_models.py`; `create_app()` import path remains stable.
 - Updated architecture and operations docs (`ARCHITECTURE.md`, `GUIDE2.md`, `MAINTENANCE.md`, `TODO.md`) to reflect security controls and current HITL/guardrail behavior.
 

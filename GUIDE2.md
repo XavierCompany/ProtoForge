@@ -38,7 +38,7 @@
 Before tuning anything, understand what the code *actually does* today vs.
 what the docs describe.
 
-### What works end-to-end (verified by 444 tests)
+### What works end-to-end (verified by 450 tests)
 
 | Layer | Status | Notes |
 |-------|--------|-------|
@@ -64,8 +64,8 @@ what the docs describe.
 **Key takeaway**: The orchestration data-flow AND LLM intelligence are both
 complete and tested. All agents call `_call_llm()` for real inference when
 configured (Azure AI Foundry via `DefaultAzureCredential`), with graceful
-fallback to placeholder responses when no endpoint is set. 444 tests total
-(431 non-live + 13 live). Tuning settings below are now active.
+fallback to placeholder responses when no endpoint is set. 450 tests total
+(437 non-live + 13 live). Tuning settings below are now active.
 
 ---
 
@@ -82,7 +82,7 @@ which delegates to the singleton `LLMClient` in `src/llm/client.py`.
 - **Graceful degradation**: When no `AZURE_AI_FOUNDRY_ENDPOINT` is set, `_call_llm()` returns `None` and agents fall back to their existing placeholder responses. All 378 original tests pass without any LLM mock.
 - **Pattern**: Each agent enriches the prompt with domain context (detected patterns, prior results, available sub-agents) before calling `_call_llm()`. LLM response → higher confidence score; fallback → lower confidence.
 - **Engine routing**: `OrchestratorEngine._route_with_llm()` sends a JSON intent-classification prompt and parses the structured response into a `RoutingDecision`.
-- **Tests**: 30 mocked tests in `tests/test_llm.py` + 13 live integration tests in `tests/test_llm_live.py`. Total: 444 tests.
+- **Tests**: 30 mocked tests in `tests/test_llm.py` + 13 live integration tests in `tests/test_llm_live.py`. Total: 450 tests.
 - **Config**: `src/config.py` — `LLMConfig` with `azure_endpoint`, `azure_model`, `auth_method` (AZURE_DEFAULT / API_KEY), `active_provider` auto-detection.
 
 **Files added/changed:**
@@ -108,12 +108,12 @@ which delegates to the singleton `LLMClient` in `src/llm/client.py`.
 routing then delegates to `_process_after_routing()`, eliminating duplication.
 
 ```python
-async def process(self, user_message: str) -> str:
-    self._context.add_user_message(user_message)
+async def process(self, user_message: str, *, ctx: ConversationContext | None = None) -> tuple[str, ConversationContext]:
+    sanitized_message, request_ctx = self._prepare_request_context(user_message, ctx=ctx)
     if self._governance:
-        self._governance.reset_run()
-    routing = self._router.route_by_keywords(user_message)
-    return await self._process_after_routing(user_message, routing)
+        self._governance.reset_run()  # task-local run state
+    result = await self._process_standard_pipeline(sanitized_message, request_ctx)
+    return result, request_ctx
 ```
 
 ### 2.3 — HIGH: Leaky abstraction boundaries — ✅ DONE (commit `4d5128c`)
@@ -697,6 +697,9 @@ GET /governance/status → {
 }
 ```
 
+`cumulative_tokens` and `agent_usage` are scoped to a single orchestration run
+(task-local), preventing counter collisions across concurrent requests.
+
 ### Key metrics to monitor
 
 | Metric | Source | Alert threshold |
@@ -712,7 +715,7 @@ GET /governance/status → {
 
 | Threat | Surface | Mitigation in code | Operational control |
 |---|---|---|---|
-| Unauthorized governance/admin action | `/governance/*`, `/agents/*`, `/workflows/run`, `/github/*`, `/reviews/pending` | Optional API-key guard in `server.py` | Set `SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true` + strong `SERVER_CONTROL_PLANE_API_KEY` |
+| Unauthorized governance/admin action | `/governance/*`, `/agents/*`, `/workflows/run`, `/github/*`, `/reviews/pending`, `POST /plan/accept`, `POST /sub-plan/accept`, `POST /workiq/select`, `POST /workiq/accept-hints` | Optional API-key guard in `server.py` | Set `SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true` + strong `SERVER_CONTROL_PLANE_API_KEY` |
 | Browser-origin abuse | Cross-origin access to control-plane endpoints | CORS middleware with wildcard+credentials safety downgrade | Set explicit `SERVER_CORS_ALLOWED_ORIGINS` in production |
 | Cross-request status leakage | `/chat/status/{task_id}` phase reporting | Task-scoped `ConversationContext` in `_chat_tasks` (no global context dependency) | Keep task TTL short (`_CHAT_TASK_TTL`) and avoid long-lived sensitive state |
 | Prompt-injection style input | Any `/chat` or `/chat/enriched` message | `sanitize_user_message()` heuristics + length cap + control-char stripping | Monitor `input_guardrails_triggered` and review false positives/true positives |
@@ -793,6 +796,8 @@ for dashboard visibility.
    ```
 4. Verify:
    - `GET /governance/status` returns `401` without `X-API-Key`
+   - `POST /plan/accept` and `POST /sub-plan/accept` return `401` without `X-API-Key`
+   - `POST /workiq/select` and `POST /workiq/accept-hints` return `401` without `X-API-Key`
    - `/health` remains open
    - logs show expected `input_guardrails_triggered` events on adversarial prompts
 
@@ -803,7 +808,7 @@ a complete worked example):
 1. Create dataclass for the review request
 2. Create a Selector class with `prepare_*()`, `resolve_*()`, `wait_for_*()`
 3. Wire into engine.py at the appropriate pipeline stage
-4. Add HTTP endpoints in `server.py`
+4. Add HTTP endpoints in `src/server_routes/` and wire the registrar in `create_app()`
 5. Add tests
 
 ### Task: Reset everything for a fresh session

@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -222,6 +223,24 @@ class TestContextWindowEnforcement:
         g.reset_run()
         assert g.cumulative_tokens == 0
         assert g.agent_token_usage() == {}
+
+    @pytest.mark.asyncio
+    async def test_reset_run_is_task_local(self):
+        g = GovernanceGuardian(config=_make_config())
+        gate = asyncio.Event()
+
+        async def _worker(tokens: int) -> int:
+            g.reset_run()
+            g.record_agent_usage("agent", tokens)
+            await gate.wait()
+            return g.cumulative_tokens
+
+        task_a = asyncio.create_task(_worker(111))
+        task_b = asyncio.create_task(_worker(222))
+        await asyncio.sleep(0)
+        gate.set()
+        values = sorted(await asyncio.gather(task_a, task_b))
+        assert values == [111, 222]
 
 
 class TestSkillCapEnforcement:
@@ -1582,6 +1601,90 @@ class TestChatStatusTaskContextIsolation:
         finally:
             server_module._chat_tasks.pop(task_id, None)
 
+    def test_chat_status_filters_pending_reviews_to_task_request_ids(self):
+        from fastapi.testclient import TestClient
+
+        import src.server as server_module
+        from src.server import create_app
+
+        orchestrator = MagicMock()
+        orchestrator._governance = None
+        orchestrator.get_status.return_value = {
+            "session_id": "test",
+            "registered_agents": [],
+            "message_count": 0,
+            "active_workflow": None,
+            "provider": "azure_openai",
+            "workiq_enrichment_available": False,
+            "governance_enabled": False,
+        }
+
+        mcp_server = MagicMock()
+        mcp_server.get_status.return_value = {"tools_count": 0}
+        catalog = MagicMock()
+        catalog.list_agents.return_value = []
+        catalog.get_status.return_value = {"installed_skills": 0}
+        workflow_engine = MagicMock()
+        workflow_engine.list_workflows.return_value = []
+
+        plan_selector = MagicMock()
+        plan_selector.pending_plan_reviews.return_value = [
+            {"request_id": "plan-owned", "resolved": False},
+            {"request_id": "plan-other", "resolved": False},
+        ]
+        plan_selector.pending_resource_reviews.return_value = [
+            {"request_id": "sub-owned", "resolved": False},
+            {"request_id": "sub-other", "resolved": False},
+        ]
+
+        governance_selector = MagicMock()
+        governance_selector.pending_context_reviews.return_value = [
+            {"request_id": "gov-owned", "resolved": False},
+            {"request_id": "gov-other", "resolved": False},
+        ]
+        governance_selector.pending_skill_reviews.return_value = [
+            {"request_id": "skill-other", "resolved": False}
+        ]
+        governance_selector.pending_lifecycle_reviews.return_value = [
+            {"request_id": "lifecycle-other", "resolved": False}
+        ]
+
+        app = create_app(
+            orchestrator=orchestrator,
+            mcp_server=mcp_server,
+            catalog=catalog,
+            workflow_engine=workflow_engine,
+            plan_selector=plan_selector,
+            governance_selector=governance_selector,
+        )
+        client = TestClient(app)
+
+        task_id = "test-task-pending-scope"
+        task_ctx = ConversationContext()
+        task_ctx.set_memory("plan_review_pending", "plan-owned")
+        task_ctx.set_memory("resource_review_pending", "sub-owned")
+        task_ctx.set_memory("governance_review_pending", "gov-owned")
+        server_module._chat_tasks[task_id] = {
+            "status": "processing",
+            "created_at": time.time(),
+            "message": "hello",
+            "response": None,
+            "session_id": task_ctx.session_id,
+            "error": None,
+            "context": task_ctx,
+        }
+
+        try:
+            status_resp = client.get(f"/chat/status/{task_id}")
+            assert status_resp.status_code == 200
+            payload = status_resp.json()
+            pending = payload["pending_reviews"]
+            request_ids = {item["request_id"] for item in pending}
+            assert request_ids == {"plan-owned", "sub-owned", "gov-owned"}
+            assert {"plan", "sub_plan", "governance_context"} == {item["type"] for item in pending}
+        finally:
+            server_module._chat_tasks.pop(task_id, None)
+
 
 class TestControlPlaneApiKeyAuth:
     """Test optional control-plane API key protection for sensitive routes."""
@@ -1638,6 +1741,19 @@ class TestControlPlaneApiKeyAuth:
         resp = client.get("/health")
         assert resp.status_code == 200
 
+    @pytest.mark.parametrize(
+        ("path", "payload"),
+        [
+            ("/workiq/select", {"request_id": "req-1", "selected_indices": [0]}),
+            ("/workiq/accept-hints", {"request_id": "req-1", "accepted_indices": [0]}),
+            ("/plan/accept", {"request_id": "req-1", "accepted_indices": [0]}),
+            ("/sub-plan/accept", {"request_id": "req-1", "accepted_indices": [0]}),
+        ],
+    )
+    def test_hitl_resolution_endpoints_require_api_key(self, client, path: str, payload: dict[str, Any]):
+        resp = client.post(path, json=payload)
+        assert resp.status_code == 401
+
     def test_misconfigured_api_key_guard_returns_503(self):
         from fastapi.testclient import TestClient
 
@@ -1680,13 +1796,13 @@ class TestControlPlaneApiKeyAuth:
 
 
 class TestGitHubEndpointsUseGovernedDispatch:
-    """Ensure GitHub routes go through orchestrator dispatch (not direct agent calls)."""
+    """Ensure GitHub routes go through plan-first orchestrator processing."""
 
     @pytest.fixture
     def client(self):
         from fastapi.testclient import TestClient
 
-        from src.orchestrator.context import AgentResult
+        from src.orchestrator.context import AgentResult, ConversationContext
         from src.server import create_app
 
         orchestrator = MagicMock()
@@ -1701,15 +1817,20 @@ class TestGitHubEndpointsUseGovernedDispatch:
             "governance_enabled": True,
         }
 
-        async def _mock_dispatch(agent_id, message, routing, context):
-            context.set_memory("called", True)
-            return AgentResult(
-                agent_id=agent_id,
-                content=f"{agent_id}:{message}",
-                artifacts={"action": routing.extracted_params.get("action")},
+        async def _mock_process_with_routing(message, routing, *, ctx=None):
+            run_ctx = ctx or ConversationContext()
+            run_ctx.add_result(AgentResult(agent_id="plan", content="Plan ran first"))
+            run_ctx.add_result(
+                AgentResult(
+                    agent_id="github_tracker",
+                    content=f"github_tracker:{message}",
+                    artifacts={"action": routing.extracted_params.get("action")},
+                )
             )
+            return "aggregated", run_ctx
 
-        orchestrator._dispatch = AsyncMock(side_effect=_mock_dispatch)
+        orchestrator.process_with_routing = AsyncMock(side_effect=_mock_process_with_routing)
+        orchestrator._dispatch = AsyncMock()
 
         mcp_server = MagicMock()
         mcp_server.get_status.return_value = {"tools_count": 0}
@@ -1727,32 +1848,34 @@ class TestGitHubEndpointsUseGovernedDispatch:
         )
         return TestClient(app), orchestrator
 
-    def test_document_commit_uses_dispatch(self, client):
+    def test_document_commit_uses_plan_first_pipeline(self, client):
         tc, orchestrator = client
         resp = tc.post("/github/document-commit", json={"commit_message": "feat: add policy", "repo": "o/r"})
         assert resp.status_code == 200
         assert resp.json()["artifacts"]["action"] == "document_commit"
-        orchestrator._dispatch.assert_called_once()
-        args = orchestrator._dispatch.call_args[0]
-        assert args[0] == "github_tracker"
-        assert args[2].primary_agent == "github_tracker"
-        assert args[2].extracted_params["action"] == "document_commit"
+        orchestrator.process_with_routing.assert_called_once()
+        orchestrator._dispatch.assert_not_called()
+        args = orchestrator.process_with_routing.call_args
+        assert args.args[1].primary_agent == "github_tracker"
+        assert args.args[1].extracted_params["action"] == "document_commit"
 
-    def test_manage_issue_uses_dispatch(self, client):
+    def test_manage_issue_uses_plan_first_pipeline(self, client):
         tc, orchestrator = client
         resp = tc.post("/github/manage-issue", json={"action": "create", "title": "Bug", "repo": "o/r"})
         assert resp.status_code == 200
         assert resp.json()["artifacts"]["action"] == "manage_issue"
-        args = orchestrator._dispatch.call_args[0]
-        assert args[2].extracted_params["action"] == "manage_issue"
+        orchestrator._dispatch.assert_not_called()
+        args = orchestrator.process_with_routing.call_args
+        assert args.args[1].extracted_params["action"] == "manage_issue"
 
-    def test_changelog_uses_dispatch(self, client):
+    def test_changelog_uses_plan_first_pipeline(self, client):
         tc, orchestrator = client
         resp = tc.post("/github/changelog", json={"repo": "o/r", "from_ref": "v0.1.0", "to_ref": "v0.1.1"})
         assert resp.status_code == 200
         assert resp.json()["artifacts"]["action"] == "changelog"
-        args = orchestrator._dispatch.call_args[0]
-        assert args[2].extracted_params["action"] == "changelog"
+        orchestrator._dispatch.assert_not_called()
+        args = orchestrator.process_with_routing.call_args
+        assert args.args[1].extracted_params["action"] == "changelog"
 
 
 class TestLifecycleServerEndpoints:

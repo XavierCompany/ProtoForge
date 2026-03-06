@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from fastapi.responses import JSONResponse
 
-from src.orchestrator.context import ConversationContext
+from src.orchestrator.context import AgentResult, ConversationContext
 from src.server_models import (
     GitHubChangelogRequest,
     GitHubDocumentCommitRequest,
@@ -34,13 +35,14 @@ def register_github_routes(
         params: dict[str, Any],
         repo: str | None = None,
     ) -> JSONResponse:
-        """Execute GitHub tracker actions through orchestrator dispatch."""
+        """Execute GitHub tracker actions through the plan-first pipeline."""
         from src.orchestrator.router import RoutingDecision
 
-        if not hasattr(orchestrator, "_dispatch"):
+        process_with_routing = getattr(orchestrator, "process_with_routing", None)
+        if process_with_routing is None or not inspect.iscoroutinefunction(process_with_routing):
             return JSONResponse(
                 status_code=501,
-                content={"error": "Orchestrator dispatch is not available"},
+                content={"error": "Orchestrator routed processing is not available"},
             )
 
         ctx = ConversationContext()
@@ -53,8 +55,21 @@ def register_github_routes(
             reasoning="github_endpoint_dispatch",
             extracted_params=params,
         )
-        result = await orchestrator._dispatch("github_tracker", message, routing, ctx)
-        return JSONResponse(content={"result": result.content, "artifacts": result.artifacts})
+        _response, result_ctx = await process_with_routing(message, routing, ctx=ctx)
+        github_result = next(
+            (
+                result
+                for result in reversed(result_ctx.agent_results)
+                if isinstance(result, AgentResult) and result.agent_id == "github_tracker"
+            ),
+            None,
+        )
+        if github_result is None:
+            return JSONResponse(
+                status_code=502,
+                content={"error": "github_tracker result was not produced by orchestration"},
+            )
+        return JSONResponse(content={"result": github_result.content, "artifacts": github_result.artifacts})
 
     @app.post("/github/document-commit", dependencies=control_plane_dependencies)
     async def github_document_commit(request: GitHubDocumentCommitRequest) -> JSONResponse:
