@@ -436,7 +436,8 @@ When the warning threshold is crossed, here's exactly what happens:
        - Per-agent breakdown (Plan: 8K, Log: 15K, Code: 20K, ...)
        - Suggestion: "Decompose remaining work into log_analysis_overflow sub-agent"
 
-4. Human reviews at POST /governance/context-reviews/{id}/resolve
+4. Human reviews at POST /governance/context-reviews/resolve
+   (`request_id` provided in request body)
    Option A: accepted=true  → Task is decomposed, sub-agent spawned with fresh 128K window
    Option B: accepted=false → Execution continues at operator's risk
 
@@ -1788,15 +1789,24 @@ If WorkIQ is not configured, or any phase fails, the engine transparently falls 
 
 ```json
 // Request
-{"query": "find the email thread about the production incident"}
+{"question": "find the email thread about the production incident"}
 
 // Response
 {
+  "response": "Email: [P1] Production Incident ...",
   "request_id": "abc123",
   "sections": [
-    {"index": 0, "title": "Email: [P1] Production Incident — Auth Service", "preview": "Team, auth service is returning 500s since..."},
-    {"index": 1, "title": "Teams: Incident War Room", "preview": "Just deployed a hotfix to..."},
-    {"index": 2, "title": "Email: RE: [P1] Incident Postmortem", "preview": "Root cause was a misconfigured..."}
+    {"index": 0, "preview": "Email: [P1] Production Incident ...", "source": "https://..."},
+    {"index": 1, "preview": "Teams: Incident War Room ...", "source": "https://..."}
+  ],
+  "pending_selections": [
+    {
+      "request_id": "abc123",
+      "options": [
+        {"index": 0, "preview": "...", "source": "https://..."},
+        {"index": 1, "preview": "...", "source": "https://..."}
+      ]
+    }
   ]
 }
 ```
@@ -1816,7 +1826,7 @@ If WorkIQ is not configured, or any phase fails, the engine transparently falls 
 ```json
 // Response
 {
-  "pending_hints": [
+  "pending": [
     {
       "request_id": "hint-456",
       "hints": [
@@ -1835,7 +1845,7 @@ If WorkIQ is not configured, or any phase fails, the engine transparently falls 
 {"request_id": "hint-456", "accepted_indices": [0]}
 
 // Response
-{"request_id": "hint-456", "accepted": [{"agent_id": "log_analysis", "keyword": "error"}]}
+{"request_id": "hint-456", "accepted_hints": [{"agent_id": "log_analysis", "keyword": "error"}], "status": "resolved"}
 ```
 
 #### `POST /chat/enriched`

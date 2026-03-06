@@ -58,13 +58,14 @@ def register_chat_routes(
     orchestrator: Any,
     plan_selector: Any | None,
     governance_selector: Any | None,
+    control_plane_dependencies: list[Any],
     chat_tasks: dict[str, dict[str, Any]],
     chat_cleanup_tasks: set[asyncio.Task[None]],
     cleanup_chat_task: Any,
 ) -> None:
     """Register non-blocking chat endpoints."""
 
-    @app.post("/chat", response_model=ChatAsyncResponse)
+    @app.post("/chat", response_model=ChatAsyncResponse, dependencies=control_plane_dependencies)
     async def chat(request: ChatRequest) -> Any:
         """Send a message to the orchestrator (non-blocking)."""
         task_id = str(uuid.uuid4())
@@ -107,7 +108,7 @@ def register_chat_routes(
             session_id=request.session_id,
         )
 
-    @app.get("/chat/status/{task_id}")
+    @app.get("/chat/status/{task_id}", dependencies=control_plane_dependencies)
     async def chat_status(task_id: str) -> JSONResponse:
         """Poll for the result of a non-blocking chat request."""
         task = chat_tasks.get(task_id)
@@ -164,7 +165,7 @@ def register_chat_routes(
             }
         )
 
-    @app.post("/chat/enriched", response_model=ChatAsyncResponse)
+    @app.post("/chat/enriched", response_model=ChatAsyncResponse, dependencies=control_plane_dependencies)
     async def chat_enriched(request: ChatRequest) -> Any:
         """Send a message through the WorkIQ-enriched pipeline (non-blocking)."""
         task_id = str(uuid.uuid4())

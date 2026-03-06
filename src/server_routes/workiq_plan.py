@@ -11,6 +11,7 @@ from src.server_models import (
     SubPlanAcceptRequest,
     WorkIQAcceptHintsRequest,
     WorkIQQueryRequest,
+    WorkIQQueryResponse,
     WorkIQSelectRequest,
 )
 
@@ -33,8 +34,8 @@ def register_workiq_and_plan_routes(
 ) -> None:
     """Register WorkIQ and Plan/Sub-Plan HITL endpoints."""
 
-    @app.post("/workiq/query")
-    async def workiq_query(request: WorkIQQueryRequest) -> JSONResponse:
+    @app.post("/workiq/query", response_model=WorkIQQueryResponse, dependencies=control_plane_dependencies)
+    async def workiq_query(request: WorkIQQueryRequest) -> WorkIQQueryResponse | JSONResponse:
         """Send a question to Work IQ and return selection options."""
         if workiq_selector is None:
             return JSONResponse(
@@ -42,16 +43,35 @@ def register_workiq_and_plan_routes(
                 content={"error": "WorkIQ integration not configured"},
             )
 
-        response, _ctx = await orchestrator.process(request.question)
-        pending = workiq_selector.pending_requests()
-        return JSONResponse(
-            content={
-                "response": response,
-                "pending_selections": pending,
-            }
+        query_workiq = getattr(orchestrator, "query_workiq", None)
+        if query_workiq is None:
+            return JSONResponse(
+                status_code=501,
+                content={"error": "Orchestrator WorkIQ query method is not available"},
+            )
+
+        try:
+            result, request_id = await query_workiq(request.question)
+        except RuntimeError as exc:
+            return JSONResponse(status_code=501, content={"error": str(exc)})
+
+        if not result.ok:
+            return JSONResponse(
+                status_code=502,
+                content={"error": result.error or "WorkIQ query failed"},
+            )
+
+        selected_request = workiq_selector.get_pending_request(request_id) if request_id else None
+        pending = [selected_request] if selected_request else []
+        sections = selected_request["options"] if selected_request else []
+        return WorkIQQueryResponse(
+            response=result.content,
+            request_id=request_id,
+            sections=sections,
+            pending_selections=pending,
         )
 
-    @app.get("/workiq/pending")
+    @app.get("/workiq/pending", dependencies=control_plane_dependencies)
     async def workiq_pending() -> JSONResponse:
         """List pending WorkIQ selection requests awaiting user input."""
         if workiq_selector is None:
@@ -84,7 +104,7 @@ def register_workiq_and_plan_routes(
             }
         )
 
-    @app.get("/workiq/routing-hints")
+    @app.get("/workiq/routing-hints", dependencies=control_plane_dependencies)
     async def workiq_routing_hints() -> JSONResponse:
         """List pending routing-keyword hint requests (HITL Phase 2)."""
         if workiq_selector is None:
@@ -117,7 +137,7 @@ def register_workiq_and_plan_routes(
             }
         )
 
-    @app.get("/plan/pending")
+    @app.get("/plan/pending", dependencies=control_plane_dependencies)
     async def plan_pending() -> JSONResponse:
         """List pending Plan Agent suggestion reviews (Plan HITL)."""
         if plan_selector is None:
@@ -152,7 +172,7 @@ def register_workiq_and_plan_routes(
             }
         )
 
-    @app.get("/sub-plan/pending")
+    @app.get("/sub-plan/pending", dependencies=control_plane_dependencies)
     async def sub_plan_pending() -> JSONResponse:
         """List pending Sub-Plan resource deployment reviews (Sub-Plan HITL)."""
         if plan_selector is None:

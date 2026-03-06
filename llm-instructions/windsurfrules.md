@@ -16,7 +16,8 @@ src/orchestrator/engine.py — Core pipeline: route→plan→sub-plan→fan-out�
 src/orchestrator/router.py — IntentRouter (keyword + LLM classification)
 src/governance/guardian.py  — Token cap + HITL enforcement
 src/forge/loader.py        — Reads forge/ YAML at startup
-src/server.py              — FastAPI HTTP app, 35+ endpoints
+src/server.py              — FastAPI app factory + route registration
+src/server_routes/*.py     — Modular FastAPI route groups (37 endpoints)
 forge/agents/*/agent.yaml  — Per-agent manifests (canonical identity)
 forge/_context_window.yaml — Token budget config
 
@@ -26,7 +27,7 @@ forge/_context_window.yaml — Token budget config
 - Pydantic v2 settings, dataclasses for domain, structlog logging
 - All execute() are async def
 - Token math: plan(32K) + sub-plan(20K) + 3×specialist(≤25K) ≤ 128K
-- 421 tests: pytest + pytest-asyncio
+- 485 tests: pytest + pytest-asyncio
 
 # Documentation — Read ALL: copilot-instructions.md → ARCHITECTURE.md →
 # SOURCE_OF_TRUTH.md → MAINTENANCE.md → TODO.md → CHANGELOG.md →

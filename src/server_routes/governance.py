@@ -35,20 +35,17 @@ def register_governance_routes(
     @app.get("/governance/status", dependencies=control_plane_dependencies)
     async def governance_status() -> JSONResponse:
         """Return the current governance report (token usage, alerts, skill violations)."""
-        gov = getattr(orchestrator, "_governance", None)
-        if gov is None:
+        report = orchestrator.get_governance_report()
+        if report is None:
             return JSONResponse(content={"enabled": False})
-        report = gov.governance_report()
         report["enabled"] = True
         return JSONResponse(content=report)
 
     @app.get("/governance/alerts", dependencies=control_plane_dependencies)
     async def governance_alerts() -> JSONResponse:
         """List all unresolved governance alerts."""
-        gov = getattr(orchestrator, "_governance", None)
-        if gov is None:
-            return JSONResponse(content={"alerts": []})
-        alerts = gov.unresolved_alerts()
+        alerts = orchestrator.get_unresolved_governance_alerts()
+
         return JSONResponse(
             content={
                 "alerts": [
@@ -69,13 +66,13 @@ def register_governance_routes(
     @app.post("/governance/resolve-alert", dependencies=control_plane_dependencies)
     async def governance_resolve_alert(request: GovernanceAlertResolveRequest) -> JSONResponse:
         """Resolve a governance alert by ID."""
-        gov = getattr(orchestrator, "_governance", None)
-        if gov is None:
+        if orchestrator.get_governance_report() is None:
             return JSONResponse(
                 status_code=501,
                 content={"error": "Governance not configured"},
             )
-        ok = gov.resolve_alert(request.alert_id, request.resolution)
+        ok = orchestrator.resolve_governance_alert(request.alert_id, request.resolution)
+
         if not ok:
             return JSONResponse(
                 status_code=404,

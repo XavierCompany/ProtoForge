@@ -222,6 +222,25 @@ class WorkIQSelector:
             if not req.resolved
         ]
 
+    def get_pending_request(self, request_id: str) -> dict[str, Any] | None:
+        """Return one unresolved selection request by ID."""
+        req = self._pending.get(request_id)
+        if req is None or req.resolved:
+            return None
+        return {
+            "request_id": req.request_id,
+            "query": req.query,
+            "options": [
+                {
+                    "index": o.index,
+                    "preview": o.preview,
+                    "source": o.source,
+                }
+                for o in req.options
+            ],
+            "resolved": req.resolved,
+        }
+
     def cleanup(self, request_id: str) -> None:
         """Remove a completed selection request."""
         self._pending.pop(request_id, None)

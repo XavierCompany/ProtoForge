@@ -21,6 +21,9 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - New server-side task state typing (`ChatTaskState`) and task-scoped `ConversationContext` storage for non-blocking chat status polling.
 - Regression tests for guardrails, enrichment fallback context handling, and task-scoped `/chat/status` phase isolation.
 - `OrchestratorEngine.process_with_routing(...)` — trusted routed-processing entrypoint that preserves Plan-first orchestration for control-plane actions that need deterministic routing params.
+- `OrchestratorEngine.query_workiq(...)` — explicit WorkIQ query entrypoint used by `/workiq/query` to preserve endpoint semantics independent of generic routing.
+- Bootstrap helper decomposition in `src/main.py` (`_init_governance`, `_create_orchestrator`, `_register_agents`, `_load_skills`, `_load_workflows`, `_create_catalog`).
+- `ForgeLoader.load_context_config()` — public config-loading API to avoid bootstrap dependence on private loader internals.
 
 ### Changed
 - `OrchestratorEngine.process()` and `process_with_enrichment()` now accept optional request-scoped contexts (`ctx`) and apply guardrails before routing and LLM interaction.
@@ -28,8 +31,22 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - `GET /chat/status/{task_id}` now reports `pipeline_phase` from the task’s own context instead of the engine-global context, eliminating cross-request phase leakage.
 - `GET /chat/status/{task_id}` now filters pending HITL reviews by request IDs stored in that task’s context, preventing cross-task review visibility.
 - GitHub control-plane routes now execute through Plan-first orchestration (`process_with_routing`) instead of direct `_dispatch` calls, preserving governance/HITL consistency.
+- GitHub control-plane routed processing now sets `auto_accept_hitl=True` to avoid synchronous endpoint blocking on interactive Plan/Sub-Plan/governance HITL waits.
+- Forced routing now truly remains deterministic: low-confidence LLM override is skipped when `forced_routing` is active.
 - Governance token accounting now uses task-local run state in `GovernanceGuardian`, eliminating cross-request `reset_run()` collisions under concurrency.
 - Control-plane API-key protection now covers HITL resolution endpoints: `POST /workiq/select`, `POST /workiq/accept-hints`, `POST /plan/accept`, and `POST /sub-plan/accept`.
+- Control-plane API-key protection now also covers HITL review list endpoints: `GET /workiq/pending`, `GET /workiq/routing-hints`, `GET /plan/pending`, and `GET /sub-plan/pending`.
+- Control-plane API-key protection now covers `POST /workiq/query` as part of WorkIQ organisational-context ingress.
+- `ServerConfig.require_control_plane_api_key` now defaults to `True`; `.env.example` includes explicit control-plane auth variables.
+- `create_app(..., require_control_plane_api_key=...)` now defaults to `True` so direct app-factory usage stays secure-by-default.
+- Control-plane API-key protection now covers MCP and catalog metadata endpoints: `POST /mcp`, `GET /agents`, `GET /skills`, and `GET /workflows`.
+- `POST /chat/enriched` now requires control-plane API key (when enabled) to prevent unauthenticated WorkIQ enrichment with fail-open HITL timeouts.
+- `/chat` and `/chat/status/{task_id}` now also honor control-plane API-key protection when enabled, preventing unauthenticated access to task responses.
+- Governance server routes now prefer orchestrator public governance methods over direct private-field coupling.
+- Governance route compatibility now uses a scoped adapter object instead of mutating orchestrator instances with runtime shim methods, and no longer falls back to private `_governance` access.
+- `/workiq/query` now returns staged WorkIQ selection context (`request_id`, `sections`, `pending_selections`) scoped to the request created by that call (no global pending queue leakage).
+- `/workiq/query` now declares an explicit response schema (`WorkIQQueryResponse`) to lock the request-scoped WorkIQ contract in API docs/tests.
+- WorkIQ docs/examples now align with runtime route payload keys (`pending`, `accepted_hints`).
 - `/inspector` now reads template HTML via `anyio.to_thread.run_sync(...)` to avoid synchronous file I/O in the async request handler.
 - HTTP routes were modularized from monolithic `src/server.py` into `src/server_routes/*`, with shared contracts in `src/server_models.py`; `create_app()` import path remains stable.
 - Updated architecture and operations docs (`ARCHITECTURE.md`, `GUIDE2.md`, `MAINTENANCE.md`, `TODO.md`) to reflect security controls and current HITL/guardrail behavior.

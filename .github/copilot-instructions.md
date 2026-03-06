@@ -29,7 +29,14 @@ phases before routing.
 src/
   config.py            # Pydantic Settings (LLM, Server, MCP, Forge, Otel)
   main.py              # CLI entry, bootstrap, agent registration
-  server.py            # FastAPI HTTP app — 35+ endpoints + HTML dashboard
+  server.py            # FastAPI app factory, dependency wiring, route registration
+  server_routes/       # Modular HTTP route registrars (37 endpoints + inspector)
+    chat.py            # /chat + /chat/status + /chat/enriched
+    core.py            # /mcp, /agents, /skills, /workflows
+    workiq_plan.py     # /workiq/* + /plan/* + /sub-plan/*
+    github.py          # /github/document-commit, /github/manage-issue, /github/changelog
+    governance.py      # /governance/* + lifecycle + /reviews/pending
+    system.py          # /health + /inspector
   agents/
     base.py            # ABC for all agents (from_manifest or explicit)
     generic.py         # Default no-op agent implementation
@@ -60,14 +67,14 @@ src/
     client.py          # WorkIQ CLI wrapper (M365 context)
     selector.py        # WorkIQ 2-phase HITL selector
 forge/
-  _registry.yaml       # Agent registry — single source of truth for IDs
+  _registry.yaml       # Agent registry index (derived; canonical IDs live in agents/*/agent.yaml)
   _context_window.yaml # Token budget config (128K cap, per-agent limits)
   agents/*/agent.yaml  # Per-agent manifests (id, description, skills, budget)
   plan/                # Plan Agent coordination rules + prompts
   shared/              # Shared prompts and workflows
 tests/
   conftest.py          # Shared fixtures (engine, agents, guardian, router)
-  test_*.py            # 421 tests — one file per domain
+  test_*.py            # 485 tests — one file per domain
 ```
 
 ## Key Abstractions
@@ -93,7 +100,7 @@ tests/
 - **HITL pattern**: prepare review → expose via HTTP → wait with timeout → resolve
   - Timeout default: 120s → auto-resolve (fail-closed for lifecycle, fail-open for plans)
 - **Token math constraint**: `plan(32K) + sub-plan(20K) + 3×specialist(≤25K) ≤ 128K`
-- **Tests**: pytest + pytest-asyncio, fixtures in `conftest.py`, 421 tests
+- **Tests**: pytest + pytest-asyncio, fixtures in `conftest.py`, 485 tests
 - **Lint**: ruff (check + format), mypy for type checking
 - **Async**: All agent `execute()` methods are `async def`
 

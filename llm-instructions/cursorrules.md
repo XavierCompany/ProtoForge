@@ -26,7 +26,8 @@ User → FastAPI /chat → IntentRouter (keyword + LLM)
 
 src/config.py            — Pydantic Settings
 src/main.py              — CLI entry, bootstrap
-src/server.py            — FastAPI HTTP app, 35+ endpoints
+src/server.py            — FastAPI app factory + route registration
+src/server_routes/*.py   — Modular FastAPI route groups (37 endpoints)
 src/agents/base.py       — ABC for all agents
 src/orchestrator/engine.py — Core pipeline
 src/orchestrator/router.py — IntentRouter
@@ -43,7 +44,7 @@ forge/agents/*/agent.yaml — Per-agent manifests
 - structlog for logging
 - All agent execute() methods are async def
 - Token math: plan(32K) + sub-plan(20K) + 3×specialist(≤25K) ≤ 128K
-- Tests: pytest + pytest-asyncio, 421 tests
+- Tests: pytest + pytest-asyncio, 485 tests
 
 # Documentation — Read ALL
 

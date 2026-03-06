@@ -139,16 +139,19 @@ input_tokens = self._budget_manager.count_tokens(effective_message)
 # ... use input_tokens for budget check, governance check, and recording
 ```
 
-### 2.5 — HIGH: `bootstrap()` is a ~180-line God Function
+### 2.5 — HIGH: `bootstrap()` is a God Function — ✅ DONE
 
-`main.py:bootstrap()` does forge loading, governance init, agent registration,
-skill loading, workflow loading, catalog population, and app creation in one
-function that returns a 7-tuple.
+`src/main.py` now extracts bootstrap concerns into focused helpers:
+- `_init_governance(...)`
+- `_create_orchestrator(...)`
+- `_register_agents(...)`
+- `_load_skills(...)`
+- `_load_workflows(...)`
+- `_create_catalog(...)`
 
-**Fix**: Extract into a `BootstrapBuilder` class or at minimum split into:
-- `_init_governance(settings) -> (guardian, selector, budget_mgr)`
-- `_register_agents(orchestrator, registry) -> dict`
-- `_load_skills_and_workflows(settings, registry) -> (skills, workflows)`
+`bootstrap()` remains the composition entrypoint and still returns the same
+7-tuple contract, but orchestration wiring is now easier to test and change
+without editing one monolithic block.
 
 ### 2.6 — HIGH: `_SPECIALISED_CLASSES` violates Open/Closed
 
@@ -661,9 +664,9 @@ Look for these structured log events:
 budget_mgr = orchestrator._budget_manager
 print(budget_mgr.usage_report())
 
-# Governance state:
-guardian = orchestrator._governance
-print(guardian.governance_report())
+# Governance state (public API):
+print(orchestrator.get_governance_report())
+print(orchestrator.get_unresolved_governance_alerts())
 ```
 
 ### Common budget issues
@@ -715,7 +718,7 @@ GET /governance/status → {
 
 | Threat | Surface | Mitigation in code | Operational control |
 |---|---|---|---|
-| Unauthorized governance/admin action | `/governance/*`, `/agents/*`, `/workflows/run`, `/github/*`, `/reviews/pending`, `POST /plan/accept`, `POST /sub-plan/accept`, `POST /workiq/select`, `POST /workiq/accept-hints` | Optional API-key guard in `server.py` | Set `SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true` + strong `SERVER_CONTROL_PLANE_API_KEY` |
+| Unauthorized governance/admin action | `/chat`, `/chat/status/*`, `/chat/enriched`, `/governance/*`, `/agents/*`, `/workflows/run`, `/mcp`, `/github/*`, `/reviews/pending`, `GET /workiq/pending`, `GET /workiq/routing-hints`, `GET /plan/pending`, `GET /sub-plan/pending`, `POST /plan/accept`, `POST /sub-plan/accept`, `POST /workiq/select`, `POST /workiq/accept-hints`, `POST /workiq/query` | API-key guard in `server.py` (enabled by default) | Keep `SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true` and set strong `SERVER_CONTROL_PLANE_API_KEY` |
 | Browser-origin abuse | Cross-origin access to control-plane endpoints | CORS middleware with wildcard+credentials safety downgrade | Set explicit `SERVER_CORS_ALLOWED_ORIGINS` in production |
 | Cross-request status leakage | `/chat/status/{task_id}` phase reporting | Task-scoped `ConversationContext` in `_chat_tasks` (no global context dependency) | Keep task TTL short (`_CHAT_TASK_TTL`) and avoid long-lived sensitive state |
 | Prompt-injection style input | Any `/chat` or `/chat/enriched` message | `sanitize_user_message()` heuristics + length cap + control-char stripping | Monitor `input_guardrails_triggered` and review false positives/true positives |
@@ -795,9 +798,10 @@ for dashboard visibility.
    SERVER_PROMPT_INJECTION_GUARD_ENABLED=true
    ```
 4. Verify:
+   - `POST /chat`, `GET /chat/status/{task_id}`, and `POST /chat/enriched` return `401` without `X-API-Key`
    - `GET /governance/status` returns `401` without `X-API-Key`
    - `POST /plan/accept` and `POST /sub-plan/accept` return `401` without `X-API-Key`
-   - `POST /workiq/select` and `POST /workiq/accept-hints` return `401` without `X-API-Key`
+   - `GET /workiq/pending`, `GET /workiq/routing-hints`, `GET /plan/pending`, `GET /sub-plan/pending`, `POST /workiq/select`, and `POST /workiq/accept-hints` return `401` without `X-API-Key`
    - `/health` remains open
    - logs show expected `input_guardrails_triggered` events on adversarial prompts
 

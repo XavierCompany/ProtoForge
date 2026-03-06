@@ -71,6 +71,32 @@ class WorkIQQueryRequest(BaseModel):
     question: str
 
 
+class WorkIQSelectionOption(BaseModel):
+    """A selectable WorkIQ section preview presented during HITL review."""
+
+    index: int
+    preview: str
+    source: str = ""
+
+
+class WorkIQPendingSelection(BaseModel):
+    """One pending WorkIQ content-selection request."""
+
+    request_id: str
+    query: str
+    options: list[WorkIQSelectionOption] = []
+    resolved: bool = False
+
+
+class WorkIQQueryResponse(BaseModel):
+    """Response payload for `/workiq/query` with request-scoped selection context."""
+
+    response: str
+    request_id: str | None = None
+    sections: list[WorkIQSelectionOption] = []
+    pending_selections: list[WorkIQPendingSelection] = []
+
+
 class WorkIQSelectRequest(BaseModel):
     """Human selection of WorkIQ results to include in the pipeline."""
 

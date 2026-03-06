@@ -80,7 +80,7 @@ class ServerConfig(BaseSettings):
 
     host: str = Field("0.0.0.0", alias="SERVER_HOST")  # noqa: S104
     port: int = Field(8080, alias="SERVER_PORT")
-    require_control_plane_api_key: bool = Field(False, alias="SERVER_REQUIRE_CONTROL_PLANE_API_KEY")
+    require_control_plane_api_key: bool = Field(True, alias="SERVER_REQUIRE_CONTROL_PLANE_API_KEY")
     control_plane_api_key: str | None = Field(None, alias="SERVER_CONTROL_PLANE_API_KEY")
     cors_allowed_origins: str = Field("*", alias="SERVER_CORS_ALLOWED_ORIGINS")
     cors_allow_credentials: bool = Field(True, alias="SERVER_CORS_ALLOW_CREDENTIALS")

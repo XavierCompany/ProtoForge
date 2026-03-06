@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import structlog
 import typer
@@ -77,20 +78,12 @@ def _create_agent_from_manifest(manifest: AgentManifest):
     return GenericAgent.from_manifest(manifest)
 
 
-def bootstrap() -> tuple:
-    """Bootstrap all components and wire them together.
-
-    Returns (app, orchestrator, mcp_server, catalog, workflow_engine, workiq_selector, plan_selector)
-    """
-    settings = get_settings()
-
-    # 0. Load the forge/ ecosystem (agents, prompts, skills, context budgets)
-    #    Create the governance guardian FIRST so the loader can validate
-    #    skill caps and architectural rules as manifests are discovered.
-    forge_loader_pre = ForgeLoader(settings.forge.forge_dir)
-    # Pre-load context config to initialise governance
-    forge_loader_pre._load_context_config()
-    context_config = forge_loader_pre.registry.context_config
+def _init_governance(
+    forge_dir: str,
+) -> tuple[dict[str, Any], ContextBudgetManager, GovernanceGuardian, GovernanceSelector, float]:
+    """Initialise context budgets and governance components."""
+    forge_loader_pre = ForgeLoader(forge_dir)
+    context_config = forge_loader_pre.load_context_config()
 
     budget_manager = ContextBudgetManager(context_config)
     governance_guardian = GovernanceGuardian(
@@ -98,15 +91,19 @@ def bootstrap() -> tuple:
         budget_manager=budget_manager,
     )
     hitl_timeout = float(context_config.get("governance", {}).get("hitl", {}).get("timeout_seconds", 120))
-    governance_selector = GovernanceSelector(
-        timeout=hitl_timeout,
-    )
+    governance_selector = GovernanceSelector(timeout=hitl_timeout)
+    return context_config, budget_manager, governance_guardian, governance_selector, hitl_timeout
 
-    # Now reload with governance attached for manifest validation
-    forge_loader = ForgeLoader(settings.forge.forge_dir, governance_guardian=governance_guardian)
-    forge_registry = forge_loader.load()
 
-    # 1. Create orchestrator (with WorkIQ enrichment + Plan HITL + Governance)
+def _create_orchestrator(
+    *,
+    forge_registry: Any,
+    governance_guardian: GovernanceGuardian,
+    governance_selector: GovernanceSelector,
+    budget_manager: ContextBudgetManager,
+    hitl_timeout: float,
+) -> tuple[OrchestratorEngine, WorkIQClient, WorkIQSelector, PlanSelector]:
+    """Create orchestrator and HITL selectors."""
     workiq_client = WorkIQClient()
     workiq_selector = WorkIQSelector(timeout=hitl_timeout)
     plan_selector = PlanSelector(timeout=hitl_timeout)
@@ -119,30 +116,35 @@ def bootstrap() -> tuple:
         budget_manager=budget_manager,
         forge_registry=forge_registry,
     )
+    return orchestrator, workiq_client, workiq_selector, plan_selector
 
-    # 2. Register agents — prefer manifests, fall back to defaults
-    agent_descriptions: dict[str, tuple[str, str]] = {}  # id → (name, description)
 
-    # 2a. Coordinator (Plan Agent) from forge
+def _register_agents(
+    orchestrator: OrchestratorEngine,
+    forge_registry: Any,
+    *,
+    workiq_client: WorkIQClient,
+    workiq_selector: WorkIQSelector,
+) -> dict[str, tuple[str, str]]:
+    """Register coordinator + specialists from forge with fallbacks."""
+    agent_descriptions: dict[str, tuple[str, str]] = {}
+
     if forge_registry.coordinator:
         m = forge_registry.coordinator
         agent = _create_agent_from_manifest(m)
         orchestrator.register_agent(m.id, agent)
         agent_descriptions[m.id] = (m.name, m.description)
     else:
-        # Fallback: no forge manifest for plan
         agent = PlanAgent()
         orchestrator.register_agent(AgentType.PLAN, agent)
         agent_descriptions[AgentType.PLAN] = ("Plan Agent", agent.description)
 
-    # 2b. Specialist agents from forge
     for agent_id, manifest in forge_registry.agents.items():
         agent = _create_agent_from_manifest(manifest)
         orchestrator.register_agent(agent_id, agent)
         agent_descriptions[agent_id] = (manifest.name, manifest.description)
 
-    # 2c. Ensure well-known agents exist even if forge/ doesn't list them
-    _default_agents: dict[str, tuple[type, str, str]] = {
+    default_agents: dict[str, tuple[type, str, str]] = {
         AgentType.SUB_PLAN: (
             SubPlanAgent,
             "Sub-Plan Agent",
@@ -165,7 +167,7 @@ def bootstrap() -> tuple:
             "GitHub commit documentation, issue management, and changelogs",
         ),
     }
-    for aid, (cls, name, desc) in _default_agents.items():
+    for aid, (cls, name, desc) in default_agents.items():
         if aid not in agent_descriptions:
             if cls is WorkIQAgent:
                 agent = WorkIQAgent(
@@ -179,10 +181,14 @@ def bootstrap() -> tuple:
             orchestrator.register_agent(aid, agent)
             agent_descriptions[aid] = (name, desc)
 
-    # 3. Load skills from forge/ ecosystem + legacy skills/ dir
+    return agent_descriptions
+
+
+def _load_skills(settings: Any, forge_registry: Any) -> tuple[list[Any], MCPSkillServer]:
+    """Load skills from legacy directory and forge-discovered entries."""
     skills_dir = Path(settings.mcp.skills_dir)
     skills = SkillLoader.load_from_directory(skills_dir) if skills_dir.exists() and skills_dir.is_dir() else []
-    # Also pick up any skills the forge loader found
+
     for forge_skill in forge_registry.skills:
         source = forge_skill.get("_source_path")
         if source:
@@ -192,19 +198,29 @@ def bootstrap() -> tuple:
                     skills.append(skill)
             except Exception:
                 logger.debug("forge_skill_load_failed", source=source)
+
     mcp_server = MCPSkillServer()
     mcp_server.load_skills(skills_dir)
+    return skills, mcp_server
 
-    # Wire MCP tool calls to orchestrator
+
+def _wire_mcp_handler(mcp_server: MCPSkillServer, orchestrator: OrchestratorEngine) -> None:
+    """Wire MCP tool-call handling into orchestrator processing."""
+
     async def handle_tool_call(tool_name: str, arguments: dict, _agent_type: str | None) -> str:
-        # Build a message from the tool call
         msg = f"[Tool: {tool_name}] {' '.join(f'{k}={v}' for k, v in arguments.items())}"
         result, _ctx = await orchestrator.process(msg)
         return result
 
     mcp_server.set_call_handler(handle_tool_call)
 
-    # 4. Create agent catalog
+
+def _create_catalog(
+    settings: Any,
+    agent_descriptions: dict[str, tuple[str, str]],
+    skills: list[Any],
+) -> AgentCatalog:
+    """Create and populate agent catalog."""
     catalog = AgentCatalog(storage_path=settings.registry_path)
     for agent_id, (name, desc) in agent_descriptions.items():
         catalog.register_agent(
@@ -217,14 +233,17 @@ def bootstrap() -> tuple:
             )
         )
     catalog.populate_from_skills(skills)
+    return catalog
 
-    # 5. Load workflows from forge/ ecosystem + legacy workflows/ dir
+
+def _load_workflows(orchestrator: OrchestratorEngine, forge_registry: Any) -> WorkflowEngine:
+    """Load workflows from legacy directory and forge-discovered entries."""
     workflow_engine = WorkflowEngine(orchestrator)
     workflows_dir = Path("workflows")
     if workflows_dir.exists():
         for workflow in WorkflowLoader.load_from_directory(workflows_dir):
             workflow_engine.register_workflow(workflow)
-    # Also register forge-discovered workflows
+
     for forge_wf in forge_registry.workflows:
         source = forge_wf.get("_source_path")
         if source:
@@ -234,12 +253,51 @@ def bootstrap() -> tuple:
                         workflow_engine.register_workflow(wf)
             except Exception:
                 logger.debug("forge_workflow_load_failed", source=source)
+    return workflow_engine
 
+
+def _resolve_cors_allowed_origins(settings: Any) -> list[str]:
+    """Return normalized CORS allowed origins from server settings."""
     cors_allowed_origins = [o.strip() for o in settings.server.cors_allowed_origins.split(",") if o.strip()]
-    if not cors_allowed_origins:
-        cors_allowed_origins = ["*"]
+    return cors_allowed_origins or ["*"]
 
-    # 6. Create FastAPI app
+
+def bootstrap() -> tuple:
+    """Bootstrap all components and wire them together.
+
+    Returns (app, orchestrator, mcp_server, catalog, workflow_engine, workiq_selector, plan_selector)
+    """
+    settings = get_settings()
+
+    # 0. Governance + forge registry
+    _context_config, budget_manager, governance_guardian, governance_selector, hitl_timeout = _init_governance(
+        settings.forge.forge_dir
+    )
+    forge_loader = ForgeLoader(settings.forge.forge_dir, governance_guardian=governance_guardian)
+    forge_registry = forge_loader.load()
+
+    # 1. Orchestrator + selectors
+    orchestrator, workiq_client, workiq_selector, plan_selector = _create_orchestrator(
+        forge_registry=forge_registry,
+        governance_guardian=governance_guardian,
+        governance_selector=governance_selector,
+        budget_manager=budget_manager,
+        hitl_timeout=hitl_timeout,
+    )
+
+    # 2. Agents + skills + MCP + catalog + workflows
+    agent_descriptions = _register_agents(
+        orchestrator,
+        forge_registry,
+        workiq_client=workiq_client,
+        workiq_selector=workiq_selector,
+    )
+    skills, mcp_server = _load_skills(settings, forge_registry)
+    _wire_mcp_handler(mcp_server, orchestrator)
+    catalog = _create_catalog(settings, agent_descriptions, skills)
+    workflow_engine = _load_workflows(orchestrator, forge_registry)
+
+    # 3. FastAPI app
     app = create_app(
         orchestrator,
         mcp_server,
@@ -250,7 +308,7 @@ def bootstrap() -> tuple:
         governance_selector,
         require_control_plane_api_key=settings.server.require_control_plane_api_key,
         control_plane_api_key=settings.server.control_plane_api_key,
-        cors_allowed_origins=cors_allowed_origins,
+        cors_allowed_origins=_resolve_cors_allowed_origins(settings),
         cors_allow_credentials=settings.server.cors_allow_credentials,
     )
 

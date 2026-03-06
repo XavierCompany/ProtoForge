@@ -21,7 +21,7 @@ def register_core_routes(
 ) -> None:
     """Register MCP, catalog, and workflow endpoints."""
 
-    @app.post("/mcp")
+    @app.post("/mcp", dependencies=control_plane_dependencies)
     async def mcp_endpoint(request: MCPRequestBody) -> JSONResponse:
         """MCP JSON-RPC endpoint for tool discovery and execution."""
         from src.mcp.protocol import MCPRequest
@@ -34,7 +34,7 @@ def register_core_routes(
         mcp_resp = await mcp_server.handle_request(mcp_req)
         return JSONResponse(content=mcp_resp.to_dict())
 
-    @app.get("/agents")
+    @app.get("/agents", dependencies=control_plane_dependencies)
     async def list_agents() -> JSONResponse:
         """List all registered agents."""
         agents = catalog.list_agents()
@@ -53,7 +53,7 @@ def register_core_routes(
             ]
         )
 
-    @app.get("/skills")
+    @app.get("/skills", dependencies=control_plane_dependencies)
     async def list_skills() -> JSONResponse:
         """List all available skills."""
         skills = catalog.search_catalog()
@@ -71,7 +71,7 @@ def register_core_routes(
             ]
         )
 
-    @app.get("/workflows")
+    @app.get("/workflows", dependencies=control_plane_dependencies)
     async def list_workflows() -> JSONResponse:
         """List all available workflows."""
         return JSONResponse(content=workflow_engine.list_workflows())

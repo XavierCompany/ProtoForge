@@ -454,7 +454,7 @@ The following claims were verified against the actual codebase:
 | 43 | GUIDE2.md reading order "9 of 10" (not "9 of 9") | `GUIDE2.md` line 7 | ✅ |
 | 44 | TODO.md reading order "5 of 10" (not "5 of 9") | `TO
 DO.md` line 7 | ✅ |
-| 45 | GUIDE2.md §2.5 bootstrap() = ~180 lines (not 120) | `main.py` lines 80–258 | ✅ |
+| 45 | GUIDE2.md §2.5 reflects bootstrap helper decomposition | `main.py` (`_init_governance`, `_create_orchestrator`, `_register_agents`, `_load_skills`, `_load_workflows`) | ✅ |
 | 46 | GUIDE2.md §2.10 reflects server modularization | `server.py`, `server_models.py`, `server_routes/*.py` | ✅ |
 | 47 | GUIDE2.md §2.8 code matches actual `max_history` impl | `context.py` line 56 | ✅ |
 | 48 | GUIDE2.md §1 LLM routing ref = `get_llm_routing_prompt()` | `router.py` line 281 | ✅ |

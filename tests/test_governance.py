@@ -88,6 +88,20 @@ def _make_budget_manager() -> ContextBudgetManager:
     )
 
 
+def _attach_governance_methods(orchestrator: MagicMock, guardian: GovernanceGuardian | None) -> None:
+    orchestrator.get_governance_report = MagicMock(
+        side_effect=lambda: guardian.governance_report() if guardian is not None else None
+    )
+    orchestrator.get_unresolved_governance_alerts = MagicMock(
+        side_effect=lambda: guardian.unresolved_alerts() if guardian is not None else []
+    )
+    orchestrator.resolve_governance_alert = MagicMock(
+        side_effect=lambda alert_id, resolution="accepted": (
+            guardian.resolve_alert(alert_id, resolution) if guardian is not None else False
+        )
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # GovernanceGuardian tests
 # ═══════════════════════════════════════════════════════════════════════════
@@ -908,6 +922,33 @@ class TestEngineGovernanceIntegration:
         result = await engine._dispatch("test", "hello", routing, ctx)
         assert result.content == "Result from test"
 
+    @pytest.mark.asyncio
+    async def test_process_with_routing_skips_llm_override_when_forced(self):
+        engine, _guardian, _selector = self._make_engine()
+        plan_agent = self._mock_agent("plan")
+        engine.register_agent("plan", plan_agent)
+
+        from src.orchestrator.router import RoutingDecision
+
+        routing = RoutingDecision(
+            primary_agent="plan",
+            confidence=0.1,
+            reasoning="forced_control_plane",
+        )
+
+        async def fail_llm_override(_message: str):
+            raise AssertionError("_route_with_llm should not be called for forced routing")
+
+        engine._route_with_llm = fail_llm_override  # type: ignore[method-assign]
+
+        result, ctx = await engine.process_with_routing(
+            "document commit",
+            routing,
+            auto_accept_hitl=True,
+        )
+        assert "Result from plan" in result
+        assert ctx.get_memory("forced_routing") is True
+
     def test_reset_context_resets_governance(self):
         engine, guardian, _ = self._make_engine()
         guardian.record_agent_usage("plan", 50_000)
@@ -1343,6 +1384,18 @@ class TestGovernanceServerEndpoints:
         orchestrator = MagicMock()
         guardian = GovernanceGuardian(config=_make_config())
         orchestrator._governance = guardian
+        _attach_governance_methods(orchestrator, guardian)
+
+        async def _mock_process_with_enrichment(message: str, *, ctx: ConversationContext | None = None):
+            run_ctx = ctx or ConversationContext()
+            return f"enriched:{message}", run_ctx
+
+        async def _mock_process(message: str, *, ctx: ConversationContext | None = None):
+            run_ctx = ctx or ConversationContext()
+            return f"standard:{message}", run_ctx
+
+        orchestrator.process = AsyncMock(side_effect=_mock_process)
+        orchestrator.process_with_enrichment = AsyncMock(side_effect=_mock_process_with_enrichment)
         orchestrator.get_status.return_value = {
             "session_id": "test",
             "registered_agents": [],
@@ -1370,6 +1423,7 @@ class TestGovernanceServerEndpoints:
             catalog=catalog,
             workflow_engine=workflow_engine,
             governance_selector=governance_selector,
+            require_control_plane_api_key=False,
         )
         return TestClient(app), guardian, governance_selector
 
@@ -1510,6 +1564,7 @@ class TestGovernanceServerEndpoints:
 
         orchestrator = MagicMock()
         orchestrator._governance = None
+        _attach_governance_methods(orchestrator, None)
         orchestrator.get_status.return_value = {
             "session_id": "test",
             "registered_agents": [],
@@ -1532,6 +1587,7 @@ class TestGovernanceServerEndpoints:
             mcp_server=mcp_server,
             catalog=catalog,
             workflow_engine=workflow_engine,
+            require_control_plane_api_key=False,
         )
         tc = TestClient(app)
         resp = tc.get("/governance/status")
@@ -1576,6 +1632,7 @@ class TestChatStatusTaskContextIsolation:
             mcp_server=mcp_server,
             catalog=catalog,
             workflow_engine=workflow_engine,
+            require_control_plane_api_key=False,
         )
         client = TestClient(app)
 
@@ -1656,6 +1713,7 @@ class TestChatStatusTaskContextIsolation:
             workflow_engine=workflow_engine,
             plan_selector=plan_selector,
             governance_selector=governance_selector,
+            require_control_plane_api_key=False,
         )
         client = TestClient(app)
 
@@ -1698,6 +1756,7 @@ class TestControlPlaneApiKeyAuth:
         orchestrator = MagicMock()
         guardian = GovernanceGuardian(config=_make_config())
         orchestrator._governance = guardian
+        _attach_governance_methods(orchestrator, guardian)
         orchestrator.get_status.return_value = {
             "session_id": "test",
             "registered_agents": [],
@@ -1711,6 +1770,9 @@ class TestControlPlaneApiKeyAuth:
 
         mcp_server = MagicMock()
         mcp_server.get_status.return_value = {"tools_count": 0}
+        mcp_response = MagicMock()
+        mcp_response.to_dict.return_value = {"jsonrpc": "2.0", "result": {}, "id": 1}
+        mcp_server.handle_request = AsyncMock(return_value=mcp_response)
         catalog = MagicMock()
         catalog.list_agents.return_value = []
         catalog.get_status.return_value = {"installed_skills": 0}
@@ -1737,22 +1799,89 @@ class TestControlPlaneApiKeyAuth:
         resp = client.get("/governance/status", headers={"X-API-Key": "test-key"})
         assert resp.status_code == 200
 
+    def test_chat_requires_api_key(self, client) -> None:
+        resp = client.post("/chat", json={"message": "hello"})
+        assert resp.status_code == 401
+
+    def test_chat_accepts_valid_api_key(self, client) -> None:
+        resp = client.post("/chat", headers={"X-API-Key": "test-key"}, json={"message": "hello"})
+        assert resp.status_code == 200
+        assert "task_id" in resp.json()
+
+    def test_chat_status_requires_api_key(self, client) -> None:
+        resp = client.get("/chat/status/test-task")
+        assert resp.status_code == 401
+
+    def test_chat_status_accepts_valid_api_key(self, client) -> None:
+        resp = client.get("/chat/status/test-task", headers={"X-API-Key": "test-key"})
+        assert resp.status_code == 404
+
+    @pytest.mark.parametrize("path", ["/agents", "/skills", "/workflows"])
+    def test_catalog_endpoints_require_api_key(self, client, path: str) -> None:
+        resp = client.get(path)
+        assert resp.status_code == 401
+
+    @pytest.mark.parametrize("path", ["/agents", "/skills", "/workflows"])
+    def test_catalog_endpoints_accept_valid_api_key(self, client, path: str) -> None:
+        resp = client.get(path, headers={"X-API-Key": "test-key"})
+        assert resp.status_code == 200
+
     def test_unprotected_endpoint_remains_accessible(self, client):
         resp = client.get("/health")
+        assert resp.status_code == 200
+
+    def test_chat_enriched_requires_api_key(self, client) -> None:
+        resp = client.post("/chat/enriched", json={"message": "hello"})
+        assert resp.status_code == 401
+
+    def test_chat_enriched_accepts_valid_api_key(self, client) -> None:
+        resp = client.post(
+            "/chat/enriched",
+            headers={"X-API-Key": "test-key"},
+            json={"message": "hello"},
+        )
+        assert resp.status_code == 200
+
+    def test_mcp_endpoint_requires_api_key(self, client) -> None:
+        resp = client.post("/mcp", json={"method": "tools/list", "params": {}, "id": 1})
+        assert resp.status_code == 401
+
+    def test_mcp_endpoint_accepts_valid_api_key(self, client) -> None:
+        resp = client.post(
+            "/mcp",
+            headers={"X-API-Key": "test-key"},
+            json={"method": "tools/list", "params": {}, "id": 1},
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize("path", ["/workiq/pending", "/workiq/routing-hints", "/plan/pending", "/sub-plan/pending"])
+    def test_workiq_review_endpoints_accept_valid_api_key(self, client, path: str) -> None:
+        resp = client.get(path, headers={"X-API-Key": "test-key"})
         assert resp.status_code == 200
 
     @pytest.mark.parametrize(
         ("path", "payload"),
         [
+            ("/workiq/query", {"question": "status update"}),
+            ("/workiq/pending", None),
+            ("/workiq/routing-hints", None),
+            ("/plan/pending", None),
+            ("/sub-plan/pending", None),
             ("/workiq/select", {"request_id": "req-1", "selected_indices": [0]}),
             ("/workiq/accept-hints", {"request_id": "req-1", "accepted_indices": [0]}),
             ("/plan/accept", {"request_id": "req-1", "accepted_indices": [0]}),
             ("/sub-plan/accept", {"request_id": "req-1", "accepted_indices": [0]}),
         ],
     )
-    def test_hitl_resolution_endpoints_require_api_key(self, client, path: str, payload: dict[str, Any]):
-        resp = client.post(path, json=payload)
+    def test_hitl_review_endpoints_require_api_key(
+        self, client, path: str, payload: dict[str, Any] | None
+    ) -> None:
+        resp = client.get(path) if payload is None else client.post(path, json=payload)
         assert resp.status_code == 401
+
+    def test_workiq_query_accepts_valid_api_key(self, client) -> None:
+        resp = client.post("/workiq/query", headers={"X-API-Key": "test-key"}, json={"question": "status update"})
+        assert resp.status_code == 501
 
     def test_misconfigured_api_key_guard_returns_503(self):
         from fastapi.testclient import TestClient
@@ -1762,6 +1891,7 @@ class TestControlPlaneApiKeyAuth:
         orchestrator = MagicMock()
         guardian = GovernanceGuardian(config=_make_config())
         orchestrator._governance = guardian
+        _attach_governance_methods(orchestrator, guardian)
         orchestrator.get_status.return_value = {
             "session_id": "test",
             "registered_agents": [],
@@ -1795,6 +1925,225 @@ class TestControlPlaneApiKeyAuth:
         assert resp.status_code == 503
 
 
+class TestWorkIQQueryEndpointContract:
+    """Ensure /workiq/query uses explicit WorkIQ query semantics."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+
+        from src.server import create_app
+        from src.workiq.client import WorkIQResult
+        from src.workiq.selector import WorkIQSelector
+
+        orchestrator = MagicMock()
+        orchestrator._governance = None
+        orchestrator.get_status.return_value = {
+            "session_id": "test",
+            "registered_agents": [],
+            "message_count": 0,
+            "active_workflow": None,
+            "provider": "azure_openai",
+            "workiq_enrichment_available": True,
+            "governance_enabled": False,
+        }
+
+        selector = WorkIQSelector(timeout=1.0)
+
+        async def _mock_query_workiq(question: str):
+            result = WorkIQResult(
+                query=question,
+                content="Section A\n\nSection B",
+                sections=["Section A", "Section B"],
+            )
+            selector.prepare(result, "workiq-req-1")
+            return result, "workiq-req-1"
+
+        orchestrator.query_workiq = AsyncMock(side_effect=_mock_query_workiq)
+
+        mcp_server = MagicMock()
+        mcp_server.get_status.return_value = {"tools_count": 0}
+        catalog = MagicMock()
+        catalog.list_agents.return_value = []
+        catalog.get_status.return_value = {"installed_skills": 0}
+        workflow_engine = MagicMock()
+        workflow_engine.list_workflows.return_value = []
+
+        app = create_app(
+            orchestrator=orchestrator,
+            mcp_server=mcp_server,
+            catalog=catalog,
+            workflow_engine=workflow_engine,
+            workiq_selector=selector,
+            require_control_plane_api_key=False,
+        )
+        return TestClient(app), orchestrator, selector
+
+    def test_workiq_query_returns_pending_selection_contract(self, client):
+        tc, orchestrator, _selector = client
+        resp = tc.post("/workiq/query", json={"question": "latest standup notes"})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["request_id"] == "workiq-req-1"
+        assert len(payload["sections"]) == 2
+        assert payload["pending_selections"][0]["request_id"] == "workiq-req-1"
+        orchestrator.query_workiq.assert_called_once_with("latest standup notes")
+
+    def test_workiq_query_returns_502_on_workiq_error(self, client):
+        from src.workiq.client import WorkIQResult
+
+        tc, orchestrator, _selector = client
+        orchestrator.query_workiq = AsyncMock(
+            return_value=(WorkIQResult(query="latest standup notes", error="workiq unavailable"), None)
+        )
+        resp = tc.post("/workiq/query", json={"question": "latest standup notes"})
+        assert resp.status_code == 502
+
+    def test_workiq_query_does_not_leak_other_pending_requests(self, client):
+        from src.workiq.client import WorkIQResult
+
+        tc, _orchestrator, selector = client
+        selector.prepare(
+            WorkIQResult(query="other request", content="Other A\n\nOther B", sections=["Other A", "Other B"]),
+            "other-req",
+        )
+
+        resp = tc.post("/workiq/query", json={"question": "latest standup notes"})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["request_id"] == "workiq-req-1"
+        assert [r["request_id"] for r in payload["pending_selections"]] == ["workiq-req-1"]
+
+
+class TestGovernanceRoutesUsePublicOrchestratorMethods:
+    """Ensure governance routes can operate via orchestrator public methods."""
+
+    def test_governance_routes_work_without_private_governance_attr(self):
+        from fastapi.testclient import TestClient
+
+        from src.server import create_app
+
+        class _Alert:
+            def __init__(self) -> None:
+                self.alert_id = "gov-1"
+                self.category = "context_window"
+                self.level = "warning"
+                self.agent_id = "plan"
+                self.message = "warning"
+                self.suggestion = "decompose"
+                self.details = {}
+
+        class PublicGovernanceOrchestrator:
+            def __init__(self) -> None:
+                self._resolved: list[tuple[str, str]] = []
+
+            def get_status(self) -> dict[str, Any]:
+                return {
+                    "session_id": "test",
+                    "registered_agents": [],
+                    "message_count": 0,
+                    "active_workflow": None,
+                    "provider": "azure_openai",
+                    "workiq_enrichment_available": False,
+                    "governance_enabled": True,
+                }
+
+            def get_governance_report(self) -> dict[str, Any]:
+                return {
+                    "cumulative_tokens": 10,
+                    "hard_cap": 128000,
+                    "warning_threshold": 110000,
+                    "utilisation_pct": 0.0,
+                    "agent_usage": {},
+                    "max_skills_per_agent": 4,
+                    "total_alerts": 1,
+                    "unresolved_alerts": 1,
+                    "skill_violations": [],
+                }
+
+            def get_unresolved_governance_alerts(self) -> list[Any]:
+                return [_Alert()]
+
+            def resolve_governance_alert(self, alert_id: str, resolution: str = "accepted") -> bool:
+                self._resolved.append((alert_id, resolution))
+                return alert_id == "gov-1"
+
+        orchestrator = PublicGovernanceOrchestrator()
+        mcp_server = MagicMock()
+        mcp_server.get_status.return_value = {"tools_count": 0}
+        catalog = MagicMock()
+        catalog.list_agents.return_value = []
+        catalog.get_status.return_value = {"installed_skills": 0}
+        workflow_engine = MagicMock()
+        workflow_engine.list_workflows.return_value = []
+
+        app = create_app(
+            orchestrator=orchestrator,
+            mcp_server=mcp_server,
+            catalog=catalog,
+            workflow_engine=workflow_engine,
+            require_control_plane_api_key=False,
+        )
+        tc = TestClient(app)
+
+        status = tc.get("/governance/status")
+        assert status.status_code == 200
+        assert status.json()["enabled"] is True
+
+        alerts = tc.get("/governance/alerts")
+        assert alerts.status_code == 200
+        assert alerts.json()["alerts"][0]["alert_id"] == "gov-1"
+
+        resolved = tc.post("/governance/resolve-alert", json={"alert_id": "gov-1", "resolution": "accepted"})
+        assert resolved.status_code == 200
+        assert orchestrator._resolved == [("gov-1", "accepted")]
+
+    def test_governance_routes_require_public_contract_without_mutating_orchestrator(self):
+        from fastapi.testclient import TestClient
+
+        from src.server import create_app
+
+        class LegacyGovernanceOrchestrator:
+            def __init__(self) -> None:
+                self._governance = GovernanceGuardian(config=_make_config())
+
+            def get_status(self) -> dict[str, Any]:
+                return {
+                    "session_id": "test",
+                    "registered_agents": [],
+                    "message_count": 0,
+                    "active_workflow": None,
+                    "provider": "azure_openai",
+                    "workiq_enrichment_available": False,
+                    "governance_enabled": True,
+                }
+
+        orchestrator = LegacyGovernanceOrchestrator()
+        assert not hasattr(orchestrator, "get_governance_report")
+
+        mcp_server = MagicMock()
+        mcp_server.get_status.return_value = {"tools_count": 0}
+        catalog = MagicMock()
+        catalog.list_agents.return_value = []
+        catalog.get_status.return_value = {"installed_skills": 0}
+        workflow_engine = MagicMock()
+        workflow_engine.list_workflows.return_value = []
+
+        app = create_app(
+            orchestrator=orchestrator,
+            mcp_server=mcp_server,
+            catalog=catalog,
+            workflow_engine=workflow_engine,
+            require_control_plane_api_key=False,
+        )
+        tc = TestClient(app)
+
+        status = tc.get("/governance/status")
+        assert status.status_code == 200
+        assert status.json()["enabled"] is False
+        assert not hasattr(orchestrator, "get_governance_report")
+
+
 class TestGitHubEndpointsUseGovernedDispatch:
     """Ensure GitHub routes go through plan-first orchestrator processing."""
 
@@ -1806,7 +2155,9 @@ class TestGitHubEndpointsUseGovernedDispatch:
         from src.server import create_app
 
         orchestrator = MagicMock()
-        orchestrator._governance = GovernanceGuardian(config=_make_config())
+        guardian = GovernanceGuardian(config=_make_config())
+        orchestrator._governance = guardian
+        _attach_governance_methods(orchestrator, guardian)
         orchestrator.get_status.return_value = {
             "session_id": "test",
             "registered_agents": ["github_tracker"],
@@ -1817,7 +2168,7 @@ class TestGitHubEndpointsUseGovernedDispatch:
             "governance_enabled": True,
         }
 
-        async def _mock_process_with_routing(message, routing, *, ctx=None):
+        async def _mock_process_with_routing(message, routing, *, ctx=None, auto_accept_hitl=False):
             run_ctx = ctx or ConversationContext()
             run_ctx.add_result(AgentResult(agent_id="plan", content="Plan ran first"))
             run_ctx.add_result(
@@ -1827,6 +2178,7 @@ class TestGitHubEndpointsUseGovernedDispatch:
                     artifacts={"action": routing.extracted_params.get("action")},
                 )
             )
+            assert auto_accept_hitl is True
             return "aggregated", run_ctx
 
         orchestrator.process_with_routing = AsyncMock(side_effect=_mock_process_with_routing)
@@ -1845,6 +2197,7 @@ class TestGitHubEndpointsUseGovernedDispatch:
             mcp_server=mcp_server,
             catalog=catalog,
             workflow_engine=workflow_engine,
+            require_control_plane_api_key=False,
         )
         return TestClient(app), orchestrator
 
@@ -1858,6 +2211,7 @@ class TestGitHubEndpointsUseGovernedDispatch:
         args = orchestrator.process_with_routing.call_args
         assert args.args[1].primary_agent == "github_tracker"
         assert args.args[1].extracted_params["action"] == "document_commit"
+        assert args.kwargs["auto_accept_hitl"] is True
 
     def test_manage_issue_uses_plan_first_pipeline(self, client):
         tc, orchestrator = client
@@ -1867,6 +2221,7 @@ class TestGitHubEndpointsUseGovernedDispatch:
         orchestrator._dispatch.assert_not_called()
         args = orchestrator.process_with_routing.call_args
         assert args.args[1].extracted_params["action"] == "manage_issue"
+        assert args.kwargs["auto_accept_hitl"] is True
 
     def test_changelog_uses_plan_first_pipeline(self, client):
         tc, orchestrator = client
@@ -1876,6 +2231,7 @@ class TestGitHubEndpointsUseGovernedDispatch:
         orchestrator._dispatch.assert_not_called()
         args = orchestrator.process_with_routing.call_args
         assert args.args[1].extracted_params["action"] == "changelog"
+        assert args.kwargs["auto_accept_hitl"] is True
 
 
 class TestLifecycleServerEndpoints:
@@ -1888,7 +2244,9 @@ class TestLifecycleServerEndpoints:
         from src.server import create_app
 
         orchestrator = MagicMock()
-        orchestrator._governance = GovernanceGuardian(config=_make_config())
+        guardian = GovernanceGuardian(config=_make_config())
+        orchestrator._governance = guardian
+        _attach_governance_methods(orchestrator, guardian)
         orchestrator.get_status.return_value = {
             "session_id": "test",
             "registered_agents": ["a", "b"],
@@ -1935,6 +2293,7 @@ class TestLifecycleServerEndpoints:
             catalog=catalog,
             workflow_engine=workflow_engine,
             governance_selector=governance_selector,
+            require_control_plane_api_key=False,
         )
         return TestClient(app), orchestrator, governance_selector
 

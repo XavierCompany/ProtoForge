@@ -352,13 +352,12 @@ The guardian audits manifests for architectural violations (e.g., large input bu
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/governance/status` | Full governance report (tokens, alerts, violations) |
-| GET | `/governance/alerts` | All governance alerts (resolved + unresolved) |
-| GET | `/governance/alerts/unresolved` | Only unresolved alerts |
-| POST | `/governance/alerts/{id}/resolve` | Resolve an alert via HITL |
+| GET | `/governance/alerts` | Unresolved governance alerts |
+| POST | `/governance/resolve-alert` | Resolve an alert (`{alert_id, resolution}`) |
 | GET | `/governance/context-reviews` | Pending context window HITL reviews |
-| POST | `/governance/context-reviews/{id}/resolve` | Accept/reject context decomposition |
+| POST | `/governance/context-reviews/resolve` | Accept/reject context decomposition |
 | GET | `/governance/skill-reviews` | Pending skill cap HITL reviews |
-| POST | `/governance/skill-reviews/{id}/resolve` | Accept/reject/customise skill split |
+| POST | `/governance/skill-reviews/resolve` | Accept/reject/customise skill split |
 | GET | `/governance/lifecycle-reviews` | Pending agent lifecycle HITL reviews |
 | POST | `/governance/lifecycle-reviews/resolve` | Accept/reject agent disable/remove action |
 | POST | `/agents/{id}/disable` | Disable agent at runtime (HITL-gated) |
@@ -522,8 +521,9 @@ Steps with no dependencies run in parallel. The workflow engine handles dependen
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/chat` | Send message to orchestrator (standard routing) |
-| POST | `/chat/enriched` | Send message with WorkIQ 2-phase HITL enrichment |
+| POST | `/chat` | Start standard routing request (non-blocking, returns `task_id`, control-plane) |
+| GET | `/chat/status/{task_id}` | Poll status/result for `/chat` or `/chat/enriched` (control-plane) |
+| POST | `/chat/enriched` | Start WorkIQ-enriched request (non-blocking, returns `task_id`, control-plane) |
 | POST | `/mcp` | MCP JSON-RPC endpoint |
 | GET | `/agents` | List registered agents (catalog) |
 | GET | `/skills` | List available skills (catalog) |
@@ -544,7 +544,7 @@ Steps with no dependencies run in parallel. The workflow engine handles dependen
 | POST | `/github/manage-issue` | Create/update GitHub issues |
 | POST | `/github/changelog` | Generate changelog entries |
 | GET | `/governance/status` | Full governance report (tokens, alerts, violations) |
-| GET | `/governance/alerts` | All governance alerts |
+| GET | `/governance/alerts` | Unresolved governance alerts |
 | POST | `/governance/resolve-alert` | Resolve a governance alert |
 | GET | `/governance/context-reviews` | Pending context window HITL reviews |
 | POST | `/governance/context-reviews/resolve` | Accept/reject context decomposition |
@@ -552,11 +552,18 @@ Steps with no dependencies run in parallel. The workflow engine handles dependen
 | POST | `/governance/skill-reviews/resolve` | Accept/reject/customise skill split |
 | GET | `/governance/lifecycle-reviews` | Pending agent lifecycle HITL reviews |
 | POST | `/governance/lifecycle-reviews/resolve` | Accept/reject agent disable/remove action |
+| GET | `/reviews/pending` | Unified list of pending HITL reviews |
 | POST | `/agents/{agent_id}/disable` | Disable agent at runtime (HITL-gated) |
 | POST | `/agents/{agent_id}/enable` | Re-enable a disabled agent (no HITL) |
 | DELETE | `/agents/{agent_id}` | Permanently remove agent (HITL-gated) |
 | GET | `/agents/enabled` | List currently enabled agents |
 | GET | `/agents/disabled` | List currently disabled agents |
+
+When `SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true` (default), include
+`X-API-Key` for all control-plane endpoints (for example: `/mcp`, `/agents`,
+`/chat`, `/chat/status/{task_id}`, `/skills`, `/workflows`, `/workiq/*`,
+`/plan/*`, `/sub-plan/*`, `/github/*`, `/governance/*`, `/reviews/pending`,
+`/chat/enriched`). Public endpoints remain `/health` and `/inspector`.
 
 ## WorkIQ Integration (2-Phase Human-in-the-Loop)
 
@@ -582,19 +589,30 @@ User query ("find the Teams discussion about the outage")
 
 ```bash
 curl -X POST http://localhost:8080/workiq/query \
+  -H "X-API-Key: $CONTROL_PLANE_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"query": "latest standup notes from Teams"}'
+  -d '{"question": "latest standup notes from Teams"}'
 ```
 
-**Response** — a `request_id` and ranked sections:
+**Response** — raw WorkIQ output, a `request_id`, and ranked sections:
 
 ```json
 {
+  "response": "Teams: Daily Standup ...",
   "request_id": "abc123",
   "sections": [
-    {"index": 0, "title": "Teams: Daily Standup 2026-02-24", "preview": "Discussed prod deploy..."},
-    {"index": 1, "title": "Teams: Standup Recap Thread", "preview": "Action items from standup..."},
-    {"index": 2, "title": "Email: Standup Summary", "preview": "Hi team, here are the notes..."}
+    {"index": 0, "preview": "Teams: Daily Standup ...", "source": "https://..."},
+    {"index": 1, "preview": "Teams: Standup Recap ...", "source": "https://..."},
+    {"index": 2, "preview": "Email: Standup Summary ...", "source": "https://..."}
+  ],
+  "pending_selections": [
+    {
+      "request_id": "abc123",
+      "options": [
+        {"index": 0, "preview": "...", "source": "https://..."},
+        {"index": 1, "preview": "...", "source": "https://..."}
+      ]
+    }
   ]
 }
 ```
@@ -603,10 +621,11 @@ curl -X POST http://localhost:8080/workiq/query \
 
 ```bash
 # Check pending selections
-curl http://localhost:8080/workiq/pending
+curl -H "X-API-Key: $CONTROL_PLANE_API_KEY" http://localhost:8080/workiq/pending
 
 # Select sections
 curl -X POST http://localhost:8080/workiq/select \
+  -H "X-API-Key: $CONTROL_PLANE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"request_id": "abc123", "selected_indices": [0, 1]}'
 ```
@@ -618,14 +637,14 @@ After Phase 1, the router extracts keyword hints from the selected content (e.g.
 #### Step 3 — Review Keyword Hints
 
 ```bash
-curl http://localhost:8080/workiq/routing-hints
+curl -H "X-API-Key: $CONTROL_PLANE_API_KEY" http://localhost:8080/workiq/routing-hints
 ```
 
 **Response:**
 
 ```json
 {
-  "pending_hints": [
+  "pending": [
     {
       "request_id": "hint-456",
       "hints": [
@@ -641,6 +660,7 @@ curl http://localhost:8080/workiq/routing-hints
 
 ```bash
 curl -X POST http://localhost:8080/workiq/accept-hints \
+  -H "X-API-Key: $CONTROL_PLANE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"request_id": "hint-456", "accepted_indices": [0]}'
 ```
@@ -650,7 +670,8 @@ curl -X POST http://localhost:8080/workiq/accept-hints \
 ```json
 {
   "request_id": "hint-456",
-  "accepted": [{"agent_id": "log_analysis", "keyword": "error"}]
+  "accepted_hints": [{"agent_id": "log_analysis", "keyword": "error"}],
+  "status": "resolved"
 }
 ```
 
@@ -662,6 +683,7 @@ The **`POST /chat/enriched`** endpoint runs the full 2-phase pipeline automatica
 
 ```bash
 curl -X POST http://localhost:8080/chat/enriched \
+  -H "X-API-Key: $CONTROL_PLANE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"message": "What did the team discuss about the production outage?"}'
 ```
@@ -684,7 +706,7 @@ workiq --version
 ### Privacy & Control
 
 - **2-gate HITL** — user explicitly controls both content sections AND routing keywords
-- **Fail-open timeout** (2 min per phase) — pending selections expire without leaking data
+- **Fail-open timeout** (2 min per phase) — if unattended, all candidate sections/hints are auto-accepted to keep the pipeline moving
 - **No persistent storage** — selected content lives only in the current orchestration context
 - **Audit-friendly** — `pending_requests`, `pending_routing_hint_requests` expose all in-flight state
 
@@ -694,7 +716,7 @@ workiq --version
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (421 tests, 12 files)
+# Run tests (485 tests, 12 files)
 pytest
 
 # Run live integration tests (requires az login + Azure endpoint)
@@ -749,7 +771,8 @@ ProtoForge/
 ├── src/
 │   ├── main.py                 # Entry point & bootstrap
 │   ├── config.py               # Settings (pydantic-settings + ForgeConfig)
-│   ├── server.py               # FastAPI HTTP server (35 endpoints)
+│   ├── server.py               # FastAPI app factory + route wiring
+│   ├── server_routes/          # Modular FastAPI route groups (37 endpoints)
 │   ├── agents/                 # 10 agent types (8 dedicated files + GenericAgent handles 2)
 │   │   ├── base.py             #   BaseAgent + BaseAgent.from_manifest()
 │   │   ├── generic.py          #   GenericAgent (used by code_research & data_analysis)
@@ -788,17 +811,17 @@ ProtoForge/
 │       └── workflows.py        #   Workflow bundling & execution
 └── tests/
     ├── test_copilot_customization.py  # 15 tests — budget math, identity, model enforcement
-    ├── test_forge.py           # 34 tests — loader, context budget, contributions
+    ├── test_forge.py           # 36 tests — loader, context budget, contributions
     ├── test_github_tracker.py  # 82 tests — GitHub Tracker agent, all operations
-    ├── test_governance.py      # 113 tests — guardian, selector, enforcement hooks
+    ├── test_governance.py      # 162 tests — guardian, selector, enforcement hooks
     ├── test_llm.py             # 30 tests — LLM client, all providers, degradation, agent paths
     ├── test_llm_live.py        # 13 tests — live Azure OpenAI integration (requires az login)
     ├── test_mcp.py             #  7 tests — protocol, server, skills
-    ├── test_orchestrator.py    # 14 tests — engine, fan-out, aggregation
-    ├── test_registry.py        #  9 tests — catalog, workflows
+    ├── test_orchestrator.py    # 17 tests — engine, fan-out, aggregation
+    ├── test_registry.py        # 11 tests — catalog, workflows
     ├── test_router.py          # 22 tests — keywords, enriched routing, hints
-    ├── test_sub_plan.py        # 30 tests — sub-plan agent, plan selector, pipeline
-    └── test_workiq.py          # 52 tests — client, selector, agent, enrichment
+    ├── test_sub_plan.py        # 32 tests — sub-plan agent, plan selector, pipeline
+    └── test_workiq.py          # 58 tests — client, selector, agent, enrichment
 ```
 
 ## Developer Guide

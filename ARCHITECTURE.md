@@ -171,9 +171,11 @@ Governance selectors share one timeout/cancellation behavior path.
 | Skill Cap | Agent > 4 skills | accept | GET+POST /governance/skill-reviews/* |
 | Lifecycle | disable/remove request | **reject** | GET+POST /governance/lifecycle-reviews/* |
 
-When `SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true`, HITL resolution endpoints
-(`POST /workiq/select`, `POST /workiq/accept-hints`, `POST /plan/accept`,
-`POST /sub-plan/accept`) require `X-API-Key` like other control-plane actions.
+When `SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true`, WorkIQ and Plan/Sub-Plan
+HITL review/resolve endpoints (`GET /workiq/pending`, `GET /workiq/routing-hints`,
+`GET /plan/pending`, `GET /sub-plan/pending`, `POST /workiq/query`,
+`POST /workiq/select`, `POST /workiq/accept-hints`, `POST /plan/accept`, `POST /sub-plan/accept`)
+require `X-API-Key` like other control-plane actions.
 
 ---
 

@@ -396,6 +396,71 @@ class TestEngineSubPlanPipeline:
         assert plan_selector._resource_pending == {}
         assert plan_selector._resource_events == {}
 
+    @pytest.mark.asyncio
+    async def test_sub_plan_pipeline_auto_accepts_hitl_for_control_plane_mode(self) -> None:
+        """Control-plane routed processing should not wait on plan/sub-plan HITL gates."""
+        from src.orchestrator.router import RoutingDecision
+
+        plan_selector = PlanSelector(timeout=None)
+        engine = OrchestratorEngine(plan_selector=plan_selector)
+        engine.register_agent("sub_plan", SubPlanAgent())
+
+        plan_result = AgentResult(
+            agent_id="plan",
+            content="Plan output",
+            confidence=0.9,
+            artifacts={"recommended_sub_agents": ["log_analysis"]},
+        )
+        routing = RoutingDecision(primary_agent="plan", secondary_agents=["log_analysis"])
+        ctx = ConversationContext()
+        ctx.set_memory("auto_accept_hitl", True)
+
+        wait_calls = {"plan": 0, "resource": 0}
+
+        async def fail_plan_wait(_request_id: str):
+            wait_calls["plan"] += 1
+            raise AssertionError("wait_for_plan_review should not be called")
+
+        async def fail_resource_wait(_request_id: str):
+            wait_calls["resource"] += 1
+            raise AssertionError("wait_for_resource_review should not be called")
+
+        async def fake_dispatch(*_args, **_kwargs) -> AgentResult:
+            return AgentResult(
+                agent_id="sub_plan",
+                content="Sub-Plan output",
+                confidence=0.9,
+                artifacts={
+                    "resources": [
+                        {
+                            "name": "Storage",
+                            "type": "azure-storage",
+                            "purpose": "Store blobs",
+                            "effort": "quick",
+                            "dependencies": [],
+                        }
+                    ],
+                    "user_brief": "Use minimum resources",
+                },
+            )
+
+        plan_selector.wait_for_plan_review = fail_plan_wait  # type: ignore[method-assign]
+        plan_selector.wait_for_resource_review = fail_resource_wait  # type: ignore[method-assign]
+        engine._dispatch = fake_dispatch  # type: ignore[method-assign]
+
+        result = await engine._run_sub_plan_pipeline(
+            "Create workspace connectors",
+            plan_result,
+            routing,
+            ctx,
+        )
+
+        assert result is not None
+        assert wait_calls == {"plan": 0, "resource": 0}
+        assert ctx.get_memory("plan_accepted_agents") == ["log_analysis"]
+        assert ctx.get_memory("accepted_resources") == [{"name": "Storage", "type": "azure-storage"}]
+        assert ctx.get_memory("resource_brief") == "Use minimum resources"
+
 
 # ── Router: SUB_PLAN patterns ──────────────────────────────────────────────
 

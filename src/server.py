@@ -118,6 +118,59 @@ __all__ = [
 ]
 
 
+def _has_orchestrator_method(orchestrator: Any, name: str) -> bool:
+    return hasattr(type(orchestrator), name) or name in getattr(orchestrator, "__dict__", {})
+
+
+class _GovernanceRouteAdapter:
+    """Compatibility adapter for governance routes without mutating orchestrator."""
+
+    def __init__(self, orchestrator: Any) -> None:
+        self._orchestrator = orchestrator
+
+    def get_governance_report(self) -> dict[str, Any] | None:
+        if _has_orchestrator_method(self._orchestrator, "get_governance_report"):
+            report = getattr(self._orchestrator, "get_governance_report", None)
+            if callable(report):
+                return report()
+        return None
+
+    def get_unresolved_governance_alerts(self) -> list[Any]:
+        if _has_orchestrator_method(self._orchestrator, "get_unresolved_governance_alerts"):
+            alerts = getattr(self._orchestrator, "get_unresolved_governance_alerts", None)
+            if callable(alerts):
+                return alerts()
+        return []
+
+    def resolve_governance_alert(self, alert_id: str, resolution: str = "accepted") -> bool:
+        if _has_orchestrator_method(self._orchestrator, "resolve_governance_alert"):
+            resolve = getattr(self._orchestrator, "resolve_governance_alert", None)
+            if callable(resolve):
+                return resolve(alert_id, resolution)
+        return False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._orchestrator, name)
+
+
+def _get_governance_route_orchestrator(orchestrator: Any) -> Any:
+    required_methods = (
+        "get_governance_report",
+        "get_unresolved_governance_alerts",
+        "resolve_governance_alert",
+    )
+    missing = [name for name in required_methods if not _has_orchestrator_method(orchestrator, name)]
+    if not missing:
+        return orchestrator
+
+    logger.warning(
+        "governance_route_adapter_enabled",
+        missing_methods=missing,
+        has_private_guardian=hasattr(orchestrator, "_governance"),
+    )
+    return _GovernanceRouteAdapter(orchestrator)
+
+
 def create_app(
     orchestrator: Any,
     mcp_server: Any,
@@ -127,7 +180,7 @@ def create_app(
     plan_selector: Any | None = None,
     governance_selector: Any | None = None,
     *,
-    require_control_plane_api_key: bool = False,
+    require_control_plane_api_key: bool = True,
     control_plane_api_key: str | None = None,
     cors_allowed_origins: list[str] | None = None,
     cors_allow_credentials: bool = True,
@@ -178,6 +231,7 @@ def create_app(
         orchestrator=orchestrator,
         plan_selector=plan_selector,
         governance_selector=governance_selector,
+        control_plane_dependencies=control_plane_dependencies,
         chat_tasks=_chat_tasks,
         chat_cleanup_tasks=_chat_cleanup_tasks,
         cleanup_chat_task=_cleanup_chat_task,
@@ -205,9 +259,10 @@ def create_app(
         control_plane_dependencies=control_plane_dependencies,
     )
 
+    governance_route_orchestrator = _get_governance_route_orchestrator(orchestrator)
     register_governance_routes(
         app,
-        orchestrator=orchestrator,
+        orchestrator=governance_route_orchestrator,
         governance_selector=governance_selector,
         plan_selector=plan_selector,
         workiq_selector=workiq_selector,

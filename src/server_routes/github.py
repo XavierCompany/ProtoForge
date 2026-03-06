@@ -55,7 +55,12 @@ def register_github_routes(
             reasoning="github_endpoint_dispatch",
             extracted_params=params,
         )
-        _response, result_ctx = await process_with_routing(message, routing, ctx=ctx)
+        _response, result_ctx = await process_with_routing(
+            message,
+            routing,
+            ctx=ctx,
+            auto_accept_hitl=True,
+        )
         github_result = next(
             (
                 result

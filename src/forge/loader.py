@@ -105,6 +105,11 @@ class ForgeLoader:
             return self.registry.coordinator
         return self.registry.agents.get(agent_id)
 
+    def load_context_config(self) -> dict[str, Any]:
+        """Load only forge context-window/governance config."""
+        self._load_context_config()
+        return dict(self.registry.context_config)
+
     def list_agent_ids(self) -> list[str]:
         """Return all loaded agent IDs (coordinator + specialists)."""
         ids: list[str] = []

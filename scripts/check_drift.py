@@ -101,13 +101,16 @@ def check_agent_count() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. Endpoint count — count @app decorators in server.py
+# 3. Endpoint count — count @app decorators in server.py + server_routes/*.py
 # ---------------------------------------------------------------------------
 def check_endpoint_count() -> None:
     print("\n[3] Endpoint count")
-    server = (ROOT / "src" / "server.py").read_text(encoding="utf-8")
-    decorators = re.findall(r"@app\.(get|post|put|delete|patch|websocket)", server)
-    actual = len(decorators)
+    server_paths = [ROOT / "src" / "server.py", *sorted((ROOT / "src" / "server_routes").glob("*.py"))]
+    actual = 0
+    for path in server_paths:
+        text = path.read_text(encoding="utf-8")
+        decorators = re.findall(r"@app\.(get|post|put|delete|patch|websocket)", text)
+        actual += len(decorators)
 
     ci_text = (ROOT / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
     m = re.search(r"(\d+)\+?\s*endpoints", ci_text)

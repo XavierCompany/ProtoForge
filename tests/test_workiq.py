@@ -151,6 +151,30 @@ class TestWorkIQSelector:
         assert len(pending) == 1
         assert pending[0]["request_id"] == "req-5"
 
+    def test_get_pending_request_returns_single_entry(self) -> None:
+        selector = WorkIQSelector()
+        result = WorkIQResult(
+            query="q",
+            content="a\n\nb",
+            sections=["Section A", "Section B"],
+        )
+        selector.prepare(result, "req-5b")
+        pending = selector.get_pending_request("req-5b")
+        assert pending is not None
+        assert pending["request_id"] == "req-5b"
+        assert len(pending["options"]) == 2
+
+    def test_get_pending_request_returns_none_when_resolved(self) -> None:
+        selector = WorkIQSelector()
+        result = WorkIQResult(
+            query="q",
+            content="a\n\nb",
+            sections=["Section A", "Section B"],
+        )
+        selector.prepare(result, "req-5c")
+        selector.resolve("req-5c", [0])
+        assert selector.get_pending_request("req-5c") is None
+
     def test_cleanup_removes_request(self) -> None:
         selector = WorkIQSelector()
         result = WorkIQResult(
@@ -574,3 +598,37 @@ class TestEnrichedEngineRouting:
         assert "Plan" in result
         # WorkIQ content should be stored in context
         assert ctx.get_memory("workiq_selected_content") is not None
+
+
+class TestExplicitWorkIQQueryPath:
+    """Test explicit WorkIQ query entrypoint used by /workiq/query route."""
+
+    @pytest.mark.asyncio
+    async def test_query_workiq_prepares_selection_request(self) -> None:
+        from src.orchestrator.engine import OrchestratorEngine
+
+        wiq_result = WorkIQResult(
+            query="latest updates",
+            content="Update A\n\nUpdate B",
+            sections=["Update A", "Update B"],
+        )
+        client = MagicMock()
+        client.ask = AsyncMock(return_value=wiq_result)
+        selector = WorkIQSelector(timeout=0.1)
+        engine = OrchestratorEngine(workiq_client=client, workiq_selector=selector)
+
+        result, request_id = await engine.query_workiq("latest updates")
+        assert result.ok is True
+        assert request_id is not None
+        pending = selector.pending_requests()
+        assert len(pending) == 1
+        assert pending[0]["query"] == "latest updates"
+        assert len(pending[0]["options"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_query_workiq_requires_configured_components(self) -> None:
+        from src.orchestrator.engine import OrchestratorEngine
+
+        engine = OrchestratorEngine()
+        with pytest.raises(RuntimeError, match="WorkIQ integration is not configured"):
+            await engine.query_workiq("who is my manager")

@@ -84,15 +84,16 @@ These block any real deployment. Ordered by dependency.
 ## P1 — Should Do for Maintainability
 
 ### P1-6: Extract `bootstrap()` into builder pattern
-- **Status**: `[ ]`
+- **Status**: `[x]`
 - **Effort**: 2 hours
 - **Files**: `src/main.py`
-- **What**: Split the ~180-line `bootstrap()` into:
+- **What**: Split `bootstrap()` into focused helper functions:
   - `_init_governance(settings) -> (guardian, selector, budget_mgr)`
+  - `_create_orchestrator(...)`
   - `_register_agents(orchestrator, registry) -> dict`
-  - `_load_skills_and_workflows(settings, registry) -> (skills, workflows)`
+  - `_load_skills(...)` + `_load_workflows(...)`
 - **Why**: God function is hard to read, test, and extend. Returns a fragile 7-tuple.
-- **Verify**: `pytest tests/ -v` (all tests pass)
+- **Verify**: `python -m pytest tests/ -x -q --tb=short -m "not live"` (all tests pass)
 - **GUIDE2 ref**: §2.5
 
 ### P1-7: Split `server.py` into route modules

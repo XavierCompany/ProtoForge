@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from src.governance.guardian import GovernanceGuardian
     from src.governance.selector import GovernanceSelector
     from src.orchestrator.plan_selector import PlanSelector
-    from src.workiq.client import WorkIQClient
+    from src.workiq.client import WorkIQClient, WorkIQResult
     from src.workiq.selector import WorkIQSelector
 
 logger = structlog.get_logger(__name__)
@@ -329,6 +329,7 @@ class OrchestratorEngine:
         routing: RoutingDecision,
         *,
         ctx: ConversationContext | None = None,
+        auto_accept_hitl: bool = False,
     ) -> tuple[str, ConversationContext]:
         """Process a user message with a caller-provided routing decision.
 
@@ -339,10 +340,24 @@ class OrchestratorEngine:
         sanitized_message, request_ctx = self._prepare_request_context(user_message, ctx=ctx)
         request_ctx.set_memory("pipeline_phase", "routing")
         request_ctx.set_memory("forced_routing", True)
+        request_ctx.set_memory("auto_accept_hitl", auto_accept_hitl)
         if self._governance:
             self._governance.reset_run()
         result = await self._process_after_routing(sanitized_message, routing, request_ctx)
         return result, request_ctx
+
+    async def query_workiq(self, question: str) -> tuple[WorkIQResult, str | None]:
+        """Run an explicit WorkIQ query and stage Phase-1 selection state."""
+        if not self._workiq_client or not self._workiq_selector:
+            raise RuntimeError("WorkIQ integration is not configured")
+
+        result = await self._workiq_client.ask(question)
+        if not result.ok:
+            return result, None
+
+        request_id = str(uuid.uuid4())
+        self._workiq_selector.prepare(result, request_id)
+        return result, request_id
 
     # ── WorkIQ-enriched routing ─────────────────────────────────────────
 
@@ -452,7 +467,8 @@ class OrchestratorEngine:
         :meth:`process_with_enrichment` (after enriched routing).
         """
         # If confidence is low, try LLM-based routing
-        if routing.confidence < 0.5:
+        forced_routing = bool(ctx.get_memory("forced_routing", False))
+        if routing.confidence < 0.5 and not forced_routing:
             llm_routing = await self._route_with_llm(user_message)
             if llm_routing and llm_routing.confidence > routing.confidence:
                 routing = llm_routing
@@ -570,10 +586,11 @@ class OrchestratorEngine:
         accepted_agents = recommended  # default: accept all
         plan_req_id: str | None = None
         res_req_id: str | None = None
+        auto_accept_hitl = bool(ctx.get_memory("auto_accept_hitl", False))
 
         try:
             # ── Phase A: Plan HITL ──────────────────────────────────────
-            if self._plan_selector and len(recommended) >= 1:
+            if self._plan_selector and len(recommended) >= 1 and not auto_accept_hitl:
                 plan_req_id = str(uuid.uuid4())
                 plan_req = self._plan_selector.prepare_plan_review(
                     plan_req_id,
@@ -588,6 +605,9 @@ class OrchestratorEngine:
                 accepted_agents = self._plan_selector.accepted_plan_agents(plan_req_id)
                 ctx.set_memory("plan_accepted_agents", accepted_agents)
                 logger.info("plan_hitl_resolved", accepted_agents=accepted_agents)
+            elif auto_accept_hitl:
+                ctx.set_memory("plan_accepted_agents", accepted_agents)
+                logger.info("plan_hitl_auto_accepted", accepted_agents=accepted_agents)
 
             # ── Sub-Plan Agent execution ────────────────────────────────
             sub_plan_result = await self._dispatch(
@@ -605,7 +625,7 @@ class OrchestratorEngine:
                 return sub_plan_result
             resources = sub_plan_artifacts.get("resources", [])
 
-            if self._plan_selector:
+            if self._plan_selector and not auto_accept_hitl:
                 res_req_id = str(uuid.uuid4())
                 res_req = self._plan_selector.prepare_resource_review(
                     res_req_id,
@@ -626,6 +646,19 @@ class OrchestratorEngine:
                 ctx.set_memory("resource_brief", brief)
                 logger.info(
                     "sub_plan_hitl_resolved",
+                    accepted_count=len(accepted_resources),
+                    brief_length=len(brief),
+                )
+            elif auto_accept_hitl:
+                accepted_resources = [
+                    {"name": r.get("name", f"resource_{idx}"), "type": r.get("type", "unknown")}
+                    for idx, r in enumerate(resources)
+                ]
+                brief = sub_plan_artifacts.get("user_brief", "")
+                ctx.set_memory("accepted_resources", accepted_resources)
+                ctx.set_memory("resource_brief", brief)
+                logger.info(
+                    "sub_plan_hitl_auto_accepted",
                     accepted_count=len(accepted_resources),
                     brief_length=len(brief),
                 )
@@ -785,6 +818,15 @@ class OrchestratorEngine:
         If no :class:`GovernanceSelector` is configured, logs the alert and
         continues (fail-open).
         """
+        if bool(ctx.get_memory("auto_accept_hitl", False)):
+            if self._governance:
+                self._governance.resolve_alert(alert.alert_id, "accepted_auto_control_plane")
+            logger.info(
+                "governance_alert_auto_accepted",
+                alert_id=alert.alert_id,
+                agent_id=agent_id,
+            )
+            return
 
         if not self._governance_selector:
             logger.warning(
@@ -922,6 +964,28 @@ class OrchestratorEngine:
         if self._governance:
             status["governance"] = self._governance.governance_report()
         return status
+
+    def get_governance_guardian(self) -> Any | None:
+        """Return the governance guardian when configured."""
+        return self._governance
+
+    def get_governance_report(self) -> dict[str, Any] | None:
+        """Return governance report or None when governance is disabled."""
+        if not self._governance:
+            return None
+        return self._governance.governance_report()
+
+    def get_unresolved_governance_alerts(self) -> list[Any]:
+        """Return unresolved governance alerts."""
+        if not self._governance:
+            return []
+        return self._governance.unresolved_alerts()
+
+    def resolve_governance_alert(self, alert_id: str, resolution: str = "accepted") -> bool:
+        """Resolve a governance alert by ID."""
+        if not self._governance:
+            return False
+        return self._governance.resolve_alert(alert_id, resolution)
 
     def get_agent(self, agent_id: str) -> BaseAgent | None:
         """Return a registered agent by ID, or ``None``."""

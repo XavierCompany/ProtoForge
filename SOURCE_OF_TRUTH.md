@@ -22,11 +22,11 @@ This table shows which source is canonical for each attribute.
 
 | Attribute | Canonical Source | Derived / Duplicated In |
 |-----------|-----------------|------------------------|
-| Agent ID | `forge/agents/<id>/agent.yaml` → `id:` | `AgentType` enum in `src/orchestrator/router.py`, `_SPECIALISED_CLASSES` in `src/main.py`, `_registry.yaml` |
+| Agent ID | `forge/agents/<id>/agent.yaml` → `id:` | `AgentType` enum in `src/orchestrator/router.py`, `_registry.yaml` |
 | Agent name | `forge/agents/<id>/agent.yaml` → `name:` | `_default_agents` dict in `src/main.py` |
 | Agent description | `forge/agents/<id>/agent.yaml` → `description:` | `get_llm_routing_prompt()` in `router.py`, `_default_agents` in `main.py` |
 | Agent type (coordinator/specialist) | `forge/agents/<id>/agent.yaml` → `type:` | `_registry.yaml` |
-| Python class binding | `_SPECIALISED_CLASSES` dict in `src/main.py` | *(should move to `agent.yaml` → `python_class:` — see TODO P2-14)* |
+| Python class binding (custom implementations only) | `_SPECIALISED_CLASSES` dict in `src/main.py` | Agents not listed here use `GenericAgent`; long-term target is `agent.yaml` → `python_class:` (see TODO P2-14) |
 
 ### Drift risk
 
@@ -35,7 +35,7 @@ The `AgentType` StrEnum in `router.py` must match the set of agent IDs in
 an enum member, keyword routing won't have patterns for it (but dynamic
 routing via tags will still work).
 
-**Action when adding an agent**: See [TODO.md P2-14](TODO.md#p2-14-dynamic-python_class-import-in-manifests) for the long-term fix. Short-term: update all 4 locations listed above.
+**Action when adding an agent**: See [TODO.md P2-14](TODO.md#p2-14-dynamic-python_class-import-in-manifests) for the long-term fix. Short-term: update `agent.yaml`, `router.py` enum, `_registry.yaml`, and update `_SPECIALISED_CLASSES` only when the agent needs a dedicated Python class.
 
 ---
 
@@ -57,7 +57,9 @@ routing via tags will still work).
 plan_envelope + sub_plan_envelope + (fan_out_cap × max_specialist_envelope) ≤ hard_cap
 ```
 
-Current values: `32K + 20K + 3×25K = 127K ≤ 128K` ✓
+Worst-case envelope check (using `max_specialist_envelope = 25K`):
+`32K + 20K + 3×25K = 127K ≤ 128K` ✓  
+Actual concurrent specialist mixes may be lower, but this upper bound must remain valid.
 
 **When any budget changes**: Recalculate the sum and verify it stays ≤ hard_cap.
 
