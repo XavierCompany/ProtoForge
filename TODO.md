@@ -2,7 +2,7 @@
 
 > **TL;DR for LLMs**: Prioritised backlog (240+ lines).
 > P0: 5 items (**5 done**).
-> P1: 5 items (3 done, 2 remaining). P2: 5 items (1 done, 4 remaining). P3: 5 items (1 done).
+> P1: 5 items (4 done, 1 remaining). P2: 5 items (1 done, 1 in progress, 3 remaining). P3: 5 items (1 done).
 >
 > This is doc **5 of 10** in the reading order.
 > See [ARCHITECTURE.md](ARCHITECTURE.md) for system overview.
@@ -238,6 +238,7 @@ Track completed items here with date and commit hash.
 | 2026-02-24 | P3-19 | — | 13 live integration tests with real Azure OpenAI (`gpt-5.2-chat`), `DefaultAzureCredential` (421 total) |
 | 2026-03-06 | P2-12 | — | Added input guardrails module + engine wiring + config flags + tests |
 | 2026-03-06 | P1-7 | — | Split HTTP layer into `src/server_routes/*` with shared `src/server_models.py`; kept `create_app()` API stable |
+| 2026-03-06 | Security/maintainability hardening pass | `b6f6c81` | Finalized control-plane auth coverage (chat, WorkIQ, plan/sub-plan, MCP/catalog/governance), strict public governance route contract, WorkIQ response modeling, and docs drift alignment (485 tests total). |
 
 ---
 
