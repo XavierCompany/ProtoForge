@@ -1699,9 +1699,7 @@ class TestChatStatusTaskContextIsolation:
             {"request_id": "gov-owned", "resolved": False},
             {"request_id": "gov-other", "resolved": False},
         ]
-        governance_selector.pending_skill_reviews.return_value = [
-            {"request_id": "skill-other", "resolved": False}
-        ]
+        governance_selector.pending_skill_reviews.return_value = [{"request_id": "skill-other", "resolved": False}]
         governance_selector.pending_lifecycle_reviews.return_value = [
             {"request_id": "lifecycle-other", "resolved": False}
         ]
@@ -1873,9 +1871,7 @@ class TestControlPlaneApiKeyAuth:
             ("/sub-plan/accept", {"request_id": "req-1", "accepted_indices": [0]}),
         ],
     )
-    def test_hitl_review_endpoints_require_api_key(
-        self, client, path: str, payload: dict[str, Any] | None
-    ) -> None:
+    def test_hitl_review_endpoints_require_api_key(self, client, path: str, payload: dict[str, Any] | None) -> None:
         resp = client.get(path) if payload is None else client.post(path, json=payload)
         assert resp.status_code == 401
 
