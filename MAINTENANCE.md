@@ -150,7 +150,9 @@ _process_after_routing()              ← src/orchestrator/engine.py L248
 | `src/forge/contributions.py`    |   258 | `ContributionManager`: CRUD for contrib/ with audit  |
 | `src/config.py`                 |   134 | `Settings`: LLM, Server, MCP, Forge, Observability  |
 | `src/main.py`                   |   359 | Bootstrap, CLI (serve / chat / status)               |
-| `src/server.py`                 |   896 | FastAPI app: 35 HTTP endpoints + inspector dashboard |
+| `src/server.py`                 |   198 | FastAPI app composition (`create_app` wiring, CORS/auth setup) |
+| `src/server_models.py`          |   105 | Shared HTTP request/response model definitions        |
+| `src/server_routes/`            |   747 | Domain route registrars (chat, governance, GitHub, WorkIQ, system, core) |
 | `src/mcp/`                      |     — | MCP protocol, skill server, skill loader             |
 | `src/workiq/`                   |     — | WorkIQ CLI client + HITL selector                    |
 | `src/llm/client.py`             |   236 | `LLMClient`: Azure AI Foundry + OpenAI, `get_llm_client()` singleton |
@@ -344,7 +346,7 @@ These rules prevent documentation from drifting from the code.
 | Agent count in docs matches `AgentType` enum | Count `AgentType` members in `router.py` |
 | Test count in docs matches `pytest` output | Run `pytest --tb=no` and compare last line |
 | Budget math in docs matches YAML config | Read `forge/_context_window.yaml` + agent YAMLs |
-| Endpoint count matches `server.py` routes | `grep -c "@app\." src/server.py` |
+| Endpoint count matches all route modules | `grep -c "@app\." src/server_routes/*.py` |
 | `pyproject.toml` version matches CHANGELOG heading | Compare manually on each release |
 
 **Drift check one-liner** (PowerShell):
@@ -352,8 +354,8 @@ These rules prevent documentation from drifting from the code.
 # Count AgentType members
 Select-String -Path src\orchestrator\router.py -Pattern '^\s+\w+ = "\w+"' | Measure-Object
 
-# Count HTTP endpoints
-Select-String -Path src\server.py -Pattern '@app\.(get|post|put|delete|patch)' | Measure-Object
+# Count HTTP endpoints across route modules
+Select-String -Path src\server_routes\*.py -Pattern '@app\.(get|post|put|delete|patch)' | Measure-Object
 
 # Run tests
 .venv\Scripts\python.exe -m pytest --tb=no 2>&1 | Select-Object -Last 1
@@ -389,7 +391,7 @@ Quick reference for the most-touched files during maintenance:
 | Add a new agent (YAML)            | `forge/agents/<id>/agent.yaml`            |
 | Add a new agent (Python)          | `src/agents/<id>_agent.py` + `src/main.py` `_SPECIALISED_CLASSES` |
 | Change governance thresholds      | `forge/_context_window.yaml` `governance:` |
-| Add an HTTP endpoint              | `src/server.py` `create_app()`            |
+| Add an HTTP endpoint              | `src/server_routes/*.py` + `src/server.py` `create_app()` |
 | Configure LLM providers           | `src/config.py` `LLMConfig`               |
 | Write a forge contribution        | `src/forge/contributions.py` `ContributionManager` |
 | Understand HITL flow              | `src/orchestrator/plan_selector.py`, `src/governance/selector.py` |
@@ -426,7 +428,7 @@ The following claims were verified against the actual codebase:
 | 19 | Budget: allocate → fits_budget → truncate pipeline | `context_budget.py` | ✅ |
 | 20 | tiktoken in `pyproject.toml` dependencies | `pyproject.toml` L28 | ✅ |
 | 21 | Version `0.1.1` | `pyproject.toml` L3 | ✅ |
-| 22 | 35 HTTP endpoints in `server.py` | `server.py` (grep count) | ✅ |
+| 22 | 35 HTTP endpoints across route modules | `server_routes/*.py` (grep count) | ✅ |
 | 23 | ForgeLoader loads: context_config → coordinator → agents → shared → contrib | `loader.py` L93–101 | ✅ |
 | 24 | ForgeLoader instantiated twice in `bootstrap()` | `main.py` ~L87, ~L110 | ✅ |
 | 25 | Plan HITL (Phase A) + Sub-Plan HITL (Phase B) | `plan_selector.py`, `engine.py` L322–400 | ✅ |
@@ -440,9 +442,9 @@ The following claims were verified against the actual codebase:
 | 33 | `enable_agent()` has NO HITL gate | `engine.py` | ✅ |
 | 34 | `deregister_patterns()` removes routing on disable/remove | `router.py` | ✅ |
 | 35 | `deallocate()` releases budget on disable/remove | `context_budget.py` | ✅ |
-| 36 | 7 new lifecycle HTTP endpoints | `server.py` | ✅ |
+| 36 | 7 lifecycle HTTP endpoints remain present after modularization | `server_routes/governance.py` | ✅ |
 | 37 | 444 tests passing (30 LLM mocked + 13 live + 401 others) | `pytest --tb=no` output | ✅ |
-| 38 | Governance endpoint paths match `server.py` decorators | `server.py`, README, GUIDE | ✅ |
+| 38 | Governance endpoint paths match route decorators | `server_routes/governance.py`, README, GUIDE | ✅ |
 | 39 | `sub_plan` entry present in `forge/_registry.yaml` | `_registry.yaml` | ✅ |
 | 40 | Warning threshold = 110K in all docs (not 120K) | GUIDE.md, `_context_window.yaml` | ✅ |
 | 41 | BUILDING_AGENTS.md exists (doc 10 of 10) | `BUILDING_AGENTS.md` | ✅ |
@@ -451,13 +453,13 @@ The following claims were verified against the actual codebase:
 | 44 | TODO.md reading order "5 of 10" (not "5 of 9") | `TO
 DO.md` line 7 | ✅ |
 | 45 | GUIDE2.md §2.5 bootstrap() = ~180 lines (not 120) | `main.py` lines 80–258 | ✅ |
-| 46 | GUIDE2.md §2.10 server.py = ~900 lines | `server.py` (896 lines) | ✅ |
+| 46 | GUIDE2.md §2.10 reflects server modularization | `server.py`, `server_models.py`, `server_routes/*.py` | ✅ |
 | 47 | GUIDE2.md §2.8 code matches actual `max_history` impl | `context.py` line 56 | ✅ |
 | 48 | GUIDE2.md §1 LLM routing ref = `get_llm_routing_prompt()` | `router.py` line 281 | ✅ |
 | 49 | BUILDING_AGENTS.md = ~255 lines | `BUILDING_AGENTS.md` (254 lines) | ✅ |
 | 50 | GUIDE.md warning threshold = 110K (3 places fixed) | GUIDE.md L595, L667, L2530 | ✅ |
 | 51 | GUIDE.md reading order = "8 of 10" | GUIDE.md L8 | ✅ |
-| 52 | TODO.md server.py = ~900-line (was ~750) | TODO.md L103 | ✅ |
+| 52 | TODO.md P1-7 updated to completed modular route architecture | TODO.md P1-7 section | ✅ |
 | 53 | TODO.md gpt-4o-mini → gpt-5.2-chat (2 places) | TODO.md L208, L236 | ✅ |
 | 54 | SOURCE_OF_TRUTH.md P0-5 is done (removed speculative text) | SOURCE_OF_TRUTH.md L119–121 | ✅ |
 | 55 | README.md BUILDING_AGENTS ~350 → ~255 | README.md L24 | ✅ |

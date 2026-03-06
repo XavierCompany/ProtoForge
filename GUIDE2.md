@@ -209,17 +209,22 @@ cancellation, and auto-resolution behavior.
 **Remaining improvement (optional)**: add a formal `SelectorProtocol` typing
 layer for static contract checking across future selector implementations.
 
-### 2.10 — MEDIUM: server.py is ~900 lines
+### 2.10 — MEDIUM: server.py monolith — ✅ DONE
 
-A single file handles 35 HTTP endpoints. This is hard to navigate and
-makes conflict resolution during PRs painful.
+The HTTP layer is now modularized:
 
-**Fix**: Split into route modules:
-- `src/server/chat.py`
-- `src/server/governance.py`
-- `src/server/workiq.py`
-- `src/server/github.py`
-- `src/server/inspector.py`
+- `src/server.py` — app composition (`create_app`), CORS/auth setup, route wiring
+- `src/server_models.py` — shared request/response contracts
+- `src/server_routes/` — domain route registrars:
+  - `chat.py`
+  - `core.py` (MCP/catalog/workflows)
+  - `workiq_plan.py`
+  - `github.py`
+  - `governance.py`
+  - `system.py`
+
+This keeps endpoint behavior unchanged while reducing merge conflicts and
+improving navigation.
 
 ### 2.11 — MEDIUM: ForgeLoader runs twice in bootstrap
 
@@ -824,7 +829,7 @@ POST /chat {"message": "...", "session_id": null}
 
 **Quick status** (updated 2026-03-06):
 - **P0**: 5/5 done
-- **P1**: 2/5 done
+- **P1**: 3/5 done
 - **P2**: 1/5 done
 - **P3**: 0/5
 

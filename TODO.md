@@ -2,7 +2,7 @@
 
 > **TL;DR for LLMs**: Prioritised backlog (240+ lines).
 > P0: 5 items (**5 done**).
-> P1: 5 items (2 done, 3 remaining). P2: 5 items (1 done, 4 remaining). P3: 5 items (1 done).
+> P1: 5 items (3 done, 2 remaining). P2: 5 items (1 done, 4 remaining). P3: 5 items (1 done).
 >
 > This is doc **5 of 10** in the reading order.
 > See [ARCHITECTURE.md](ARCHITECTURE.md) for system overview.
@@ -96,11 +96,11 @@ These block any real deployment. Ordered by dependency.
 - **GUIDE2 ref**: §2.5
 
 ### P1-7: Split `server.py` into route modules
-- **Status**: `[ ]`
+- **Status**: `[x]`
 - **Effort**: 2 hours
-- **Files**: `src/server.py` → `src/server/chat.py`, `governance.py`, `workiq.py`, `github.py`, `inspector.py`
-- **What**: Create a `src/server/` package with separate routers per domain. Use FastAPI `APIRouter` includes.
-- **Why**: ~900-line file is hard to navigate and causes PR merge conflicts
+- **Files**: `src/server.py`, `src/server_models.py`, `src/server_routes/*.py`
+- **What**: Refactor monolithic route definitions into domain registrars (`chat.py`, `core.py`, `workiq_plan.py`, `github.py`, `governance.py`, `system.py`) while keeping `from src.server import create_app` stable.
+- **Why**: Monolithic server module caused navigation and merge-conflict friction.
 - **Verify**: `pytest tests/ -v` + manual: `curl http://localhost:8080/health`
 - **GUIDE2 ref**: §2.10
 
@@ -236,6 +236,7 @@ Track completed items here with date and commit hash.
 | 2026-02-24 | P0-5 | `218eb33` | LLM wiring — all agents call `_call_llm()`, 30 mocked tests (408 total) |
 | 2026-02-24 | P3-19 | — | 13 live integration tests with real Azure OpenAI (`gpt-5.2-chat`), `DefaultAzureCredential` (421 total) |
 | 2026-03-06 | P2-12 | — | Added input guardrails module + engine wiring + config flags + tests |
+| 2026-03-06 | P1-7 | — | Split HTTP layer into `src/server_routes/*` with shared `src/server_models.py`; kept `create_app()` API stable |
 
 ---
 

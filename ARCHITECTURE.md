@@ -25,7 +25,9 @@ Token budget: `Plan(32K) + SubPlan(20K) + 3×Specialist(≤25K) ≤ 128K cap`
 ## 2. Module Dependency Graph
 
 ```
-                    src/server.py (FastAPI HTTP)
+             src/server.py (FastAPI composition)
+              ├── src/server_models.py
+              └── src/server_routes/*.py
                          │
                     src/main.py (bootstrap)
                     ┌────┼────────────────┐
@@ -54,7 +56,7 @@ Token budget: `Plan(32K) + SubPlan(20K) + 3×Specialist(≤25K) ≤ 128K cap`
               └── selector.py         └── workflows.py
 ```
 
-**Import direction**: server → main → orchestrator → agents → forge/governance.
+**Import direction**: server + server_routes → main → orchestrator → agents → forge/governance.
 Never import upward (e.g., agents must not import from orchestrator).
 
 ---
@@ -221,7 +223,7 @@ Settings are loaded from `.env` file. Access via `get_settings()` singleton.
 |------|-------------------|
 | Add a new agent | `forge/agents/<id>/agent.yaml`, `src/agents/<id>_agent.py`, `AgentType` enum in `router.py`, `_SPECIALISED_CLASSES` in `main.py` |
 | Change token budgets | `forge/_context_window.yaml` or `forge/agents/<id>/agent.yaml` — recalculate sum! |
-| Add an HTTP endpoint | `src/server.py` — add route, update module docstring |
+| Add an HTTP endpoint | `src/server_routes/*.py` (route logic) + `src/server.py` (`create_app()` composition) |
 | Add a HITL gate | Follow pattern in `src/governance/selector.py` or `src/orchestrator/plan_selector.py` |
 | Add a skill | `forge/agents/<id>/skills/<name>.yaml` |
 | Change routing | `src/orchestrator/router.py` — add keyword patterns to `AgentType` |

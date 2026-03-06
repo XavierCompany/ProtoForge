@@ -25,6 +25,7 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - `OrchestratorEngine.process()` and `process_with_enrichment()` now accept optional request-scoped contexts (`ctx`) and apply guardrails before routing and LLM interaction.
 - WorkIQ-enriched flow now records explicit pre-routing phases (`workiq_query`, `workiq_content_review`, `workiq_keyword_extract`, `workiq_hint_review`) in context memory.
 - `GET /chat/status/{task_id}` now reports `pipeline_phase` from the task’s own context instead of the engine-global context, eliminating cross-request phase leakage.
+- HTTP routes were modularized from monolithic `src/server.py` into `src/server_routes/*`, with shared contracts in `src/server_models.py`; `create_app()` import path remains stable.
 - Updated architecture and operations docs (`ARCHITECTURE.md`, `GUIDE2.md`, `MAINTENANCE.md`, `TODO.md`) to reflect security controls and current HITL/guardrail behavior.
 
 ## [0.1.1] — 2026-02-23

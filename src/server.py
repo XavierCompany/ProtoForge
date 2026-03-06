@@ -43,60 +43,43 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import time
-import uuid
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
 
-from src.orchestrator.context import ConversationContext
+from src.server_models import (
+    ChatAsyncResponse,
+    ChatRequest,
+    ChatResponse,
+    ChatTaskState,
+    GitHubChangelogRequest,
+    GitHubDocumentCommitRequest,
+    GitHubManageIssueRequest,
+    GovernanceAlertResolveRequest,
+    GovernanceContextResolveRequest,
+    GovernanceLifecycleResolveRequest,
+    GovernanceSkillResolveRequest,
+    MCPRequestBody,
+    PlanAcceptRequest,
+    SubPlanAcceptRequest,
+    WorkflowRunRequest,
+    WorkIQAcceptHintsRequest,
+    WorkIQQueryRequest,
+    WorkIQSelectRequest,
+)
+from src.server_routes import (
+    register_chat_routes,
+    register_core_routes,
+    register_github_routes,
+    register_governance_routes,
+    register_system_routes,
+    register_workiq_and_plan_routes,
+)
 
 logger = structlog.get_logger(__name__)
-
-
-class ChatRequest(BaseModel):
-    """Inbound chat message from a user — the primary API input."""
-
-    message: str
-    session_id: str | None = None
-
-
-class ChatResponse(BaseModel):
-    """Orchestrator response containing the aggregated agent output."""
-
-    response: str
-    session_id: str
-    routing: dict[str, Any] = {}
-
-
-class ChatAsyncResponse(BaseModel):
-    """Non-blocking chat response — references a background task."""
-
-    task_id: str
-    status: str = "processing"  # processing | completed | error
-    message: str = "Request is being processed. Poll GET /chat/status/{task_id} for updates."
-    response: str | None = None
-    session_id: str | None = None
-    pending_reviews: list[dict[str, Any]] = []
-
-
-class ChatTaskState(TypedDict, total=False):
-    """In-memory state for a non-blocking chat request."""
-
-    status: str
-    created_at: float
-    message: str
-    response: str | None
-    session_id: str | None
-    error: str | None
-    context: ConversationContext
-    _task_ref: asyncio.Task[None]
 
 
 # Background chat task tracking
@@ -111,118 +94,28 @@ async def _cleanup_chat_task(tid: str) -> None:
     _chat_tasks.pop(tid, None)
 
 
-class WorkflowRunRequest(BaseModel):
-    """Request to execute a named workflow from the forge/ ecosystem."""
-
-    workflow_name: str
-    params: dict[str, Any] = {}
-
-
-class MCPRequestBody(BaseModel):
-    """JSON-RPC 2.0 envelope for MCP protocol messages."""
-
-    jsonrpc: str = "2.0"
-    method: str
-    params: dict[str, Any] = {}
-    id: str | int | None = None
-
-
-class WorkIQQueryRequest(BaseModel):
-    """Request to query Microsoft Work IQ for organisational context."""
-
-    question: str
-
-
-class WorkIQSelectRequest(BaseModel):
-    """Human selection of WorkIQ results to include in the pipeline."""
-
-    request_id: str
-    selected_indices: list[int]
-
-
-class WorkIQAcceptHintsRequest(BaseModel):
-    """Human acceptance of WorkIQ routing hints for agent dispatch."""
-
-    request_id: str
-    accepted_indices: list[int]
-
-
-class PlanAcceptRequest(BaseModel):
-    """Human acceptance of Plan Agent suggestions — selects which sub-agents proceed."""
-
-    request_id: str
-    accepted_indices: list[int]
-
-
-class SubPlanAcceptRequest(BaseModel):
-    """Human acceptance of Sub-Plan resources, with optional brief override."""
-
-    request_id: str
-    accepted_indices: list[int]
-    user_brief: str = ""
-
-
-class GitHubDocumentCommitRequest(BaseModel):
-    """Request to classify and document a git commit (Conventional Commits)."""
-
-    commit_sha: str = ""
-    commit_message: str = ""
-    diff: str = ""
-    repo: str = ""
-
-
-class GitHubManageIssueRequest(BaseModel):
-    """Request to create, update, close, or comment on a GitHub issue."""
-
-    action: str = "create"  # create, update, close, comment
-    repo: str = ""
-    issue_number: int | None = None
-    title: str = ""
-    body: str = ""
-    labels: list[str] = []
-    commit_sha: str = ""
-
-
-class GitHubChangelogRequest(BaseModel):
-    """Request to generate a grouped changelog from commit history."""
-
-    repo: str = ""
-    from_ref: str = ""
-    to_ref: str = "HEAD"
-    version: str = "0.1.1"
-
-
-class GovernanceContextResolveRequest(BaseModel):
-    """Accept or reject a context-window decomposition suggestion."""
-
-    request_id: str
-    accepted: bool = True
-    user_note: str = ""
-
-
-class GovernanceSkillResolveRequest(BaseModel):
-    """Accept, customise, or override a skill-cap violation split."""
-
-    request_id: str
-    accepted: bool = True
-    custom_keep: list[str] = []
-    custom_overflow: list[str] = []
-    override: bool = False
-
-
-class GovernanceAlertResolveRequest(BaseModel):
-    """Resolve an individual governance alert by ID."""
-
-    alert_id: str
-    resolution: str = "accepted"
-
-
-class GovernanceLifecycleResolveRequest(BaseModel):
-    """Accept or reject an agent lifecycle action (disable / remove)."""
-
-    request_id: str
-    accepted: bool = True
-    user_note: str = ""
+__all__ = [
+    "ChatAsyncResponse",
+    "ChatRequest",
+    "ChatResponse",
+    "ChatTaskState",
+    "GitHubChangelogRequest",
+    "GitHubDocumentCommitRequest",
+    "GitHubManageIssueRequest",
+    "GovernanceAlertResolveRequest",
+    "GovernanceContextResolveRequest",
+    "GovernanceLifecycleResolveRequest",
+    "GovernanceSkillResolveRequest",
+    "MCPRequestBody",
+    "PlanAcceptRequest",
+    "SubPlanAcceptRequest",
+    "WorkIQAcceptHintsRequest",
+    "WorkIQQueryRequest",
+    "WorkIQSelectRequest",
+    "WorkflowRunRequest",
+    "_chat_tasks",
+    "create_app",
+]
 
 
 def create_app(
@@ -239,38 +132,7 @@ def create_app(
     cors_allowed_origins: list[str] | None = None,
     cors_allow_credentials: bool = True,
 ) -> FastAPI:
-    """Create the FastAPI application with all routes wired up.
-
-    Route groups (in definition order):
-        Lines ~200-260   POST /chat (non-blocking), GET /chat/status/{task_id}
-        Lines ~265-285   POST /chat/enriched             — Enriched pipeline
-        Lines ~290-310   POST /mcp                        — MCP JSON-RPC
-        Lines ~315-355   GET  /agents, /skills            — Agent catalog
-        Lines ~360-380   GET+POST /workflows              — Workflow engine
-        Lines ~385-485   /workiq/*                         — WorkIQ 2-phase HITL (5 routes)
-        Lines ~490-545   /plan/*, /sub-plan/*              — Plan & Sub-Plan HITL (4 routes)
-        Lines ~550-690   /github/*                         — GitHub Tracker (3 routes)
-        Lines ~695-885   /governance/*                     — Governance HITL (8 routes)
-        Lines ~890-920   /agents/{id}/disable|enable|remove — Lifecycle (3 routes)
-        Lines ~925-960   GET /reviews/pending              — Unified HITL reviews
-        Lines ~965-985   GET /health                       — Health check
-        Lines ~990-1000  GET /inspector                    — HTML dashboard
-
-    Parameters:
-        orchestrator: OrchestratorEngine instance (typed Any to avoid circular import)
-        mcp_server: MCPServer instance
-        catalog: AgentCatalog instance
-        workflow_engine: WorkflowEngine instance
-        workiq_selector: Optional WorkIQSelector for enriched pipeline
-        plan_selector: Optional PlanSelector for plan/sub-plan HITL
-        governance_selector: Optional GovernanceSelector for governance HITL
-        require_control_plane_api_key: when true, sensitive control-plane
-            endpoints require ``X-API-Key``.
-        control_plane_api_key: shared secret value for ``X-API-Key`` auth.
-        cors_allowed_origins: allowed CORS origins (defaults to wildcard).
-        cors_allow_credentials: whether CORS credentials are allowed.
-    """
-
+    """Create the FastAPI application and register route modules."""
     app = FastAPI(
         title="ProtoForge",
         description="Multi-Agent Orchestrator with MCP Skills Distribution",
@@ -311,821 +173,52 @@ def create_app(
 
         control_plane_dependencies = [Depends(_require_control_plane_access)]
 
-    # ── Chat Endpoint (Non-blocking) ─────────────────────────────
-
-    @app.post("/chat", response_model=ChatAsyncResponse)
-    async def chat(request: ChatRequest) -> ChatAsyncResponse:
-        """Send a message to the orchestrator (non-blocking).
-
-        Returns immediately with a ``task_id``. Poll
-        ``GET /chat/status/{task_id}`` for progress and results.
-        The response includes any pending HITL reviews that must
-        be resolved before the pipeline can complete.
-        """
-        task_id = str(uuid.uuid4())
-        _chat_tasks[task_id] = {
-            "status": "processing",
-            "created_at": time.time(),
-            "message": request.message,
-            "response": None,
-            "session_id": request.session_id,
-            "error": None,
-            "context": ConversationContext(),
-        }
-
-        async def _run_chat(tid: str, msg: str) -> None:
-            try:
-                task_ctx = _chat_tasks[tid]["context"]
-                result, ctx = await orchestrator.process(msg, ctx=task_ctx)
-                _chat_tasks[tid]["status"] = "completed"
-                _chat_tasks[tid]["response"] = result
-                _chat_tasks[tid]["session_id"] = ctx.session_id
-            except asyncio.CancelledError:
-                _chat_tasks[tid]["status"] = "error"
-                _chat_tasks[tid]["error"] = "Request cancelled"
-                logger.info("chat_task_cancelled", task_id=tid)
-                raise
-            except Exception as exc:
-                _chat_tasks[tid]["status"] = "error"
-                _chat_tasks[tid]["error"] = str(exc)
-                logger.error("chat_task_failed", task_id=tid, error=str(exc))
-            finally:
-                _chat_tasks[tid].pop("_task_ref", None)  # release Task ref for GC
-                task = asyncio.create_task(_cleanup_chat_task(tid))
-                _chat_cleanup_tasks.add(task)
-                task.add_done_callback(_chat_cleanup_tasks.discard)
-
-        _chat_tasks[task_id]["_task_ref"] = asyncio.create_task(
-            _run_chat(task_id, request.message),
-        )
-
-        return ChatAsyncResponse(
-            task_id=task_id,
-            status="processing",
-            session_id=request.session_id,
-        )
-
-    @app.get("/chat/status/{task_id}")
-    async def chat_status(task_id: str) -> JSONResponse:
-        """Poll for the result of a non-blocking chat request.
-
-        Returns the current status of the background task, any
-        pending HITL reviews, and the final response when complete.
-        """
-        task = _chat_tasks.get(task_id)
-        if task is None:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"No chat task with id {task_id}"},
-            )
-
-        # Gather pending reviews across all HITL gates
-        pending: list[dict[str, Any]] = []
-        if plan_selector is not None:
-            pending.extend({"type": "plan", **r} for r in plan_selector.pending_plan_reviews())
-            pending.extend({"type": "sub_plan", **r} for r in plan_selector.pending_resource_reviews())
-        if governance_selector is not None:
-            pending.extend({"type": "governance_context", **r} for r in governance_selector.pending_context_reviews())
-            pending.extend({"type": "governance_skill", **r} for r in governance_selector.pending_skill_reviews())
-            pending.extend(
-                {"type": "governance_lifecycle", **r} for r in governance_selector.pending_lifecycle_reviews()
-            )
-
-        elapsed = time.time() - task["created_at"]
-
-        # Get current pipeline phase from this task's own context
-        phase = None
-        with contextlib.suppress(Exception):
-            task_ctx = task.get("context")
-            if isinstance(task_ctx, ConversationContext):
-                phase = task_ctx.get_memory("pipeline_phase")
-
-        return JSONResponse(
-            content={
-                "task_id": task_id,
-                "status": task["status"],
-                "elapsed_seconds": round(elapsed, 1),
-                "response": task["response"],
-                "session_id": task["session_id"],
-                "error": task["error"],
-                "pending_reviews": pending,
-                "pipeline_phase": phase if task["status"] == "processing" else None,
-            }
-        )
-
-    @app.post("/chat/enriched", response_model=ChatAsyncResponse)
-    async def chat_enriched(request: ChatRequest) -> ChatAsyncResponse:
-        """Send a message through the WorkIQ-enriched pipeline (non-blocking).
-
-        Returns immediately with a ``task_id``.  Poll
-        ``GET /chat/status/{task_id}`` for progress, pending HITL
-        reviews, and the final response.
-
-        Enrichment flow:
-        1. Query Work IQ for organisational context
-        2. HITL Phase 1 — user selects relevant content sections
-        3. Extract routing keywords from selected content
-        4. HITL Phase 2 — user accepts/rejects keyword hints
-        5. Intent Router uses accepted hints for enriched routing
-
-        If WorkIQ is not configured, falls back to standard routing.
-        """
-        task_id = str(uuid.uuid4())
-        _chat_tasks[task_id] = {
-            "status": "processing",
-            "created_at": time.time(),
-            "message": request.message,
-            "response": None,
-            "session_id": request.session_id,
-            "error": None,
-            "context": ConversationContext(),
-        }
-
-        async def _run_enriched(tid: str, msg: str) -> None:
-            try:
-                task_ctx = _chat_tasks[tid]["context"]
-                result, ctx = await orchestrator.process_with_enrichment(msg, ctx=task_ctx)
-                _chat_tasks[tid]["status"] = "completed"
-                _chat_tasks[tid]["response"] = result
-                _chat_tasks[tid]["session_id"] = ctx.session_id
-            except Exception as exc:
-                _chat_tasks[tid]["status"] = "error"
-                _chat_tasks[tid]["error"] = str(exc)
-                logger.error("enriched_chat_task_failed", task_id=tid, error=str(exc))
-            finally:
-                _chat_tasks[tid].pop("_task_ref", None)
-                task = asyncio.create_task(_cleanup_chat_task(tid))
-                _chat_cleanup_tasks.add(task)
-                task.add_done_callback(_chat_cleanup_tasks.discard)
-
-        _chat_tasks[task_id]["_task_ref"] = asyncio.create_task(
-            _run_enriched(task_id, request.message),
-        )
-
-        return ChatAsyncResponse(
-            task_id=task_id,
-            status="processing",
-            session_id=request.session_id,
-        )
-
-    # ── MCP Endpoint ────────────────────────────────────────────
-
-    @app.post("/mcp")
-    async def mcp_endpoint(request: MCPRequestBody) -> JSONResponse:
-        """MCP JSON-RPC endpoint for tool discovery and execution."""
-        from src.mcp.protocol import MCPRequest
-
-        mcp_req = MCPRequest(
-            method=request.method,
-            params=request.params,
-            id=request.id,
-        )
-        mcp_resp = await mcp_server.handle_request(mcp_req)
-        return JSONResponse(content=mcp_resp.to_dict())
-
-    # ── Agent Catalog ───────────────────────────────────────────
-
-    @app.get("/agents")
-    async def list_agents() -> JSONResponse:
-        """List all registered agents."""
-        agents = catalog.list_agents()
-        return JSONResponse(
-            content=[
-                {
-                    "agent_type": a.agent_type,
-                    "name": a.name,
-                    "description": a.description,
-                    "status": a.status,
-                    "skills": a.skills,
-                    "usage_count": a.usage_count,
-                    "avg_latency_ms": round(a.avg_latency_ms, 2),
-                }
-                for a in agents
-            ]
-        )
-
-    @app.get("/skills")
-    async def list_skills() -> JSONResponse:
-        """List all available skills."""
-        skills = catalog.search_catalog()
-        return JSONResponse(
-            content=[
-                {
-                    "name": s.skill_name,
-                    "description": s.description,
-                    "agent_type": s.agent_type,
-                    "version": s.version,
-                    "installed": s.installed,
-                    "tags": s.tags,
-                }
-                for s in skills
-            ]
-        )
-
-    # ── Workflows ───────────────────────────────────────────────
-
-    @app.get("/workflows")
-    async def list_workflows() -> JSONResponse:
-        """List all available workflows."""
-        return JSONResponse(content=workflow_engine.list_workflows())
-
-    @app.post("/workflows/run", dependencies=control_plane_dependencies)
-    async def run_workflow(request: WorkflowRunRequest) -> JSONResponse:
-        """Execute a workflow by name."""
-        result = await workflow_engine.execute(
-            request.workflow_name,
-            request.params,
-        )
-        return JSONResponse(content=result)
-
-    # ── WorkIQ Human-in-the-Loop Endpoints ────────────────────────
-
-    @app.post("/workiq/query")
-    async def workiq_query(request: WorkIQQueryRequest) -> JSONResponse:
-        """Send a question to Work IQ and return selection options.
-
-        The response contains ``request_id`` and ``options`` — the caller
-        should present the options to the user and POST back to
-        ``/workiq/select`` with the chosen indices.
-        """
-        if workiq_selector is None:
-            return JSONResponse(
-                status_code=501,
-                content={"error": "WorkIQ integration not configured"},
-            )
-
-        # Ask orchestrator to process via the workiq agent
-        response, _ctx = await orchestrator.process(request.question)
-        pending = workiq_selector.pending_requests()
-
-        return JSONResponse(
-            content={
-                "response": response,
-                "pending_selections": pending,
-            }
-        )
-
-    @app.get("/workiq/pending")
-    async def workiq_pending() -> JSONResponse:
-        """List pending WorkIQ selection requests awaiting user input."""
-        if workiq_selector is None:
-            return JSONResponse(content={"pending": []})
-        return JSONResponse(content={"pending": workiq_selector.pending_requests()})
-
-    @app.post("/workiq/select")
-    async def workiq_select(request: WorkIQSelectRequest) -> JSONResponse:
-        """Resolve a pending selection — user picks which sections to use."""
-        if workiq_selector is None:
-            return JSONResponse(
-                status_code=501,
-                content={"error": "WorkIQ integration not configured"},
-            )
-
-        ok = workiq_selector.resolve(request.request_id, request.selected_indices)
-        if not ok:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"No pending selection with id {request.request_id}"},
-            )
-
-        selected = workiq_selector.selected_content(request.request_id)
-        workiq_selector.cleanup(request.request_id)
-
-        return JSONResponse(
-            content={
-                "request_id": request.request_id,
-                "selected_content": selected,
-                "status": "resolved",
-            }
-        )
-
-    @app.get("/workiq/routing-hints")
-    async def workiq_routing_hints() -> JSONResponse:
-        """List pending routing-keyword hint requests (HITL Phase 2).
-
-        After the user selects WorkIQ content sections (Phase 1), the
-        system extracts routing keywords and exposes them here for the
-        user to accept or reject before they influence the Intent Router.
-        """
-        if workiq_selector is None:
-            return JSONResponse(content={"pending": []})
-        return JSONResponse(content={"pending": workiq_selector.pending_routing_hint_requests()})
-
-    @app.post("/workiq/accept-hints")
-    async def workiq_accept_hints(
-        request: WorkIQAcceptHintsRequest,
-    ) -> JSONResponse:
-        """Accept specific routing-keyword hints from WorkIQ content.
-
-        The ``accepted_indices`` list references hint indices from the
-        ``/workiq/routing-hints`` response.  Accepted hints will boost
-        the corresponding agents in the Intent Router's scoring.
-        """
-        if workiq_selector is None:
-            return JSONResponse(
-                status_code=501,
-                content={"error": "WorkIQ integration not configured"},
-            )
-
-        ok = workiq_selector.resolve_routing_hints(
-            request.request_id,
-            request.accepted_indices,
-        )
-        if not ok:
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "error": f"No pending routing hints with id {request.request_id}",
-                },
-            )
-
-        accepted = workiq_selector.accepted_routing_hints(request.request_id)
-        workiq_selector.cleanup_routing_hints(request.request_id)
-
-        return JSONResponse(
-            content={
-                "request_id": request.request_id,
-                "accepted_hints": [{"agent_id": h.agent_id, "keyword": h.keyword} for h in accepted],
-                "status": "resolved",
-            }
-        )
-
-    # ── Plan Agent HITL Endpoints ─────────────────────────────────
-
-    @app.get("/plan/pending")
-    async def plan_pending() -> JSONResponse:
-        """List pending Plan Agent suggestion reviews (Plan HITL).
-
-        After the Plan Agent runs, its recommended sub-agents are presented
-        here for the human to accept or reject before the Sub-Plan Agent
-        and task agents proceed.
-        """
-        if plan_selector is None:
-            return JSONResponse(content={"pending": []})
-        return JSONResponse(content={"pending": plan_selector.pending_plan_reviews()})
-
-    @app.post("/plan/accept")
-    async def plan_accept(request: PlanAcceptRequest) -> JSONResponse:
-        """Accept or reject Plan Agent suggestions.
-
-        ``accepted_indices`` references suggestion indices from
-        ``/plan/pending``.  Accepted suggestions determine which sub-agents
-        will be invoked after the Sub-Plan Agent runs.
-        """
-        if plan_selector is None:
-            return JSONResponse(
-                status_code=501,
-                content={"error": "Plan HITL not configured"},
-            )
-
-        ok = plan_selector.resolve_plan_review(
-            request.request_id,
-            request.accepted_indices,
-        )
-        if not ok:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"No pending plan review with id {request.request_id}"},
-            )
-
-        accepted = plan_selector.accepted_plan_agents(request.request_id)
-        return JSONResponse(
-            content={
-                "request_id": request.request_id,
-                "accepted_agents": accepted,
-                "status": "resolved",
-            }
-        )
-
-    # ── Sub-Plan Agent HITL Endpoints ─────────────────────────────
-
-    @app.get("/sub-plan/pending")
-    async def sub_plan_pending() -> JSONResponse:
-        """List pending Sub-Plan resource deployment reviews (Sub-Plan HITL).
-
-        After the Sub-Plan Agent produces a resource deployment plan, its
-        proposed resources are presented here for the human to review.
-        The human can also supply a brief to override the default
-        *"aim to create the minimum resources needed to demonstrate
-        the functionality"*.
-        """
-        if plan_selector is None:
-            return JSONResponse(content={"pending": []})
-        return JSONResponse(content={"pending": plan_selector.pending_resource_reviews()})
-
-    @app.post("/sub-plan/accept")
-    async def sub_plan_accept(request: SubPlanAcceptRequest) -> JSONResponse:
-        """Accept or reject Sub-Plan resources and optionally set a brief.
-
-        ``accepted_indices`` references resource indices from
-        ``/sub-plan/pending``.  If ``user_brief`` is provided, it overrides
-        the default minimum-resource brief for this request.
-        """
-        if plan_selector is None:
-            return JSONResponse(
-                status_code=501,
-                content={"error": "Sub-Plan HITL not configured"},
-            )
-
-        ok = plan_selector.resolve_resource_review(
-            request.request_id,
-            request.accepted_indices,
-            user_brief=request.user_brief,
-        )
-        if not ok:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"No pending resource review with id {request.request_id}"},
-            )
-
-        accepted = plan_selector.accepted_resources(request.request_id)
-        brief = plan_selector.resource_brief(request.request_id)
-        return JSONResponse(
-            content={
-                "request_id": request.request_id,
-                "accepted_resources": [
-                    {"name": r.name, "type": r.resource_type, "purpose": r.purpose} for r in accepted
-                ],
-                "user_brief": brief,
-                "status": "resolved",
-            }
-        )
-
-    # ── GitHub Tracker Endpoints ────────────────────────────────
-
-    async def _dispatch_github_tracker(
-        *,
-        message: str,
-        params: dict[str, Any],
-        repo: str | None = None,
-    ) -> JSONResponse:
-        """Execute GitHub tracker actions through orchestrator dispatch."""
-        from src.orchestrator.router import RoutingDecision
-
-        if not hasattr(orchestrator, "_dispatch"):
-            return JSONResponse(
-                status_code=501,
-                content={"error": "Orchestrator dispatch is not available"},
-            )
-
-        ctx = ConversationContext()
-        if repo:
-            ctx.set_memory("github_repo", repo)
-
-        routing = RoutingDecision(
-            primary_agent="github_tracker",
-            confidence=1.0,
-            reasoning="github_endpoint_dispatch",
-            extracted_params=params,
-        )
-        result = await orchestrator._dispatch("github_tracker", message, routing, ctx)
-        return JSONResponse(content={"result": result.content, "artifacts": result.artifacts})
-
-    @app.post("/github/document-commit", dependencies=control_plane_dependencies)
-    async def github_document_commit(request: GitHubDocumentCommitRequest) -> JSONResponse:
-        """Classify and document a git commit.
-
-        Analyzes the commit message, diff, and metadata to produce a
-        Conventional Commits message, change-type classification, scope
-        detection, impact assessment, and suggested GitHub labels.
-        """
-        return await _dispatch_github_tracker(
-            message=request.commit_message or "Document this commit",
-            params={
-                "action": "document_commit",
-                "commit_sha": request.commit_sha,
-                "commit_message": request.commit_message,
-                "diff": request.diff,
-                "repo": request.repo,
-            },
-            repo=request.repo,
-        )
-
-    @app.post("/github/manage-issue", dependencies=control_plane_dependencies)
-    async def github_manage_issue(request: GitHubManageIssueRequest) -> JSONResponse:
-        """Create, update, close, or comment on a GitHub issue.
-
-        Generates structured issue bodies with Conventional Commits
-        classification, auto-labels, and cross-references.
-        """
-        return await _dispatch_github_tracker(
-            message=request.body or request.title or "Manage issue",
-            params={
-                "action": "manage_issue",
-                "issue_action": request.action,
-                "repo": request.repo,
-                "issue_number": request.issue_number,
-                "title": request.title,
-                "body": request.body,
-                "labels": request.labels,
-                "commit_sha": request.commit_sha,
-            },
-            repo=request.repo,
-        )
-
-    @app.post("/github/changelog", dependencies=control_plane_dependencies)
-    async def github_changelog(request: GitHubChangelogRequest) -> JSONResponse:
-        """Generate a grouped changelog from commit history.
-
-        Commits are classified by type (feat, fix, refactor, etc.) and
-        grouped into Markdown sections suitable for CHANGELOG.md or
-        GitHub release notes.
-        """
-        return await _dispatch_github_tracker(
-            message="Generate changelog",
-            params={
-                "action": "changelog",
-                "from_ref": request.from_ref,
-                "to_ref": request.to_ref,
-                "version": request.version,
-                "repo": request.repo,
-            },
-            repo=request.repo,
-        )
-
-    # ── Governance Endpoints ───────────────────────────────────────
-
-    @app.get("/governance/status", dependencies=control_plane_dependencies)
-    async def governance_status() -> JSONResponse:
-        """Return the current governance report (token usage, alerts, skill violations)."""
-        gov = getattr(orchestrator, "_governance", None)
-        if gov is None:
-            return JSONResponse(content={"enabled": False})
-        report = gov.governance_report()
-        report["enabled"] = True
-        return JSONResponse(content=report)
-
-    @app.get("/governance/alerts", dependencies=control_plane_dependencies)
-    async def governance_alerts() -> JSONResponse:
-        """List all unresolved governance alerts."""
-        gov = getattr(orchestrator, "_governance", None)
-        if gov is None:
-            return JSONResponse(content={"alerts": []})
-        alerts = gov.unresolved_alerts()
-        return JSONResponse(
-            content={
-                "alerts": [
-                    {
-                        "alert_id": a.alert_id,
-                        "category": a.category,
-                        "level": a.level,
-                        "agent_id": a.agent_id,
-                        "message": a.message,
-                        "suggestion": a.suggestion,
-                        "details": a.details,
-                    }
-                    for a in alerts
-                ]
-            }
-        )
-
-    @app.post("/governance/resolve-alert", dependencies=control_plane_dependencies)
-    async def governance_resolve_alert(
-        request: GovernanceAlertResolveRequest,
-    ) -> JSONResponse:
-        """Resolve a governance alert by ID."""
-        gov = getattr(orchestrator, "_governance", None)
-        if gov is None:
-            return JSONResponse(
-                status_code=501,
-                content={"error": "Governance not configured"},
-            )
-        ok = gov.resolve_alert(request.alert_id, request.resolution)
-        if not ok:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"No unresolved alert with id {request.alert_id}"},
-            )
-        return JSONResponse(
-            content={
-                "alert_id": request.alert_id,
-                "resolution": request.resolution,
-                "status": "resolved",
-            }
-        )
-
-    @app.get("/governance/context-reviews", dependencies=control_plane_dependencies)
-    async def governance_context_reviews() -> JSONResponse:
-        """List pending context window HITL reviews."""
-        if governance_selector is None:
-            return JSONResponse(content={"pending": []})
-        return JSONResponse(content={"pending": governance_selector.pending_context_reviews()})
-
-    @app.post("/governance/context-reviews/resolve", dependencies=control_plane_dependencies)
-    async def governance_resolve_context(
-        request: GovernanceContextResolveRequest,
-    ) -> JSONResponse:
-        """Accept or reject a context window decomposition suggestion."""
-        if governance_selector is None:
-            return JSONResponse(
-                status_code=501,
-                content={"error": "Governance HITL not configured"},
-            )
-        ok = governance_selector.resolve_context_review(
-            request.request_id,
-            request.accepted,
-            user_note=request.user_note,
-        )
-        if not ok:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"No pending context review with id {request.request_id}"},
-            )
-        return JSONResponse(
-            content={
-                "request_id": request.request_id,
-                "accepted": request.accepted,
-                "status": "resolved",
-            }
-        )
-
-    @app.get("/governance/skill-reviews", dependencies=control_plane_dependencies)
-    async def governance_skill_reviews() -> JSONResponse:
-        """List pending skill cap HITL reviews."""
-        if governance_selector is None:
-            return JSONResponse(content={"pending": []})
-        return JSONResponse(content={"pending": governance_selector.pending_skill_reviews()})
-
-    @app.post("/governance/skill-reviews/resolve", dependencies=control_plane_dependencies)
-    async def governance_resolve_skill(
-        request: GovernanceSkillResolveRequest,
-    ) -> JSONResponse:
-        """Accept, customise, or override a skill cap violation."""
-        if governance_selector is None:
-            return JSONResponse(
-                status_code=501,
-                content={"error": "Governance HITL not configured"},
-            )
-        ok = governance_selector.resolve_skill_review(
-            request.request_id,
-            request.accepted,
-            custom_keep=request.custom_keep or None,
-            custom_overflow=request.custom_overflow or None,
-            override=request.override,
-        )
-        if not ok:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"No pending skill review with id {request.request_id}"},
-            )
-        return JSONResponse(
-            content={
-                "request_id": request.request_id,
-                "accepted": request.accepted,
-                "overridden": request.override,
-                "status": "resolved",
-            }
-        )
-
-    # ── Agent Lifecycle (HITL) ──────────────────────────────────
-
-    @app.get("/governance/lifecycle-reviews", dependencies=control_plane_dependencies)
-    async def governance_lifecycle_reviews() -> JSONResponse:
-        """List pending agent lifecycle HITL reviews (disable/remove)."""
-        if governance_selector is None:
-            return JSONResponse(content={"pending": []})
-        return JSONResponse(content={"pending": governance_selector.pending_lifecycle_reviews()})
-
-    @app.post("/governance/lifecycle-reviews/resolve", dependencies=control_plane_dependencies)
-    async def governance_resolve_lifecycle(
-        request: GovernanceLifecycleResolveRequest,
-    ) -> JSONResponse:
-        """Accept or reject an agent lifecycle action (disable/remove)."""
-        if governance_selector is None:
-            return JSONResponse(
-                status_code=501,
-                content={"error": "Governance HITL not configured"},
-            )
-        ok = governance_selector.resolve_lifecycle_review(
-            request.request_id,
-            request.accepted,
-            user_note=request.user_note,
-        )
-        if not ok:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"No pending lifecycle review with id {request.request_id}"},
-            )
-        return JSONResponse(
-            content={
-                "request_id": request.request_id,
-                "accepted": request.accepted,
-                "status": "resolved",
-            }
-        )
-
-    @app.post("/agents/{agent_id}/disable", dependencies=control_plane_dependencies)
-    async def disable_agent(agent_id: str) -> JSONResponse:
-        """Request disabling an agent (triggers HITL review).
-
-        The actual disable only takes effect after the lifecycle review
-        is accepted by a human operator.
-        """
-        try:
-            result = await orchestrator.disable_agent(agent_id)
-            return JSONResponse(content=result)
-        except KeyError:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"Agent '{agent_id}' not found"},
-            )
-
-    @app.post("/agents/{agent_id}/enable", dependencies=control_plane_dependencies)
-    async def enable_agent(agent_id: str) -> JSONResponse:
-        """Re-enable a previously disabled agent (no HITL required)."""
-        try:
-            result = await orchestrator.enable_agent(agent_id)
-            return JSONResponse(content=result)
-        except KeyError:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"Agent '{agent_id}' not found"},
-            )
-
-    @app.delete("/agents/{agent_id}", dependencies=control_plane_dependencies)
-    async def remove_agent(agent_id: str) -> JSONResponse:
-        """Request removal of an agent (triggers HITL review).
-
-        The actual removal only takes effect after the lifecycle review
-        is accepted by a human operator.
-        """
-        try:
-            result = await orchestrator.unregister_agent(agent_id)
-            return JSONResponse(content=result)
-        except KeyError:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"Agent '{agent_id}' not found"},
-            )
-
-    @app.get("/agents/enabled", dependencies=control_plane_dependencies)
-    async def list_enabled_agents() -> JSONResponse:
-        """List agents currently enabled for routing and dispatch."""
-        return JSONResponse(content={"enabled_agents": orchestrator.list_enabled_agents()})
-
-    @app.get("/agents/disabled", dependencies=control_plane_dependencies)
-    async def list_disabled_agents() -> JSONResponse:
-        """List agents currently disabled (not routed to)."""
-        return JSONResponse(content={"disabled_agents": orchestrator.list_disabled_agents()})
-
-    # ── Unified Reviews Endpoint ────────────────────────────────
-
-    @app.get("/reviews/pending", dependencies=control_plane_dependencies)
-    async def reviews_pending() -> JSONResponse:
-        """Unified view of ALL pending HITL reviews across every gate.
-
-        The Inspector polls this endpoint to show the notification
-        badge and populate the HITL review panel.
-        """
-        reviews: list[dict[str, Any]] = []
-
-        # Plan & Sub-Plan HITL
-        if plan_selector is not None:
-            reviews.extend({"type": "plan", **r} for r in plan_selector.pending_plan_reviews())
-            reviews.extend({"type": "sub_plan", **r} for r in plan_selector.pending_resource_reviews())
-
-        # WorkIQ HITL
-        if workiq_selector is not None:
-            reviews.extend({"type": "workiq", **r} for r in workiq_selector.pending_requests())
-            reviews.extend({"type": "workiq_hints", **r} for r in workiq_selector.pending_routing_hint_requests())
-
-        # Governance HITL
-        if governance_selector is not None:
-            reviews.extend({"type": "governance_context", **r} for r in governance_selector.pending_context_reviews())
-            reviews.extend({"type": "governance_skill", **r} for r in governance_selector.pending_skill_reviews())
-            reviews.extend(
-                {"type": "governance_lifecycle", **r} for r in governance_selector.pending_lifecycle_reviews()
-            )
-
-        return JSONResponse(content={"pending": reviews, "count": len(reviews)})
-
-    # ── Health & Status ─────────────────────────────────────────
-
-    @app.get("/health")
-    async def health() -> JSONResponse:
-        """Health check endpoint."""
-        return JSONResponse(
-            content={
-                "status": "healthy",
-                "orchestrator": orchestrator.get_status(),
-                "mcp": mcp_server.get_status(),
-                "catalog": catalog.get_status(),
-            }
-        )
-
-    # ── Agent Inspector ─────────────────────────────────────────
-
-    @app.get("/inspector", response_class=HTMLResponse)
-    async def inspector() -> HTMLResponse:
-        """Agent Inspector — debugging dashboard.
-
-        HTML is loaded from ``src/templates/inspector.html`` (extracted to
-        keep this module focused on route definitions).
-        """
-        html_path = Path(__file__).parent / "templates" / "inspector.html"
-        return HTMLResponse(
-            content=html_path.read_text(encoding="utf-8"),
-            headers={"Cache-Control": "no-store"},
-        )
+    register_chat_routes(
+        app,
+        orchestrator=orchestrator,
+        plan_selector=plan_selector,
+        governance_selector=governance_selector,
+        chat_tasks=_chat_tasks,
+        chat_cleanup_tasks=_chat_cleanup_tasks,
+        cleanup_chat_task=_cleanup_chat_task,
+    )
+
+    register_core_routes(
+        app,
+        mcp_server=mcp_server,
+        catalog=catalog,
+        workflow_engine=workflow_engine,
+        control_plane_dependencies=control_plane_dependencies,
+    )
+
+    register_workiq_and_plan_routes(
+        app,
+        orchestrator=orchestrator,
+        workiq_selector=workiq_selector,
+        plan_selector=plan_selector,
+    )
+
+    register_github_routes(
+        app,
+        orchestrator=orchestrator,
+        control_plane_dependencies=control_plane_dependencies,
+    )
+
+    register_governance_routes(
+        app,
+        orchestrator=orchestrator,
+        governance_selector=governance_selector,
+        plan_selector=plan_selector,
+        workiq_selector=workiq_selector,
+        control_plane_dependencies=control_plane_dependencies,
+    )
+
+    register_system_routes(
+        app,
+        orchestrator=orchestrator,
+        mcp_server=mcp_server,
+        catalog=catalog,
+        templates_dir=Path(__file__).parent / "templates",
+    )
 
     return app
