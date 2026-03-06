@@ -152,6 +152,35 @@ class WorkflowEngine:
             for w in self._workflows.values()
         ]
 
+    async def _execute_step_prompt(
+        self,
+        *,
+        workflow_name: str,
+        step: WorkflowStep,
+        prompt: str,
+    ) -> str:
+        """Execute one workflow step, preferring explicit agent targeting."""
+        dispatch = getattr(self._orchestrator, "_dispatch", None)
+        context = getattr(self._orchestrator, "context", None)
+        router = getattr(self._orchestrator, "_router", None)
+
+        if callable(dispatch) and context is not None and router is not None:
+            from src.orchestrator.router import RoutingDecision
+
+            routing = RoutingDecision(
+                primary_agent=step.agent_type,
+                secondary_agents=[],
+                confidence=1.0,
+                reasoning=f"workflow:{workflow_name}:{step.name}",
+                extracted_params=step.params,
+            )
+            targeted_result = await dispatch(step.agent_type, prompt, routing, context)
+            return targeted_result.content
+
+        # Fallback for lightweight mocks/adapters that only expose process().
+        result, _ctx = await self._orchestrator.process(prompt)
+        return result
+
     async def execute(
         self,
         workflow_name: str,
@@ -194,7 +223,11 @@ class WorkflowEngine:
                 )
 
                 try:
-                    result, _ctx = await self._orchestrator.process(prompt)
+                    result = await self._execute_step_prompt(
+                        workflow_name=workflow_name,
+                        step=step,
+                        prompt=prompt,
+                    )
                     results[step.name] = {
                         "content": result,
                         "status": "completed",

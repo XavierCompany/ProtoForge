@@ -13,6 +13,20 @@ Version numbering follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ---
 
+## [Unreleased]
+
+### Added
+- `src/orchestrator/input_guardrails.py` — centralized user-input sanitization with control-character stripping, configurable input-length cap, and prompt-injection heuristics.
+- `src/orchestrator/hitl_utils.py` — shared `wait_for_resolution()` helper used by Plan, WorkIQ, and Governance selectors for consistent timeout/cancellation handling.
+- New server-side task state typing (`ChatTaskState`) and task-scoped `ConversationContext` storage for non-blocking chat status polling.
+- Regression tests for guardrails, enrichment fallback context handling, and task-scoped `/chat/status` phase isolation.
+
+### Changed
+- `OrchestratorEngine.process()` and `process_with_enrichment()` now accept optional request-scoped contexts (`ctx`) and apply guardrails before routing and LLM interaction.
+- WorkIQ-enriched flow now records explicit pre-routing phases (`workiq_query`, `workiq_content_review`, `workiq_keyword_extract`, `workiq_hint_review`) in context memory.
+- `GET /chat/status/{task_id}` now reports `pipeline_phase` from the task’s own context instead of the engine-global context, eliminating cross-request phase leakage.
+- Updated architecture and operations docs (`ARCHITECTURE.md`, `GUIDE2.md`, `MAINTENANCE.md`, `TODO.md`) to reflect security controls and current HITL/guardrail behavior.
+
 ## [0.1.1] — 2026-02-23
 
 ### Added

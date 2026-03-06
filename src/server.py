@@ -47,13 +47,15 @@ import contextlib
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import structlog
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
+
+from src.orchestrator.context import ConversationContext
 
 logger = structlog.get_logger(__name__)
 
@@ -84,8 +86,21 @@ class ChatAsyncResponse(BaseModel):
     pending_reviews: list[dict[str, Any]] = []
 
 
+class ChatTaskState(TypedDict, total=False):
+    """In-memory state for a non-blocking chat request."""
+
+    status: str
+    created_at: float
+    message: str
+    response: str | None
+    session_id: str | None
+    error: str | None
+    context: ConversationContext
+    _task_ref: asyncio.Task[None]
+
+
 # Background chat task tracking
-_chat_tasks: dict[str, dict[str, Any]] = {}
+_chat_tasks: dict[str, ChatTaskState] = {}
 _chat_cleanup_tasks: set[asyncio.Task[None]] = set()  # prevent GC of cleanup tasks
 _CHAT_TASK_TTL: float = 300.0  # seconds to keep completed tasks before eviction
 
@@ -218,6 +233,11 @@ def create_app(
     workiq_selector: Any | None = None,
     plan_selector: Any | None = None,
     governance_selector: Any | None = None,
+    *,
+    require_control_plane_api_key: bool = False,
+    control_plane_api_key: str | None = None,
+    cors_allowed_origins: list[str] | None = None,
+    cors_allow_credentials: bool = True,
 ) -> FastAPI:
     """Create the FastAPI application with all routes wired up.
 
@@ -244,6 +264,11 @@ def create_app(
         workiq_selector: Optional WorkIQSelector for enriched pipeline
         plan_selector: Optional PlanSelector for plan/sub-plan HITL
         governance_selector: Optional GovernanceSelector for governance HITL
+        require_control_plane_api_key: when true, sensitive control-plane
+            endpoints require ``X-API-Key``.
+        control_plane_api_key: shared secret value for ``X-API-Key`` auth.
+        cors_allowed_origins: allowed CORS origins (defaults to wildcard).
+        cors_allow_credentials: whether CORS credentials are allowed.
     """
 
     app = FastAPI(
@@ -252,13 +277,39 @@ def create_app(
         version="0.1.1",
     )
 
+    effective_origins = cors_allowed_origins or ["*"]
+    effective_allow_credentials = cors_allow_credentials
+    if "*" in effective_origins and cors_allow_credentials:
+        effective_allow_credentials = False
+        logger.warning(
+            "cors_credentials_disabled_for_wildcard_origin",
+            reason="wildcard origins cannot be used with credentialed requests safely",
+        )
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=effective_origins,
+        allow_credentials=effective_allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    control_plane_dependencies: list[Any] = []
+    if require_control_plane_api_key:
+
+        async def _require_control_plane_access(
+            x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        ) -> None:
+            if not control_plane_api_key:
+                logger.error("control_plane_auth_misconfigured")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Control-plane authentication is misconfigured",
+                )
+            if x_api_key != control_plane_api_key:
+                raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+        control_plane_dependencies = [Depends(_require_control_plane_access)]
 
     # ── Chat Endpoint (Non-blocking) ─────────────────────────────
 
@@ -279,11 +330,13 @@ def create_app(
             "response": None,
             "session_id": request.session_id,
             "error": None,
+            "context": ConversationContext(),
         }
 
         async def _run_chat(tid: str, msg: str) -> None:
             try:
-                result, ctx = await orchestrator.process(msg)
+                task_ctx = _chat_tasks[tid]["context"]
+                result, ctx = await orchestrator.process(msg, ctx=task_ctx)
                 _chat_tasks[tid]["status"] = "completed"
                 _chat_tasks[tid]["response"] = result
                 _chat_tasks[tid]["session_id"] = ctx.session_id
@@ -340,10 +393,12 @@ def create_app(
 
         elapsed = time.time() - task["created_at"]
 
-        # Get current pipeline phase from the orchestrator's latest context
+        # Get current pipeline phase from this task's own context
         phase = None
         with contextlib.suppress(Exception):
-            phase = orchestrator.context.get_memory("pipeline_phase")
+            task_ctx = task.get("context")
+            if isinstance(task_ctx, ConversationContext):
+                phase = task_ctx.get_memory("pipeline_phase")
 
         return JSONResponse(
             content={
@@ -383,11 +438,13 @@ def create_app(
             "response": None,
             "session_id": request.session_id,
             "error": None,
+            "context": ConversationContext(),
         }
 
         async def _run_enriched(tid: str, msg: str) -> None:
             try:
-                result, ctx = await orchestrator.process_with_enrichment(msg)
+                task_ctx = _chat_tasks[tid]["context"]
+                result, ctx = await orchestrator.process_with_enrichment(msg, ctx=task_ctx)
                 _chat_tasks[tid]["status"] = "completed"
                 _chat_tasks[tid]["response"] = result
                 _chat_tasks[tid]["session_id"] = ctx.session_id
@@ -472,7 +529,7 @@ def create_app(
         """List all available workflows."""
         return JSONResponse(content=workflow_engine.list_workflows())
 
-    @app.post("/workflows/run")
+    @app.post("/workflows/run", dependencies=control_plane_dependencies)
     async def run_workflow(request: WorkflowRunRequest) -> JSONResponse:
         """Execute a workflow by name."""
         result = await workflow_engine.execute(
@@ -696,7 +753,35 @@ def create_app(
 
     # ── GitHub Tracker Endpoints ────────────────────────────────
 
-    @app.post("/github/document-commit")
+    async def _dispatch_github_tracker(
+        *,
+        message: str,
+        params: dict[str, Any],
+        repo: str | None = None,
+    ) -> JSONResponse:
+        """Execute GitHub tracker actions through orchestrator dispatch."""
+        from src.orchestrator.router import RoutingDecision
+
+        if not hasattr(orchestrator, "_dispatch"):
+            return JSONResponse(
+                status_code=501,
+                content={"error": "Orchestrator dispatch is not available"},
+            )
+
+        ctx = ConversationContext()
+        if repo:
+            ctx.set_memory("github_repo", repo)
+
+        routing = RoutingDecision(
+            primary_agent="github_tracker",
+            confidence=1.0,
+            reasoning="github_endpoint_dispatch",
+            extracted_params=params,
+        )
+        result = await orchestrator._dispatch("github_tracker", message, routing, ctx)
+        return JSONResponse(content={"result": result.content, "artifacts": result.artifacts})
+
+    @app.post("/github/document-commit", dependencies=control_plane_dependencies)
     async def github_document_commit(request: GitHubDocumentCommitRequest) -> JSONResponse:
         """Classify and document a git commit.
 
@@ -704,20 +789,8 @@ def create_app(
         Conventional Commits message, change-type classification, scope
         detection, impact assessment, and suggested GitHub labels.
         """
-        from src.agents.github_tracker_agent import GitHubTrackerAgent
-        from src.orchestrator.context import ConversationContext
-
-        ctx = ConversationContext()
-        if request.repo:
-            ctx.set_memory("github_repo", request.repo)
-
-        agent = orchestrator.get_agent("github_tracker")
-        if agent is None or not isinstance(agent, GitHubTrackerAgent):
-            agent = GitHubTrackerAgent()
-
-        result = await agent.execute(
+        return await _dispatch_github_tracker(
             message=request.commit_message or "Document this commit",
-            context=ctx,
             params={
                 "action": "document_commit",
                 "commit_sha": request.commit_sha,
@@ -725,30 +798,18 @@ def create_app(
                 "diff": request.diff,
                 "repo": request.repo,
             },
+            repo=request.repo,
         )
-        return JSONResponse(content={"result": result.content, "artifacts": result.artifacts})
 
-    @app.post("/github/manage-issue")
+    @app.post("/github/manage-issue", dependencies=control_plane_dependencies)
     async def github_manage_issue(request: GitHubManageIssueRequest) -> JSONResponse:
         """Create, update, close, or comment on a GitHub issue.
 
         Generates structured issue bodies with Conventional Commits
         classification, auto-labels, and cross-references.
         """
-        from src.agents.github_tracker_agent import GitHubTrackerAgent
-        from src.orchestrator.context import ConversationContext
-
-        ctx = ConversationContext()
-        if request.repo:
-            ctx.set_memory("github_repo", request.repo)
-
-        agent = orchestrator.get_agent("github_tracker")
-        if agent is None or not isinstance(agent, GitHubTrackerAgent):
-            agent = GitHubTrackerAgent()
-
-        result = await agent.execute(
+        return await _dispatch_github_tracker(
             message=request.body or request.title or "Manage issue",
-            context=ctx,
             params={
                 "action": "manage_issue",
                 "issue_action": request.action,
@@ -759,10 +820,10 @@ def create_app(
                 "labels": request.labels,
                 "commit_sha": request.commit_sha,
             },
+            repo=request.repo,
         )
-        return JSONResponse(content={"result": result.content, "artifacts": result.artifacts})
 
-    @app.post("/github/changelog")
+    @app.post("/github/changelog", dependencies=control_plane_dependencies)
     async def github_changelog(request: GitHubChangelogRequest) -> JSONResponse:
         """Generate a grouped changelog from commit history.
 
@@ -770,20 +831,8 @@ def create_app(
         grouped into Markdown sections suitable for CHANGELOG.md or
         GitHub release notes.
         """
-        from src.agents.github_tracker_agent import GitHubTrackerAgent
-        from src.orchestrator.context import ConversationContext
-
-        ctx = ConversationContext()
-        if request.repo:
-            ctx.set_memory("github_repo", request.repo)
-
-        agent = orchestrator.get_agent("github_tracker")
-        if agent is None or not isinstance(agent, GitHubTrackerAgent):
-            agent = GitHubTrackerAgent()
-
-        result = await agent.execute(
+        return await _dispatch_github_tracker(
             message="Generate changelog",
-            context=ctx,
             params={
                 "action": "changelog",
                 "from_ref": request.from_ref,
@@ -791,12 +840,12 @@ def create_app(
                 "version": request.version,
                 "repo": request.repo,
             },
+            repo=request.repo,
         )
-        return JSONResponse(content={"result": result.content, "artifacts": result.artifacts})
 
     # ── Governance Endpoints ───────────────────────────────────────
 
-    @app.get("/governance/status")
+    @app.get("/governance/status", dependencies=control_plane_dependencies)
     async def governance_status() -> JSONResponse:
         """Return the current governance report (token usage, alerts, skill violations)."""
         gov = getattr(orchestrator, "_governance", None)
@@ -806,7 +855,7 @@ def create_app(
         report["enabled"] = True
         return JSONResponse(content=report)
 
-    @app.get("/governance/alerts")
+    @app.get("/governance/alerts", dependencies=control_plane_dependencies)
     async def governance_alerts() -> JSONResponse:
         """List all unresolved governance alerts."""
         gov = getattr(orchestrator, "_governance", None)
@@ -830,7 +879,7 @@ def create_app(
             }
         )
 
-    @app.post("/governance/resolve-alert")
+    @app.post("/governance/resolve-alert", dependencies=control_plane_dependencies)
     async def governance_resolve_alert(
         request: GovernanceAlertResolveRequest,
     ) -> JSONResponse:
@@ -855,14 +904,14 @@ def create_app(
             }
         )
 
-    @app.get("/governance/context-reviews")
+    @app.get("/governance/context-reviews", dependencies=control_plane_dependencies)
     async def governance_context_reviews() -> JSONResponse:
         """List pending context window HITL reviews."""
         if governance_selector is None:
             return JSONResponse(content={"pending": []})
         return JSONResponse(content={"pending": governance_selector.pending_context_reviews()})
 
-    @app.post("/governance/context-reviews/resolve")
+    @app.post("/governance/context-reviews/resolve", dependencies=control_plane_dependencies)
     async def governance_resolve_context(
         request: GovernanceContextResolveRequest,
     ) -> JSONResponse:
@@ -890,14 +939,14 @@ def create_app(
             }
         )
 
-    @app.get("/governance/skill-reviews")
+    @app.get("/governance/skill-reviews", dependencies=control_plane_dependencies)
     async def governance_skill_reviews() -> JSONResponse:
         """List pending skill cap HITL reviews."""
         if governance_selector is None:
             return JSONResponse(content={"pending": []})
         return JSONResponse(content={"pending": governance_selector.pending_skill_reviews()})
 
-    @app.post("/governance/skill-reviews/resolve")
+    @app.post("/governance/skill-reviews/resolve", dependencies=control_plane_dependencies)
     async def governance_resolve_skill(
         request: GovernanceSkillResolveRequest,
     ) -> JSONResponse:
@@ -930,14 +979,14 @@ def create_app(
 
     # ── Agent Lifecycle (HITL) ──────────────────────────────────
 
-    @app.get("/governance/lifecycle-reviews")
+    @app.get("/governance/lifecycle-reviews", dependencies=control_plane_dependencies)
     async def governance_lifecycle_reviews() -> JSONResponse:
         """List pending agent lifecycle HITL reviews (disable/remove)."""
         if governance_selector is None:
             return JSONResponse(content={"pending": []})
         return JSONResponse(content={"pending": governance_selector.pending_lifecycle_reviews()})
 
-    @app.post("/governance/lifecycle-reviews/resolve")
+    @app.post("/governance/lifecycle-reviews/resolve", dependencies=control_plane_dependencies)
     async def governance_resolve_lifecycle(
         request: GovernanceLifecycleResolveRequest,
     ) -> JSONResponse:
@@ -965,7 +1014,7 @@ def create_app(
             }
         )
 
-    @app.post("/agents/{agent_id}/disable")
+    @app.post("/agents/{agent_id}/disable", dependencies=control_plane_dependencies)
     async def disable_agent(agent_id: str) -> JSONResponse:
         """Request disabling an agent (triggers HITL review).
 
@@ -981,7 +1030,7 @@ def create_app(
                 content={"error": f"Agent '{agent_id}' not found"},
             )
 
-    @app.post("/agents/{agent_id}/enable")
+    @app.post("/agents/{agent_id}/enable", dependencies=control_plane_dependencies)
     async def enable_agent(agent_id: str) -> JSONResponse:
         """Re-enable a previously disabled agent (no HITL required)."""
         try:
@@ -993,7 +1042,7 @@ def create_app(
                 content={"error": f"Agent '{agent_id}' not found"},
             )
 
-    @app.delete("/agents/{agent_id}")
+    @app.delete("/agents/{agent_id}", dependencies=control_plane_dependencies)
     async def remove_agent(agent_id: str) -> JSONResponse:
         """Request removal of an agent (triggers HITL review).
 
@@ -1009,19 +1058,19 @@ def create_app(
                 content={"error": f"Agent '{agent_id}' not found"},
             )
 
-    @app.get("/agents/enabled")
+    @app.get("/agents/enabled", dependencies=control_plane_dependencies)
     async def list_enabled_agents() -> JSONResponse:
         """List agents currently enabled for routing and dispatch."""
         return JSONResponse(content={"enabled_agents": orchestrator.list_enabled_agents()})
 
-    @app.get("/agents/disabled")
+    @app.get("/agents/disabled", dependencies=control_plane_dependencies)
     async def list_disabled_agents() -> JSONResponse:
         """List agents currently disabled (not routed to)."""
         return JSONResponse(content={"disabled_agents": orchestrator.list_disabled_agents()})
 
     # ── Unified Reviews Endpoint ────────────────────────────────
 
-    @app.get("/reviews/pending")
+    @app.get("/reviews/pending", dependencies=control_plane_dependencies)
     async def reviews_pending() -> JSONResponse:
         """Unified view of ALL pending HITL reviews across every gate.
 

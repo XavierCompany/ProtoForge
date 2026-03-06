@@ -110,9 +110,10 @@ activates if the manifest fails to load.
 |-----------|-----------------|------------------------|
 | API keys, model names | `.env` file → loaded by `pydantic-settings` | `src/config.py` (`Settings` class) defines defaults |
 | LLM model name | `Settings.openai_model` in `src/config.py` | Speculative defaults (`claude-opus-4.6`, etc.) — update when wiring LLM |
-| Server port | `Settings.server_port` in `src/config.py` (default: `8080`) | None |
-| Log level | `Settings.log_level` in `src/config.py` (default: `INFO`) | None |
-| Forge directory path | `Settings.forge_dir` in `src/config.py` (default: `forge`) | None |
+| Server networking + auth guard | `Settings.server` in `src/config.py` (`port`, `require_control_plane_api_key`, `control_plane_api_key`, CORS settings) | Env vars (`SERVER_*`) |
+| Input guardrail config | `Settings.server.max_user_input_chars`, `Settings.server.prompt_injection_guard_enabled` | Applied in `engine.py` via `sanitize_user_message()` |
+| Log level | `Settings.observability.log_level` in `src/config.py` (default: `INFO`) | Env var `LOG_LEVEL` |
+| Forge directory path | `Settings.forge.forge_dir` in `src/config.py` (default: `forge`) | Env var `FORGE_DIR` |
 
 ### Drift risk
 
@@ -128,7 +129,7 @@ the Azure deployment uses `gpt-5.2-chat` via `DefaultAzureCredential`.
 |-----------|-----------------|------------------------|
 | Governance rules | `src/governance/guardian.py` — `GovernanceGuardian` class | Thresholds loaded from `_context_window.yaml` at runtime |
 | `count_tokens()` public API | `src/governance/guardian.py` — `GovernanceGuardian.count_tokens()` | Called by `engine.py` (replaces direct `_budget_manager` access — P0-3) |
-| HITL selector pattern | No formal interface | Implementations: `PlanSelector`, `GovernanceSelector`, `WorkIQSelector` (see TODO P2-13) |
+| HITL wait/timeout contract | `src/orchestrator/hitl_utils.py` — `wait_for_resolution()` | Called by `PlanSelector`, `GovernanceSelector`, and `WorkIQSelector` |
 | Agent lifecycle HITL | `src/governance/selector.py` — `AgentLifecycleReview` dataclass + 6 lifecycle methods | Consumed by `OrchestratorEngine.disable_agent()`, `unregister_agent()`. Fail-CLOSED on timeout. |
 | Agent lifecycle management | `src/orchestrator/engine.py` — `disable_agent()`, `enable_agent()`, `unregister_agent()`, `list_enabled_agents()`, `list_disabled_agents()` | Exposed via `server.py` HTTP endpoints. `enable_agent()` has no HITL gate. |
 | Alert counter / IDs | `GovernanceGuardian._alert_counter` | Used for both alert IDs and suggestion IDs |
@@ -191,4 +192,4 @@ When you make a change to ProtoForge:
 
 ---
 
-*Last updated: 2026-02-23 — ProtoForge v0.1.1*
+*Last updated: 2026-03-06 — ProtoForge v0.1.1*

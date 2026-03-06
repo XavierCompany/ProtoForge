@@ -40,6 +40,7 @@ import structlog
 from src.config import get_settings
 from src.governance.guardian import ContextWindowExceededError
 from src.orchestrator.context import AgentResult, ConversationContext
+from src.orchestrator.input_guardrails import sanitize_user_message
 from src.orchestrator.router import AgentType, IntentRouter, RoutingDecision
 
 if TYPE_CHECKING:
@@ -258,20 +259,35 @@ class OrchestratorEngine:
         if self._governance:
             self._governance.reset_run()
 
-    async def process(self, user_message: str) -> tuple[str, ConversationContext]:
-        """Process a user message through the Plan-first orchestration pipeline.
+    def _prepare_request_context(
+        self,
+        user_message: str,
+        *,
+        ctx: ConversationContext | None = None,
+    ) -> tuple[str, ConversationContext]:
+        """Sanitize inbound user text and initialize request-scoped context."""
+        request_ctx = ctx or ConversationContext()
+        sanitized = sanitize_user_message(
+            user_message,
+            max_chars=self._settings.server.max_user_input_chars,
+            prompt_injection_guard_enabled=self._settings.server.prompt_injection_guard_enabled,
+        )
+        request_ctx.add_user_message(sanitized.content)
+        request_ctx.set_memory("input_guardrails", sanitized.to_memory())
+        self._context = request_ctx  # compatibility: exposes latest active context
 
-        Flow:
-        1. Add message to conversation context
-        2. Route intent (keyword + optional LLM) to identify target sub-agents
-        3. Delegate to ``_process_after_routing`` for Plan → Sub-Plan → fan-out → aggregate
+        if sanitized.flags:
+            logger.warning(
+                "input_guardrails_triggered",
+                flags=sanitized.flags,
+                sanitized_length=len(sanitized.content),
+            )
 
-        Returns a tuple of (response_str, context) where context is per-request.
-        """
-        ctx = ConversationContext()
-        ctx.add_user_message(user_message)
+        return sanitized.content, request_ctx
+
+    async def _process_standard_pipeline(self, user_message: str, ctx: ConversationContext) -> str:
+        """Run the standard keyword/LLM routing path before plan-first dispatch."""
         ctx.set_memory("pipeline_phase", "routing")
-        self._context = ctx  # expose active context for status polling
 
         # Reset governance counters for this new orchestration run
         if self._governance:
@@ -286,12 +302,35 @@ class OrchestratorEngine:
             reasoning=routing.reasoning,
         )
 
-        result = await self._process_after_routing(user_message, routing, ctx)
-        return result, ctx
+        return await self._process_after_routing(user_message, routing, ctx)
+
+    async def process(
+        self,
+        user_message: str,
+        *,
+        ctx: ConversationContext | None = None,
+    ) -> tuple[str, ConversationContext]:
+        """Process a user message through the Plan-first orchestration pipeline.
+
+        Flow:
+        1. Add message to conversation context
+        2. Route intent (keyword + optional LLM) to identify target sub-agents
+        3. Delegate to ``_process_after_routing`` for Plan → Sub-Plan → fan-out → aggregate
+
+        Returns a tuple of (response_str, context) where context is per-request.
+        """
+        sanitized_message, request_ctx = self._prepare_request_context(user_message, ctx=ctx)
+        result = await self._process_standard_pipeline(sanitized_message, request_ctx)
+        return result, request_ctx
 
     # ── WorkIQ-enriched routing ─────────────────────────────────────────
 
-    async def process_with_enrichment(self, user_message: str) -> tuple[str, ConversationContext]:
+    async def process_with_enrichment(
+        self,
+        user_message: str,
+        *,
+        ctx: ConversationContext | None = None,
+    ) -> tuple[str, ConversationContext]:
         """Full pipeline: WorkIQ → HITL content → HITL keywords → enriched routing.
 
         This is the preferred entry-point when WorkIQ enrichment is desired.
@@ -300,28 +339,24 @@ class OrchestratorEngine:
 
         Returns a tuple of (response_str, context) where context is per-request.
         """
+        sanitized_message, request_ctx = self._prepare_request_context(user_message, ctx=ctx)
+
         if not self._workiq_client or not self._workiq_selector:
             logger.debug("workiq_enrichment_skipped", reason="not configured")
-            return await self.process(user_message)
-
-        ctx = ConversationContext()
-        ctx.add_user_message(user_message)
+            result = await self._process_standard_pipeline(sanitized_message, request_ctx)
+            return result, request_ctx
 
         # Reset governance counters for this new orchestration run
         if self._governance:
             self._governance.reset_run()
 
         # Phase 0 — query Work IQ for organisational context
-        workiq_result = await self._workiq_client.ask(user_message)
+        request_ctx.set_memory("pipeline_phase", "workiq_query")
+        workiq_result = await self._workiq_client.ask(sanitized_message)
         if not workiq_result.ok:
             logger.warning("workiq_enrichment_failed", error=workiq_result.error)
-            result = await self._process_after_routing(
-                user_message,
-                self._router.route_by_keywords(user_message),
-                ctx,
-            )
-            self._context = ctx
-            return result, ctx
+            result = await self._process_standard_pipeline(sanitized_message, request_ctx)
+            return result, request_ctx
 
         # Phase 1 — HITL: user selects relevant content sections
         content_req_id = str(uuid.uuid4())
@@ -329,34 +364,26 @@ class OrchestratorEngine:
 
         try:
             if not content_req.resolved:
-                ctx.set_memory("workiq_content_pending", content_req_id)
+                request_ctx.set_memory("pipeline_phase", "workiq_content_review")
+                request_ctx.set_memory("workiq_content_pending", content_req_id)
                 content_req = await self._workiq_selector.wait_for_selection(content_req_id)
 
             selected_text = self._workiq_selector.selected_content(content_req_id)
-            ctx.set_memory("workiq_selected_content", selected_text)
+            request_ctx.set_memory("workiq_selected_content", selected_text)
 
             if not selected_text:
                 logger.info("workiq_enrichment_empty_selection")
-                result = await self._process_after_routing(
-                    user_message,
-                    self._router.route_by_keywords(user_message),
-                    ctx,
-                )
-                self._context = ctx
-                return result, ctx
+                result = await self._process_standard_pipeline(sanitized_message, request_ctx)
+                return result, request_ctx
 
             # Phase 2 — extract routing keywords from selected content
+            request_ctx.set_memory("pipeline_phase", "workiq_keyword_extract")
             hints = self._router.extract_routing_keywords(selected_text)
 
             if not hints:
                 logger.info("workiq_no_routing_keywords")
-                result = await self._process_after_routing(
-                    user_message,
-                    self._router.route_by_keywords(user_message),
-                    ctx,
-                )
-                self._context = ctx
-                return result, ctx
+                result = await self._process_standard_pipeline(sanitized_message, request_ctx)
+                return result, request_ctx
 
             # Phase 2b — HITL: user selects which keyword hints to accept
             hint_req_id = str(uuid.uuid4())
@@ -364,17 +391,19 @@ class OrchestratorEngine:
 
             try:
                 if not hint_req.resolved:
-                    ctx.set_memory("workiq_hints_pending", hint_req_id)
+                    request_ctx.set_memory("pipeline_phase", "workiq_hint_review")
+                    request_ctx.set_memory("workiq_hints_pending", hint_req_id)
                     hint_req = await self._workiq_selector.wait_for_routing_hints(hint_req_id)
 
                 accepted = self._workiq_selector.accepted_routing_hints(hint_req_id)
-                ctx.set_memory(
+                request_ctx.set_memory(
                     "workiq_accepted_hints",
                     [{"agent": h.agent_id, "keyword": h.keyword} for h in accepted],
                 )
 
                 # Phase 3 — enriched routing
-                routing = self._router.route_with_context(user_message, accepted)
+                request_ctx.set_memory("pipeline_phase", "routing")
+                routing = self._router.route_with_context(sanitized_message, accepted)
                 logger.info(
                     "enriched_intent_routed",
                     primary=routing.primary_agent,
@@ -383,9 +412,8 @@ class OrchestratorEngine:
                     hint_count=len(accepted),
                 )
 
-                result = await self._process_after_routing(user_message, routing, ctx)
-                self._context = ctx
-                return result, ctx
+                result = await self._process_after_routing(sanitized_message, routing, request_ctx)
+                return result, request_ctx
             finally:
                 self._workiq_selector.cleanup_routing_hints(hint_req_id)
         finally:
@@ -418,6 +446,10 @@ class OrchestratorEngine:
         plan_result = await self._dispatch(AgentType.PLAN, user_message, routing, ctx)
         ctx.set_memory("plan_output", plan_result.content)
         ctx.set_memory("plan_artifacts", plan_result.artifacts)
+        if (plan_result.artifacts or {}).get("hard_cap_exceeded"):
+            ctx.set_memory("pipeline_phase", "aborted_hard_cap")
+            logger.warning("pipeline_aborted_hard_cap", phase="plan_agent")
+            return plan_result.content
 
         # Plan HITL + Sub-Plan Agent + Sub-Plan HITL
         ctx.set_memory("pipeline_phase", "plan_review")
@@ -427,6 +459,10 @@ class OrchestratorEngine:
             routing,
             ctx,
         )
+        if sub_plan_result and (sub_plan_result.artifacts or {}).get("hard_cap_exceeded"):
+            ctx.set_memory("pipeline_phase", "aborted_hard_cap")
+            logger.warning("pipeline_aborted_hard_cap", phase="sub_plan")
+            return sub_plan_result.content
 
         # Determine sub-agents to invoke (from routing, excluding PLAN/SUB_PLAN)
         sub_agents = self._resolve_sub_agents(routing)
@@ -446,6 +482,14 @@ class OrchestratorEngine:
         sub_results: list[AgentResult] = []
         if sub_agents:
             sub_results = await self._fan_out(sub_agents, user_message, routing, ctx)
+            hard_cap_result = next(
+                (r for r in sub_results if (r.artifacts or {}).get("hard_cap_exceeded")),
+                None,
+            )
+            if hard_cap_result:
+                ctx.set_memory("pipeline_phase", "aborted_hard_cap")
+                logger.warning("pipeline_aborted_hard_cap", phase="fan_out", agent_id=hard_cap_result.agent_id)
+                return hard_cap_result.content
 
         # Aggregate Plan + Sub-Plan + sub-agent results
         ctx.set_memory("pipeline_phase", "complete")
@@ -536,6 +580,8 @@ class OrchestratorEngine:
 
             # ── Phase B: Sub-Plan HITL ──────────────────────────────────
             sub_plan_artifacts = sub_plan_result.artifacts or {}
+            if sub_plan_artifacts.get("hard_cap_exceeded"):
+                return sub_plan_result
             resources = sub_plan_artifacts.get("resources", [])
 
             if self._plan_selector:
@@ -662,6 +708,11 @@ class OrchestratorEngine:
                         f"Agent '{agent_id}' dispatch aborted. Decompose the task."
                     ),
                     confidence=0.0,
+                    artifacts={
+                        "hard_cap_exceeded": True,
+                        "hard_cap": self._governance.hard_cap,
+                        "agent_id": str(agent_id),
+                    },
                 )
             else:
                 if alert:

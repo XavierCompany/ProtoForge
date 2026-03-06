@@ -235,9 +235,23 @@ def bootstrap() -> tuple:
             except Exception:
                 logger.debug("forge_workflow_load_failed", source=source)
 
+    cors_allowed_origins = [o.strip() for o in settings.server.cors_allowed_origins.split(",") if o.strip()]
+    if not cors_allowed_origins:
+        cors_allowed_origins = ["*"]
+
     # 6. Create FastAPI app
     app = create_app(
-        orchestrator, mcp_server, catalog, workflow_engine, workiq_selector, plan_selector, governance_selector
+        orchestrator,
+        mcp_server,
+        catalog,
+        workflow_engine,
+        workiq_selector,
+        plan_selector,
+        governance_selector,
+        require_control_plane_api_key=settings.server.require_control_plane_api_key,
+        control_plane_api_key=settings.server.control_plane_api_key,
+        cors_allowed_origins=cors_allowed_origins,
+        cors_allow_credentials=settings.server.cors_allow_credentials,
     )
 
     logger.info(

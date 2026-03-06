@@ -4,7 +4,7 @@ import pytest
 
 from src.mcp.skills import Skill
 from src.registry.catalog import AgentCatalog, AgentRegistration, CatalogEntry
-from src.registry.workflows import Workflow, WorkflowStep
+from src.registry.workflows import Workflow, WorkflowEngine, WorkflowStep
 
 
 class TestAgentCatalog:
@@ -157,3 +157,74 @@ class TestWorkflow:
         first_wave_names = {s.name for s in waves[0]}
         assert first_wave_names == {"a", "b"}
         assert waves[1][0].name == "c"
+
+
+class TestWorkflowEngine:
+    @pytest.mark.asyncio
+    async def test_execute_targets_declared_agent_type(self) -> None:
+        from src.orchestrator.context import AgentResult, ConversationContext
+
+        class FakeOrchestrator:
+            def __init__(self) -> None:
+                self.context = ConversationContext()
+                self._router = object()
+                self.dispatch_calls: list[tuple[str, str, str]] = []
+                self.process_calls: list[str] = []
+
+            async def _dispatch(self, agent_id, message, routing, _ctx):
+                self.dispatch_calls.append((agent_id, message, routing.primary_agent))
+                return AgentResult(agent_id=agent_id, content=f"{agent_id}:{message}", confidence=1.0)
+
+            async def process(self, prompt: str):
+                self.process_calls.append(prompt)
+                return f"process:{prompt}", self.context
+
+        orchestrator = FakeOrchestrator()
+        engine = WorkflowEngine(orchestrator)
+        engine.register_workflow(
+            Workflow(
+                name="wf",
+                description="test",
+                steps=[
+                    WorkflowStep(
+                        name="scan",
+                        agent_type="security_sentinel",
+                        prompt_template="scan {target}",
+                        params={"severity": "high"},
+                    )
+                ],
+            )
+        )
+
+        result = await engine.execute("wf", initial_params={"target": "repo"})
+        assert result["steps_completed"] == 1
+        assert orchestrator.dispatch_calls == [("security_sentinel", "scan repo", "security_sentinel")]
+        assert orchestrator.process_calls == []
+        assert result["results"]["scan"]["agent_type"] == "security_sentinel"
+        assert result["results"]["scan"]["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_execute_falls_back_to_process_when_dispatch_unavailable(self) -> None:
+        class ProcessOnlyOrchestrator:
+            def __init__(self) -> None:
+                self.context = type("Ctx", (), {"active_workflow": None})()
+                self.process_calls: list[str] = []
+
+            async def process(self, prompt: str):
+                self.process_calls.append(prompt)
+                return f"process:{prompt}", self.context
+
+        orchestrator = ProcessOnlyOrchestrator()
+        engine = WorkflowEngine(orchestrator)
+        engine.register_workflow(
+            Workflow(
+                name="wf-process",
+                description="test",
+                steps=[WorkflowStep(name="step1", agent_type="plan", prompt_template="plan {topic}")],
+            )
+        )
+
+        result = await engine.execute("wf-process", initial_params={"topic": "release"})
+        assert result["steps_completed"] == 1
+        assert orchestrator.process_calls == ["plan release"]
+        assert result["results"]["step1"]["content"] == "process:plan release"

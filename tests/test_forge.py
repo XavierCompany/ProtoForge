@@ -176,6 +176,36 @@ class TestForgeLoader:
         registry = loader.load()
         assert "routing_rules" in registry.coordinator.resolved_instructions
 
+    def test_load_supports_mapping_prompts_and_shorthand_instructions(self, forge_dir: Path) -> None:
+        plan_manifest = forge_dir / "plan" / "agent.yaml"
+        data = yaml.safe_load(plan_manifest.read_text())
+        data["prompts"] = {
+            "system": "system.md",
+            "strategy": "system.md",
+        }
+        data["instructions"] = ["routing_rules.md"]
+        plan_manifest.write_text(yaml.dump(data))
+
+        loader = ForgeLoader(forge_dir)
+        registry = loader.load()
+        assert "system" in registry.coordinator.resolved_prompts
+        assert "strategy" in registry.coordinator.resolved_prompts
+        assert "routing_rules" in registry.coordinator.resolved_instructions
+        assert "Plan Agent" in registry.coordinator.resolved_prompts["system"]
+
+    def test_load_supports_shorthand_paths_for_specialist_assets(self, forge_dir: Path) -> None:
+        specialist_manifest = forge_dir / "agents" / "log_analysis" / "agent.yaml"
+        data = yaml.safe_load(specialist_manifest.read_text())
+        data["prompts"] = ["system.md"]
+        data["instructions"] = ["log_formats.md"]
+        specialist_manifest.write_text(yaml.dump(data))
+
+        loader = ForgeLoader(forge_dir)
+        registry = loader.load()
+        agent = registry.agents["log_analysis"]
+        assert "system" in agent.resolved_prompts
+        assert "log_formats" in agent.resolved_instructions
+
     def test_load_collects_skills(self, forge_dir: Path) -> None:
         loader = ForgeLoader(forge_dir)
         registry = loader.load()

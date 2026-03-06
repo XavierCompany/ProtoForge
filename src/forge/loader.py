@@ -189,6 +189,82 @@ class ForgeLoader:
 
     # -- Helpers ------------------------------------------------------------
 
+    def _iter_text_assets(self, raw: Any, *, section: str) -> list[tuple[str, str]]:
+        """Normalise manifest prompt/instruction declarations.
+
+        Supports:
+        - Mapping form: ``{system: system.md}``
+        - List form: ``[prompts/system.md]``
+        - Single string form: ``prompts/system.md``
+        """
+        assets: list[tuple[str, str]] = []
+
+        if raw is None:
+            return assets
+
+        if isinstance(raw, dict):
+            for key, rel in raw.items():
+                if isinstance(rel, str):
+                    assets.append((str(key), rel))
+                else:
+                    logger.warning(
+                        "manifest_asset_invalid_entry",
+                        section=section,
+                        key=str(key),
+                        value_type=type(rel).__name__,
+                    )
+            return assets
+
+        if isinstance(raw, str):
+            return [(Path(raw).stem, raw)]
+
+        if isinstance(raw, list):
+            for idx, entry in enumerate(raw):
+                if isinstance(entry, str):
+                    assets.append((Path(entry).stem, entry))
+                    continue
+                if isinstance(entry, dict):
+                    for key, rel in entry.items():
+                        if isinstance(rel, str):
+                            assets.append((str(key), rel))
+                        else:
+                            logger.warning(
+                                "manifest_asset_invalid_entry",
+                                section=section,
+                                key=str(key),
+                                value_type=type(rel).__name__,
+                                index=idx,
+                            )
+                    continue
+                logger.warning(
+                    "manifest_asset_invalid_entry",
+                    section=section,
+                    index=idx,
+                    value_type=type(entry).__name__,
+                )
+            return assets
+
+        logger.warning(
+            "manifest_asset_invalid_type",
+            section=section,
+            value_type=type(raw).__name__,
+        )
+        return assets
+
+    @staticmethod
+    def _resolve_asset_path(agent_dir: Path, rel: str, *, section: str) -> Path | None:
+        """Resolve prompt/instruction file paths using compatibility fallbacks."""
+        declared = Path(rel)
+        candidates: list[Path] = [agent_dir / declared]
+
+        default_folder = "prompts" if section == "prompts" else "instructions"
+        candidates.append(agent_dir / default_folder / declared)
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
     def _load_agent_dir(self, agent_dir: Path) -> AgentManifest | None:
         """Parse an agent.yaml and resolve its prompts/instructions."""
         manifest_path = agent_dir / "agent.yaml"
@@ -199,6 +275,9 @@ class ForgeLoader:
             with open(manifest_path) as f:
                 data = yaml.safe_load(f)
 
+            prompt_assets = self._iter_text_assets(data.get("prompts", []), section="prompts")
+            instruction_assets = self._iter_text_assets(data.get("instructions", []), section="instructions")
+
             manifest = AgentManifest(
                 id=data["id"],
                 name=data["name"],
@@ -207,24 +286,40 @@ class ForgeLoader:
                 description=data.get("description", ""),
                 context_budget=data.get("context_budget", {}),
                 skills=data.get("skills", []),
-                prompts=data.get("prompts", []),
-                instructions=data.get("instructions", []),
+                prompts=[rel for _, rel in prompt_assets],
+                instructions=[rel for _, rel in instruction_assets],
                 subagents=data.get("subagents", []),
                 tags=data.get("tags", []),
                 base_path=agent_dir,
             )
 
             # Resolve prompts (read .md files)
-            for rel in manifest.prompts:
-                p = agent_dir / rel
-                if p.exists():
-                    manifest.resolved_prompts[p.stem] = p.read_text(encoding="utf-8")
+            for key, rel in prompt_assets:
+                resolved = self._resolve_asset_path(agent_dir, rel, section="prompts")
+                if resolved:
+                    manifest.resolved_prompts[key] = resolved.read_text(encoding="utf-8")
+                else:
+                    logger.warning(
+                        "manifest_asset_not_found",
+                        section="prompts",
+                        agent_id=manifest.id,
+                        key=key,
+                        rel_path=rel,
+                    )
 
             # Resolve instructions (read .md files)
-            for rel in manifest.instructions:
-                p = agent_dir / rel
-                if p.exists():
-                    manifest.resolved_instructions[p.stem] = p.read_text(encoding="utf-8")
+            for key, rel in instruction_assets:
+                resolved = self._resolve_asset_path(agent_dir, rel, section="instructions")
+                if resolved:
+                    manifest.resolved_instructions[key] = resolved.read_text(encoding="utf-8")
+                else:
+                    logger.warning(
+                        "manifest_asset_not_found",
+                        section="instructions",
+                        agent_id=manifest.id,
+                        key=key,
+                        rel_path=rel,
+                    )
 
             logger.info("agent_manifest_loaded", id=manifest.id, type=manifest.type, path=str(agent_dir))
 

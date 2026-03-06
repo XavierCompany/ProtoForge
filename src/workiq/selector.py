@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from src.orchestrator.hitl_utils import wait_for_resolution
+
 if TYPE_CHECKING:
     from src.orchestrator.router import RoutingKeywordHint
     from src.workiq.client import WorkIQResult
@@ -176,15 +178,13 @@ class WorkIQSelector:
             return req
 
         event = self._events[request_id]
-        if self._timeout is not None:
-            try:
-                await asyncio.wait_for(event.wait(), timeout=self._timeout)
-            except TimeoutError:
-                logger.warning("workiq_selection_timeout", request_id=request_id)
-                req.selected_indices = list(range(len(req.options)))
-                req.resolved = True
-        else:
-            await event.wait()
+
+        def _on_timeout() -> None:
+            logger.warning("workiq_selection_timeout", request_id=request_id)
+            req.selected_indices = list(range(len(req.options)))
+            req.resolved = True
+
+        await wait_for_resolution(event, self._timeout, on_timeout=_on_timeout)
 
         return req
 
@@ -298,15 +298,13 @@ class WorkIQSelector:
             return req
 
         event = self._hint_events[request_id]
-        if self._timeout is not None:
-            try:
-                await asyncio.wait_for(event.wait(), timeout=self._timeout)
-            except TimeoutError:
-                logger.warning("routing_hints_timeout", request_id=request_id)
-                req.accepted_indices = list(range(len(req.hints)))
-                req.resolved = True
-        else:
-            await event.wait()
+
+        def _on_timeout() -> None:
+            logger.warning("routing_hints_timeout", request_id=request_id)
+            req.accepted_indices = list(range(len(req.hints)))
+            req.resolved = True
+
+        await wait_for_resolution(event, self._timeout, on_timeout=_on_timeout)
 
         return req
 

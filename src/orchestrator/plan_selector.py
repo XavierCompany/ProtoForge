@@ -26,6 +26,8 @@ from typing import Any
 
 import structlog
 
+from src.orchestrator.hitl_utils import wait_for_resolution
+
 logger = structlog.get_logger(__name__)
 
 _DEFAULT_SUB_PLAN_BRIEF = (
@@ -96,7 +98,7 @@ class PlanSelector:
     resolves with *all* items accepted (fail-open).
     """
 
-    def __init__(self, timeout: float = 30.0) -> None:
+    def __init__(self, timeout: float | None = None) -> None:
         self._timeout = timeout
 
         # Phase A - Plan Agent HITL
@@ -187,7 +189,12 @@ class PlanSelector:
         return True
 
     async def wait_for_plan_review(self, request_id: str) -> PlanReviewRequest:
-        """Block until the human resolves the plan review (or timeout)."""
+        """Block until the human resolves the plan review.
+
+        When ``timeout`` is ``None`` (default), waits indefinitely for
+        explicit human input — no auto-accept.  When a numeric timeout
+        is configured, auto-accepts all suggestions on expiry (fail-open).
+        """
         req = self._plan_pending.get(request_id)
         if not req:
             raise KeyError(f"No pending plan review for {request_id}")
@@ -195,12 +202,17 @@ class PlanSelector:
             return req
 
         event = self._plan_events[request_id]
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self._timeout)
-        except TimeoutError:
+
+        def _on_timeout() -> None:
             logger.warning("plan_review_timeout", request_id=request_id)
             req.accepted_indices = list(range(len(req.suggestions)))
             req.resolved = True
+
+        await wait_for_resolution(
+            event,
+            self._timeout,
+            on_timeout=_on_timeout,
+        )
 
         return req
 
@@ -337,7 +349,12 @@ class PlanSelector:
         self,
         request_id: str,
     ) -> ResourceReviewRequest:
-        """Block until the human resolves the resource review (or timeout)."""
+        """Block until the human resolves the resource review.
+
+        When ``timeout`` is ``None`` (default), waits indefinitely for
+        explicit human input.  When a numeric timeout is configured,
+        auto-accepts all resources on expiry (fail-open).
+        """
         req = self._resource_pending.get(request_id)
         if not req:
             raise KeyError(f"No pending resource review for {request_id}")
@@ -345,12 +362,17 @@ class PlanSelector:
             return req
 
         event = self._resource_events[request_id]
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self._timeout)
-        except TimeoutError:
+
+        def _on_timeout() -> None:
             logger.warning("resource_review_timeout", request_id=request_id)
             req.accepted_indices = list(range(len(req.resources)))
             req.resolved = True
+
+        await wait_for_resolution(
+            event,
+            self._timeout,
+            on_timeout=_on_timeout,
+        )
 
         return req
 

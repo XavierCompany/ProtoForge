@@ -38,7 +38,7 @@
 Before tuning anything, understand what the code *actually does* today vs.
 what the docs describe.
 
-### What works end-to-end (verified by 421 tests)
+### What works end-to-end (verified by 444 tests)
 
 | Layer | Status | Notes |
 |-------|--------|-------|
@@ -64,8 +64,8 @@ what the docs describe.
 **Key takeaway**: The orchestration data-flow AND LLM intelligence are both
 complete and tested. All agents call `_call_llm()` for real inference when
 configured (Azure AI Foundry via `DefaultAzureCredential`), with graceful
-fallback to placeholder responses when no endpoint is set. 421 tests total
-(408 mocked + 13 live). Tuning settings below are now active.
+fallback to placeholder responses when no endpoint is set. 444 tests total
+(431 non-live + 13 live). Tuning settings below are now active.
 
 ---
 
@@ -82,7 +82,7 @@ which delegates to the singleton `LLMClient` in `src/llm/client.py`.
 - **Graceful degradation**: When no `AZURE_AI_FOUNDRY_ENDPOINT` is set, `_call_llm()` returns `None` and agents fall back to their existing placeholder responses. All 378 original tests pass without any LLM mock.
 - **Pattern**: Each agent enriches the prompt with domain context (detected patterns, prior results, available sub-agents) before calling `_call_llm()`. LLM response → higher confidence score; fallback → lower confidence.
 - **Engine routing**: `OrchestratorEngine._route_with_llm()` sends a JSON intent-classification prompt and parses the structured response into a `RoutingDecision`.
-- **Tests**: 30 mocked tests in `tests/test_llm.py` + 13 live integration tests in `tests/test_llm_live.py`. Total: 421 tests.
+- **Tests**: 30 mocked tests in `tests/test_llm.py` + 13 live integration tests in `tests/test_llm_live.py`. Total: 444 tests.
 - **Config**: `src/config.py` — `LLMConfig` with `azure_endpoint`, `azure_model`, `auth_method` (AZURE_DEFAULT / API_KEY), `active_provider` auto-detection.
 
 **Files added/changed:**
@@ -195,19 +195,19 @@ class ConversationContext:
             self.messages = self.messages[-self.max_history :]
 ```
 
-### 2.9 — MEDIUM: No selector Protocol / ABC
+### 2.9 — MEDIUM: Selector timeout contract drift — ✅ PARTIALLY DONE
 
-`PlanSelector`, `WorkIQSelector`, and `GovernanceSelector` all follow the same
-prepare → wait → resolve pattern but share no interface. Adding a fourth selector
-requires reading all three to reverse-engineer the contract.
+`PlanSelector`, `WorkIQSelector`, and `GovernanceSelector` previously implemented
+timeout waiting logic independently. This increased drift risk in timeout,
+cancellation, and auto-resolution behavior.
 
-**Fix**: Define a `SelectorProtocol`:
+**Implemented fix**:
+- Added `src/orchestrator/hitl_utils.py::wait_for_resolution()`
+- Updated all three selectors to use the shared helper
+- Preserved policy semantics (plan/workiq/context/skill fail-open; lifecycle fail-closed)
 
-```python
-class SelectorProtocol(Protocol):
-    async def wait_for_review(self, request_id: str) -> Any: ...
-    def cleanup(self, request_id: str) -> None: ...
-```
+**Remaining improvement (optional)**: add a formal `SelectorProtocol` typing
+layer for static contract checking across future selector implementations.
 
 ### 2.10 — MEDIUM: server.py is ~900 lines
 
@@ -247,17 +247,18 @@ inject different settings without monkeypatching the global.
 **Fix**: Accept `Settings` as a constructor parameter everywhere, with
 `get_settings()` as the default. Tests pass their own `Settings(...)`.
 
-### 2.14 — LOW: No input sanitization
+### 2.14 — LOW: No input sanitization — ✅ DONE
 
-User messages flow directly into f-string templates and system prompts.
-When LLM calls are wired, this becomes a prompt injection surface.
+User input now passes through `src/orchestrator/input_guardrails.py` before
+routing and LLM calls.
 
-**Fix**: Add an input sanitizer in the router or as middleware:
-
-```python
-def sanitize_input(text: str, max_length: int = 10_000) -> str:
-    return text[:max_length].replace("\x00", "")
-```
+**Implemented fix**:
+- `sanitize_user_message()` strips control characters and normalizes line endings
+- Enforces configurable input cap (`SERVER_MAX_USER_INPUT_CHARS`)
+- Adds prompt-injection heuristics (`ignore previous instructions`, `system prompt`,
+  guardrail bypass phrases, jailbreak markers)
+- Stores guardrail metadata in `ConversationContext` (`input_guardrails`)
+- Controlled by `SERVER_PROMPT_INJECTION_GUARD_ENABLED`
 
 ### 2.15 — LOW: Late import inside `_dispatch()` body — ✅ DONE (commit `4d5128c`)
 
@@ -702,6 +703,15 @@ GET /governance/status → {
 | Agent latency | `AgentResult.duration_ms` | > 30s |
 | Truncation frequency | Count `input_truncated` log events | > 20% of dispatches |
 
+### Control-plane threat model (HTTP)
+
+| Threat | Surface | Mitigation in code | Operational control |
+|---|---|---|---|
+| Unauthorized governance/admin action | `/governance/*`, `/agents/*`, `/workflows/run`, `/github/*`, `/reviews/pending` | Optional API-key guard in `server.py` | Set `SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true` + strong `SERVER_CONTROL_PLANE_API_KEY` |
+| Browser-origin abuse | Cross-origin access to control-plane endpoints | CORS middleware with wildcard+credentials safety downgrade | Set explicit `SERVER_CORS_ALLOWED_ORIGINS` in production |
+| Cross-request status leakage | `/chat/status/{task_id}` phase reporting | Task-scoped `ConversationContext` in `_chat_tasks` (no global context dependency) | Keep task TTL short (`_CHAT_TASK_TTL`) and avoid long-lived sensitive state |
+| Prompt-injection style input | Any `/chat` or `/chat/enriched` message | `sanitize_user_message()` heuristics + length cap + control-char stripping | Monitor `input_guardrails_triggered` and review false positives/true positives |
+
 ### OpenTelemetry integration
 
 Configure in `.env`:
@@ -709,6 +719,9 @@ Configure in `.env`:
 ```env
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 LOG_LEVEL=INFO
+SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true
+SERVER_CORS_ALLOWED_ORIGINS=https://your-admin-ui.example
+SERVER_CORS_ALLOW_CREDENTIALS=true
 ```
 
 The `structlog` events are already structured — pipe to your OTLP collector
@@ -756,6 +769,28 @@ for dashboard visibility.
 4. Tune the prompt in `forge/agents/<id>/prompts/system.md`
 5. Tune the budget if truncation is the issue
 
+### Task: Harden production control plane
+
+1. Enable control-plane auth:
+   ```env
+   SERVER_REQUIRE_CONTROL_PLANE_API_KEY=true
+   SERVER_CONTROL_PLANE_API_KEY=<long-random-secret>
+   ```
+2. Lock CORS to known operator origins:
+   ```env
+   SERVER_CORS_ALLOWED_ORIGINS=https://admin.example.com,https://ops.example.com
+   SERVER_CORS_ALLOW_CREDENTIALS=true
+   ```
+3. Configure input guardrails for your risk profile:
+   ```env
+   SERVER_MAX_USER_INPUT_CHARS=64000
+   SERVER_PROMPT_INJECTION_GUARD_ENABLED=true
+   ```
+4. Verify:
+   - `GET /governance/status` returns `401` without `X-API-Key`
+   - `/health` remains open
+   - logs show expected `input_guardrails_triggered` events on adversarial prompts
+
 ### Task: Add a new HITL gate
 
 Follow the selector pattern (see `AgentLifecycleReview` in `selector.py` for
@@ -787,12 +822,12 @@ POST /chat {"message": "...", "session_id": null}
 > This section previously duplicated the roadmap. It now cross-references
 > the single source of truth to avoid drift.
 
-**Quick status** (updated 2026-02-23):
+**Quick status** (updated 2026-03-06):
 - **P0**: 5/5 done
 - **P1**: 2/5 done
-- **P2**: 0/5
+- **P2**: 1/5 done
 - **P3**: 0/5
 
 ---
 
-*Last updated: 2026-02-23 — ProtoForge*
+*Last updated: 2026-03-06 — ProtoForge*

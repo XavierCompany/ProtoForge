@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -845,6 +846,31 @@ class TestEngineGovernanceIntegration:
         assert len(guardian.alerts) > 0
 
     @pytest.mark.asyncio
+    async def test_process_aborts_pipeline_on_plan_hard_cap(self):
+        engine, guardian, _selector = self._make_engine(warning=10, hard_cap=50)
+        plan_agent = self._mock_agent("plan")
+        engine.register_agent("plan", plan_agent)
+
+        # Force hard-cap breach before Plan dispatch.
+        guardian.record_agent_usage("prev", 100)
+
+        from src.orchestrator.context import ConversationContext
+        from src.orchestrator.router import RoutingDecision
+
+        routing = RoutingDecision(primary_agent="plan", confidence=0.9, reasoning="test")
+        ctx = ConversationContext()
+
+        engine._run_sub_plan_pipeline = AsyncMock(  # type: ignore[method-assign]
+            side_effect=AssertionError("sub-plan should not run after hard-cap abort")
+        )
+
+        response = await engine._process_after_routing("hello", routing, ctx)
+        assert "hard cap" in response.lower()
+        assert ctx.get_memory("pipeline_phase") == "aborted_hard_cap"
+        plan_agent.execute.assert_not_called()
+        engine._run_sub_plan_pipeline.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_dispatch_without_governance(self):
         from src.orchestrator.engine import OrchestratorEngine
 
@@ -1492,6 +1518,241 @@ class TestGovernanceServerEndpoints:
         resp = tc.get("/governance/status")
         assert resp.status_code == 200
         assert resp.json()["enabled"] is False
+
+
+class TestChatStatusTaskContextIsolation:
+    """Ensure /chat/status reads task-local phase state, not global orchestrator context."""
+
+    def test_chat_status_uses_task_scoped_context(self):
+        from fastapi.testclient import TestClient
+
+        import src.server as server_module
+        from src.server import create_app
+
+        orchestrator = MagicMock()
+        orchestrator._governance = None
+        orchestrator.get_status.return_value = {
+            "session_id": "test",
+            "registered_agents": [],
+            "message_count": 0,
+            "active_workflow": None,
+            "provider": "azure_openai",
+            "workiq_enrichment_available": False,
+            "governance_enabled": False,
+        }
+
+        orchestrator.context = MagicMock()
+        orchestrator.context.get_memory.return_value = "global_phase_should_not_leak"
+
+        mcp_server = MagicMock()
+        mcp_server.get_status.return_value = {"tools_count": 0}
+        catalog = MagicMock()
+        catalog.list_agents.return_value = []
+        catalog.get_status.return_value = {"installed_skills": 0}
+        workflow_engine = MagicMock()
+        workflow_engine.list_workflows.return_value = []
+
+        app = create_app(
+            orchestrator=orchestrator,
+            mcp_server=mcp_server,
+            catalog=catalog,
+            workflow_engine=workflow_engine,
+        )
+        client = TestClient(app)
+
+        task_id = "test-task-context"
+        task_ctx = ConversationContext()
+        task_ctx.set_memory("pipeline_phase", "task_scoped_phase")
+        server_module._chat_tasks[task_id] = {
+            "status": "processing",
+            "created_at": time.time(),
+            "message": "hello",
+            "response": None,
+            "session_id": task_ctx.session_id,
+            "error": None,
+            "context": task_ctx,
+        }
+
+        try:
+            status_resp = client.get(f"/chat/status/{task_id}")
+            assert status_resp.status_code == 200
+            payload = status_resp.json()
+            assert payload["status"] == "processing"
+            assert payload["pipeline_phase"] == "task_scoped_phase"
+        finally:
+            server_module._chat_tasks.pop(task_id, None)
+
+
+class TestControlPlaneApiKeyAuth:
+    """Test optional control-plane API key protection for sensitive routes."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+
+        from src.server import create_app
+
+        orchestrator = MagicMock()
+        guardian = GovernanceGuardian(config=_make_config())
+        orchestrator._governance = guardian
+        orchestrator.get_status.return_value = {
+            "session_id": "test",
+            "registered_agents": [],
+            "message_count": 0,
+            "active_workflow": None,
+            "provider": "azure_openai",
+            "workiq_enrichment_available": False,
+            "governance_enabled": True,
+            "governance": guardian.governance_report(),
+        }
+
+        mcp_server = MagicMock()
+        mcp_server.get_status.return_value = {"tools_count": 0}
+        catalog = MagicMock()
+        catalog.list_agents.return_value = []
+        catalog.get_status.return_value = {"installed_skills": 0}
+        workflow_engine = MagicMock()
+        workflow_engine.list_workflows.return_value = []
+
+        app = create_app(
+            orchestrator=orchestrator,
+            mcp_server=mcp_server,
+            catalog=catalog,
+            workflow_engine=workflow_engine,
+            require_control_plane_api_key=True,
+            control_plane_api_key="test-key",
+            cors_allowed_origins=["http://localhost"],
+            cors_allow_credentials=True,
+        )
+        return TestClient(app)
+
+    def test_protected_endpoint_requires_api_key(self, client):
+        resp = client.get("/governance/status")
+        assert resp.status_code == 401
+
+    def test_protected_endpoint_accepts_valid_api_key(self, client):
+        resp = client.get("/governance/status", headers={"X-API-Key": "test-key"})
+        assert resp.status_code == 200
+
+    def test_unprotected_endpoint_remains_accessible(self, client):
+        resp = client.get("/health")
+        assert resp.status_code == 200
+
+    def test_misconfigured_api_key_guard_returns_503(self):
+        from fastapi.testclient import TestClient
+
+        from src.server import create_app
+
+        orchestrator = MagicMock()
+        guardian = GovernanceGuardian(config=_make_config())
+        orchestrator._governance = guardian
+        orchestrator.get_status.return_value = {
+            "session_id": "test",
+            "registered_agents": [],
+            "message_count": 0,
+            "active_workflow": None,
+            "provider": "azure_openai",
+            "workiq_enrichment_available": False,
+            "governance_enabled": True,
+            "governance": guardian.governance_report(),
+        }
+
+        mcp_server = MagicMock()
+        mcp_server.get_status.return_value = {"tools_count": 0}
+        catalog = MagicMock()
+        catalog.list_agents.return_value = []
+        catalog.get_status.return_value = {"installed_skills": 0}
+        workflow_engine = MagicMock()
+        workflow_engine.list_workflows.return_value = []
+
+        app = create_app(
+            orchestrator=orchestrator,
+            mcp_server=mcp_server,
+            catalog=catalog,
+            workflow_engine=workflow_engine,
+            require_control_plane_api_key=True,
+            control_plane_api_key=None,
+        )
+        tc = TestClient(app)
+
+        resp = tc.get("/governance/status", headers={"X-API-Key": "any"})
+        assert resp.status_code == 503
+
+
+class TestGitHubEndpointsUseGovernedDispatch:
+    """Ensure GitHub routes go through orchestrator dispatch (not direct agent calls)."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+
+        from src.orchestrator.context import AgentResult
+        from src.server import create_app
+
+        orchestrator = MagicMock()
+        orchestrator._governance = GovernanceGuardian(config=_make_config())
+        orchestrator.get_status.return_value = {
+            "session_id": "test",
+            "registered_agents": ["github_tracker"],
+            "message_count": 0,
+            "active_workflow": None,
+            "provider": "azure_openai",
+            "workiq_enrichment_available": False,
+            "governance_enabled": True,
+        }
+
+        async def _mock_dispatch(agent_id, message, routing, context):
+            context.set_memory("called", True)
+            return AgentResult(
+                agent_id=agent_id,
+                content=f"{agent_id}:{message}",
+                artifacts={"action": routing.extracted_params.get("action")},
+            )
+
+        orchestrator._dispatch = AsyncMock(side_effect=_mock_dispatch)
+
+        mcp_server = MagicMock()
+        mcp_server.get_status.return_value = {"tools_count": 0}
+        catalog = MagicMock()
+        catalog.list_agents.return_value = []
+        catalog.get_status.return_value = {"installed_skills": 0}
+        workflow_engine = MagicMock()
+        workflow_engine.list_workflows.return_value = []
+
+        app = create_app(
+            orchestrator=orchestrator,
+            mcp_server=mcp_server,
+            catalog=catalog,
+            workflow_engine=workflow_engine,
+        )
+        return TestClient(app), orchestrator
+
+    def test_document_commit_uses_dispatch(self, client):
+        tc, orchestrator = client
+        resp = tc.post("/github/document-commit", json={"commit_message": "feat: add policy", "repo": "o/r"})
+        assert resp.status_code == 200
+        assert resp.json()["artifacts"]["action"] == "document_commit"
+        orchestrator._dispatch.assert_called_once()
+        args = orchestrator._dispatch.call_args[0]
+        assert args[0] == "github_tracker"
+        assert args[2].primary_agent == "github_tracker"
+        assert args[2].extracted_params["action"] == "document_commit"
+
+    def test_manage_issue_uses_dispatch(self, client):
+        tc, orchestrator = client
+        resp = tc.post("/github/manage-issue", json={"action": "create", "title": "Bug", "repo": "o/r"})
+        assert resp.status_code == 200
+        assert resp.json()["artifacts"]["action"] == "manage_issue"
+        args = orchestrator._dispatch.call_args[0]
+        assert args[2].extracted_params["action"] == "manage_issue"
+
+    def test_changelog_uses_dispatch(self, client):
+        tc, orchestrator = client
+        resp = tc.post("/github/changelog", json={"repo": "o/r", "from_ref": "v0.1.0", "to_ref": "v0.1.1"})
+        assert resp.status_code == 200
+        assert resp.json()["artifacts"]["action"] == "changelog"
+        args = orchestrator._dispatch.call_args[0]
+        assert args[2].extracted_params["action"] == "changelog"
 
 
 class TestLifecycleServerEndpoints:

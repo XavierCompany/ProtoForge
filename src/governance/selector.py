@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from src.orchestrator.hitl_utils import wait_for_resolution
+
 if TYPE_CHECKING:
     from src.governance.guardian import (
         ContextDecompositionSuggestion,
@@ -183,15 +185,13 @@ class GovernanceSelector:
             return review
 
         event = self._context_events[request_id]
-        if self._timeout is not None:
-            try:
-                await asyncio.wait_for(event.wait(), timeout=self._timeout)
-            except TimeoutError:
-                logger.warning("context_review_timeout", request_id=request_id)
-                review.accepted = True  # fail-open: accept decomposition
-                review.resolved = True
-        else:
-            await event.wait()
+
+        def _on_timeout() -> None:
+            logger.warning("context_review_timeout", request_id=request_id)
+            review.accepted = True  # fail-open: accept decomposition
+            review.resolved = True
+
+        await wait_for_resolution(event, self._timeout, on_timeout=_on_timeout)
 
         return review
 
@@ -301,12 +301,13 @@ class GovernanceSelector:
             return review
 
         event = self._skill_events[request_id]
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self._timeout)
-        except TimeoutError:
+
+        def _on_timeout() -> None:
             logger.warning("skill_review_timeout", request_id=request_id)
             review.accepted = True  # fail-open: accept the split
             review.resolved = True
+
+        await wait_for_resolution(event, self._timeout, on_timeout=_on_timeout)
 
         return review
 
@@ -426,15 +427,17 @@ class GovernanceSelector:
             return review
 
         event = self._lifecycle_events[request_id]
-        if self._lifecycle_timeout is not None:
-            try:
-                await asyncio.wait_for(event.wait(), timeout=self._lifecycle_timeout)
-            except TimeoutError:
-                logger.warning("lifecycle_review_timeout", request_id=request_id)
-                review.accepted = False  # fail-CLOSED: reject action on timeout
-                review.resolved = True
-        else:
-            await event.wait()
+
+        def _on_timeout() -> None:
+            logger.warning("lifecycle_review_timeout", request_id=request_id)
+            review.accepted = False  # fail-CLOSED: reject action on timeout
+            review.resolved = True
+
+        await wait_for_resolution(
+            event,
+            self._lifecycle_timeout,
+            on_timeout=_on_timeout,
+        )
 
         return review
 

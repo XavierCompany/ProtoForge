@@ -34,7 +34,9 @@ Token budget: `Plan(32K) + SubPlan(20K) + 3×Specialist(≤25K) ≤ 128K cap`
           ├── engine.py ◄────────── guardian.py
           ├── router.py             selector.py
           ├── context.py
-          └── plan_selector.py
+          ├── plan_selector.py
+          ├── hitl_utils.py
+          └── input_guardrails.py
                     │
               src/agents/
               ├── base.py (ABC)
@@ -60,13 +62,16 @@ Never import upward (e.g., agents must not import from orchestrator).
 ## 3. Package Public APIs
 
 ### `src/orchestrator/`
-- `OrchestratorEngine` — top-level pipeline: `process()`, `process_with_enrichment()`
+- `OrchestratorEngine` — top-level pipeline:
+  `process(user_message, *, ctx=None)`, `process_with_enrichment(user_message, *, ctx=None)`
 - `IntentRouter` — `route_by_keywords()`, `route_with_context()`, keyword + enrichment routing
 - `ConversationContext` — shared state: messages, metadata, history
 - `AgentResult` — dataclass: agent_id, content, confidence, artifacts, duration_ms
 - `PlanSelector` — Plan/Sub-Plan HITL gate:
   `prepare_plan_review()`, `resolve_plan_review()`,
   `prepare_resource_review()`, `resolve_resource_review()`
+- `sanitize_user_message()` — request guardrails before routing/LLM:
+  control-char stripping, input-length cap, and prompt-injection heuristics
 
 ### `src/agents/`
 - `BaseAgent` (ABC) — `execute(message, context, params) → AgentResult`, `from_manifest()`, `_call_llm(messages)`
@@ -152,6 +157,10 @@ review = await selector.wait_for_plan_review(request_id)
 #    - Lifecycle (disable/remove): fail-CLOSED (auto-reject)
 ```
 
+Timeout waiting is centralized through
+`src/orchestrator/hitl_utils.py::wait_for_resolution()`, so Plan, WorkIQ, and
+Governance selectors share one timeout/cancellation behavior path.
+
 | Gate | Trigger | Auto-resolve | HTTP Endpoints |
 |------|---------|-------------|----------------|
 | Plan | Every request | accept | GET /plan/pending, POST /plan/accept |
@@ -185,7 +194,9 @@ Budget math: `32K + 20K + 3×25K = 127K ≤ 128K` (1K headroom for aggregation)
 All config lives in `src/config.py` as Pydantic `BaseSettings`:
 
 - `LLMConfig` — provider selection (Azure/OpenAI/Anthropic/Google), endpoints, API keys, models, auth method (`DefaultAzureCredential` or API key), `active_provider` auto-detection
-- `ServerConfig` — host, port for FastAPI
+- `ServerConfig` — host/port, control-plane API key guard, CORS policy, and
+  input guardrail settings (`SERVER_MAX_USER_INPUT_CHARS`,
+  `SERVER_PROMPT_INJECTION_GUARD_ENABLED`)
 - `MCPConfig` — port, skills directory for MCP server
 - `ForgeConfig` — path to forge/ directory
 - `ObservabilityConfig` — OTLP endpoint, log level
@@ -196,7 +207,7 @@ Settings are loaded from `.env` file. Access via `get_settings()` singleton.
 
 ## 8. Testing
 
-- **421 tests** across 12 test files, all async (`pytest-asyncio`).
+- **444 tests** across 12 test files, all async (`pytest-asyncio`).
 - Fixtures in `tests/conftest.py` — pre-built engine, agents, guardian, router.
 - Test files map 1:1 to source domains (test_orchestrator, test_governance, etc.)
 - Live integration tests: `pytest -m live` (13 tests, requires `az login` + Azure endpoint)

@@ -80,6 +80,12 @@ class ServerConfig(BaseSettings):
 
     host: str = Field("0.0.0.0", alias="SERVER_HOST")  # noqa: S104
     port: int = Field(8080, alias="SERVER_PORT")
+    require_control_plane_api_key: bool = Field(False, alias="SERVER_REQUIRE_CONTROL_PLANE_API_KEY")
+    control_plane_api_key: str | None = Field(None, alias="SERVER_CONTROL_PLANE_API_KEY")
+    cors_allowed_origins: str = Field("*", alias="SERVER_CORS_ALLOWED_ORIGINS")
+    cors_allow_credentials: bool = Field(True, alias="SERVER_CORS_ALLOW_CREDENTIALS")
+    max_user_input_chars: int = Field(64000, alias="SERVER_MAX_USER_INPUT_CHARS")
+    prompt_injection_guard_enabled: bool = Field(True, alias="SERVER_PROMPT_INJECTION_GUARD_ENABLED")
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

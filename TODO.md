@@ -2,7 +2,7 @@
 
 > **TL;DR for LLMs**: Prioritised backlog (240+ lines).
 > P0: 5 items (**5 done**).
-> P1: 5 items (2 done, 3 remaining). P2: 5 items. P3: 5 items (1 done).
+> P1: 5 items (2 done, 3 remaining). P2: 5 items (1 done, 4 remaining). P3: 5 items (1 done).
 >
 > This is doc **5 of 10** in the reading order.
 > See [ARCHITECTURE.md](ARCHITECTURE.md) for system overview.
@@ -76,7 +76,7 @@ These block any real deployment. Ordered by dependency.
   - `[ ]` Implement streaming option (deferred to P1)
   - `[x]` Add timeout / retry for API calls (graceful `None` on any error)
   - `[x]` Update tests with mocked LLM responses (30 tests in `test_llm.py`)
-- **Verify**: 421 tests passing (408 mocked + 13 live), `ruff check` + `ruff format` clean
+- **Verify**: 444 tests passing (431 non-live + 13 live), `ruff check` + `ruff format` clean
 - **GUIDE2 ref**: §2.1
 
 ---
@@ -144,19 +144,20 @@ These block any real deployment. Ordered by dependency.
 - **GUIDE2 ref**: §2.12
 
 ### P2-12: Add input sanitisation layer
-- **Status**: `[ ]`
+- **Status**: `[x]`
 - **Effort**: 2 hours
-- **Files**: new `src/sanitize.py`, `src/orchestrator/engine.py`
-- **What**: `sanitize_input(text, max_length=10_000)` — strip null bytes, enforce length limit, optionally detect prompt injection markers. Call in `process()` before routing.
+- **Files**: new `src/orchestrator/input_guardrails.py`, `src/orchestrator/engine.py`, `src/config.py`
+- **What**: `sanitize_user_message(...)` — strip control chars, enforce configurable length limit, and detect prompt-injection heuristics. Called in `process()` and `process_with_enrichment()` before routing.
 - **Why**: When LLM calls are wired, unsanitised input is a prompt injection surface
 - **GUIDE2 ref**: §2.14
 
 ### P2-13: Define SelectorProtocol ABC
-- **Status**: `[ ]`
+- **Status**: `[~]`
 - **Effort**: 1 hour
 - **Files**: new `src/orchestrator/protocols.py`, update `src/orchestrator/plan_selector.py`, `src/governance/selector.py`, `src/workiq/selector.py`
 - **What**: Create `SelectorProtocol` with `wait_for_review(request_id)` and `cleanup(request_id)`. Make all selectors implement it.
-- **Why**: Three selectors share the same pattern but no interface — adding a fourth requires reverse-engineering the contract
+- **Why**: Three selectors share the same pattern but no interface — adding a fourth requires reverse-engineering the contract.
+- **Progress**: Shared timeout contract extracted to `src/orchestrator/hitl_utils.py::wait_for_resolution()` and wired across selectors; protocol typing still pending.
 - **GUIDE2 ref**: §2.9
 
 ### P2-14: Dynamic `python_class` import in manifests
@@ -234,7 +235,8 @@ Track completed items here with date and commit hash.
 | 2026-02-23 | Lifecycle HITL | — | Agent disable/remove with HITL confirmation, 30 new tests (363 total) |
 | 2026-02-24 | P0-5 | `218eb33` | LLM wiring — all agents call `_call_llm()`, 30 mocked tests (408 total) |
 | 2026-02-24 | P3-19 | — | 13 live integration tests with real Azure OpenAI (`gpt-5.2-chat`), `DefaultAzureCredential` (421 total) |
+| 2026-03-06 | P2-12 | — | Added input guardrails module + engine wiring + config flags + tests |
 
 ---
 
-*Last updated: 2026-02-24 — ProtoForge v0.1.1*
+*Last updated: 2026-03-06 — ProtoForge v0.1.1*
